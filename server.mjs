@@ -18,6 +18,8 @@ const memorySupportMessages = [];
 const memoryTradeEvents = [];
 const marketProxyCache = new Map();
 const marketProxyTtlMs = 8_000;
+const newsProxyCache = new Map();
+const newsProxyTtlMs = 5 * 60_000;
 const marketFallbackPrices = {
   'GC=F': [4680.6, 0.42], 'SI=F': [54.18, -0.18], 'CL=F': [79.22, 1.1], 'NG=F': [2.86, -1.42], 'HG=F': [4.31, 0.68],
   SCCO: [94.3, 0.36], 'BZ=F': [82.14, 0.62], 'PL=F': [982.4, 0.21], 'PA=F': [1028.5, -0.38], 'ZC=F': [432.25, 0.15],
@@ -621,14 +623,115 @@ async function proxyMarket(res, requestUrl) {
 }
 
 async function proxyNews(res, requestUrl) {
-  const upstream = new URL('https://query1.finance.yahoo.com/v1/finance/search');
-  upstream.searchParams.set('q', requestUrl.searchParams.get('query') || 'bitcoin crypto markets macro');
-  upstream.searchParams.set('newsCount', '12');
-  upstream.searchParams.set('quotesCount', '0');
-  const response = await fetch(upstream, { headers: { 'User-Agent': 'AD88/1.0' } });
-  res.statusCode = response.status;
+  const query = requestUrl.searchParams.get('query') || 'bitcoin crypto markets macro';
+  const cacheKey = query.trim().toLowerCase();
+  const cached = newsProxyCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/json; charset=utf-8');
+    res.setHeader('x-ad88-news-cache', 'fresh');
+    res.setHeader('x-ad88-news-provider', cached.provider);
+    res.end(cached.body);
+    return;
+  }
+
+  const yahooUrls = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'].map((host) => {
+    const url = new URL(`https://${host}/v1/finance/search`);
+    url.searchParams.set('q', query);
+    url.searchParams.set('newsCount', '12');
+    url.searchParams.set('quotesCount', '0');
+    return url;
+  });
+  let lastError = '';
+  for (const upstream of yahooUrls) {
+    try {
+      const response = await fetch(upstream, { headers: { 'User-Agent': 'AD88/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
+      if (!response.ok) {
+        lastError = `Yahoo ${response.status}`;
+        continue;
+      }
+      const payload = await response.json();
+      if (!Array.isArray(payload.news)) {
+        lastError = 'Yahoo response did not include news';
+        continue;
+      }
+      const body = JSON.stringify({ ...payload, ad88Fallback: false, ad88Source: upstream.hostname });
+      newsProxyCache.set(cacheKey, { expiresAt: Date.now() + newsProxyTtlMs, body, provider: upstream.hostname });
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.setHeader('x-ad88-news-cache', 'fresh');
+      res.setHeader('x-ad88-news-provider', upstream.hostname);
+      res.end(body);
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : 'Yahoo request failed';
+    }
+  }
+
+  try {
+    const gdelt = new URL('https://api.gdeltproject.org/api/v2/doc/doc');
+    gdelt.searchParams.set('query', query);
+    gdelt.searchParams.set('mode', 'artlist');
+    gdelt.searchParams.set('format', 'json');
+    gdelt.searchParams.set('maxrecords', '12');
+    gdelt.searchParams.set('sort', 'HybridRel');
+    const response = await fetch(gdelt, { headers: { 'User-Agent': 'AD88/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
+    if (response.ok) {
+      const payload = await response.json();
+      const news = (Array.isArray(payload.articles) ? payload.articles : []).map((article, index) => ({
+        uuid: `gdelt-${index}-${Buffer.from(String(article.url || article.title || index)).toString('base64url').slice(0, 18)}`,
+        title: String(article.title || 'Market update'),
+        publisher: String(article.domain || article.sourcecountry || 'GDELT'),
+        link: String(article.url || ''),
+        providerPublishTime: Number.isFinite(Date.parse(String(article.seendate || ''))) ? Date.parse(String(article.seendate)) / 1000 : Math.floor(Date.now() / 1000),
+        type: 'news',
+      }));
+      if (news.length) {
+        const body = JSON.stringify({ news, ad88Fallback: false, ad88Source: 'api.gdeltproject.org' });
+        newsProxyCache.set(cacheKey, { expiresAt: Date.now() + newsProxyTtlMs, body, provider: 'api.gdeltproject.org' });
+        res.statusCode = 200;
+        res.setHeader('content-type', 'application/json; charset=utf-8');
+        res.setHeader('x-ad88-news-cache', 'fresh');
+        res.setHeader('x-ad88-news-provider', 'api.gdeltproject.org');
+        res.end(body);
+        return;
+      }
+    }
+  } catch (error) {
+    lastError = error instanceof Error ? error.message : lastError;
+  }
+
+  if (cached) {
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/json; charset=utf-8');
+    res.setHeader('x-ad88-news-cache', 'stale');
+    res.setHeader('x-ad88-news-provider', cached.provider);
+    res.end(cached.body);
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const fallbackNews = [
+    ['Bitcoin holds near recent range as liquidity stays cautious', 'AD88 Market Desk', 'Crypto', 'United States'],
+    ['Gold and dollar focus turns to the next inflation signal', 'AD88 Macro Desk', 'Metals / FX', 'United States'],
+    ['Crude oil and natural gas prices track inventory expectations', 'AD88 Energy Desk', 'Energy', 'United States'],
+    ['Copper demand outlook keeps industrial metals in focus', 'AD88 Metals Desk', 'Metals', 'China'],
+    ['Central-bank language keeps major currency pairs moving', 'AD88 FX Desk', 'FX', 'European Union'],
+  ].map(([title, publisher, market, country], index) => ({
+    uuid: `ad88-fallback-${index + 1}`,
+    title,
+    publisher: `${publisher} · ${country}`,
+    link: '',
+    providerPublishTime: now - index * 1800,
+    type: 'fallback',
+    market,
+  }));
+  const body = JSON.stringify({ news: fallbackNews, ad88Fallback: true, ad88Source: `AD88 resilient fallback (${lastError || 'upstreams unavailable'})` });
+  res.statusCode = 200;
   res.setHeader('content-type', 'application/json; charset=utf-8');
-  res.end(await response.text());
+  res.setHeader('x-ad88-news-cache', 'fallback');
+  res.setHeader('x-ad88-news-provider', 'AD88 fallback');
+  res.end(body);
 }
 
 async function serveFile(res, pathname) {

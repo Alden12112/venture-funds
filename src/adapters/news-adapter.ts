@@ -11,6 +11,8 @@ interface YahooNewsItem {
 
 interface YahooFinanceSearchResponse {
   news?: YahooNewsItem[];
+  ad88Fallback?: boolean;
+  ad88Source?: string;
 }
 
 function inferMarkets(item: YahooNewsItem) {
@@ -107,10 +109,10 @@ export async function loadNewsBundle(): Promise<NewsBundle> {
     categories: ['全部', '市场', '宏观', '监管', '加密市场', '能源', '金属', '外汇'],
     events: upcomingEvents(),
     source: {
-      provider: 'AD88 local news API proxy -> Yahoo Finance public search',
-      mode: 'api',
+      provider: data.ad88Source ? `AD88 news proxy → ${data.ad88Source}` : 'AD88 local news API proxy',
+      mode: data.ad88Fallback ? 'mock' : 'api',
       updatedAt: new Date().toISOString(),
-      cacheState: 'fresh',
+      cacheState: data.ad88Fallback ? 'stale' : 'fresh',
       endpoint,
     },
   };
