@@ -7,14 +7,16 @@ interface SessionState {
   id: string;
   name: string;
   email: string;
+  phone: string;
   role: SessionRole;
+  tradingScore: number;
 }
 
 interface AuthContextValue {
   session: SessionState | null;
   profile: UserProfile | null;
   ready: boolean;
-  signIn: (input: { name: string; email: string; phone?: string; country?: string; role?: SessionRole; token?: string }) => void;
+  signIn: (input: { name: string; email: string; phone?: string; country?: string; role?: SessionRole; tradingScore?: number; token?: string }) => void;
   signOut: () => void;
   updateProfile: (patch: Partial<Pick<UserProfile, 'name' | 'email' | 'phone' | 'country' | 'tier'>>) => void;
 }
@@ -60,7 +62,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: input.email.toLowerCase(),
           name: input.name,
           email: input.email,
+          phone: input.phone ?? '',
           role: input.role ?? 'user',
+          tradingScore: Number(input.tradingScore ?? (input.role === 'admin' ? 100 : 0)),
         };
         setSession(next);
         setProfile((current) => ({
@@ -73,6 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           status: current?.status ?? 'active',
           joinedAt: current?.joinedAt ?? new Date().toISOString(),
           tier: current?.tier ?? 'Core',
+          tradingScore: next.tradingScore,
         }));
         if (input.token) setAuthToken(input.token);
       },
@@ -93,6 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             status: current?.status ?? 'active',
             joinedAt: current?.joinedAt ?? new Date().toISOString(),
             tier: patch.tier ?? current?.tier ?? 'Core',
+            tradingScore: current?.tradingScore ?? 0,
           };
           return next;
         });

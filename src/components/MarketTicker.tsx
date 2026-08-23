@@ -17,19 +17,21 @@ export function MarketTicker({ assets }: { assets: MarketAsset[] }) {
         <strong>Today’s market</strong>
         <span>24h</span>
       </div>
-      <div className="ticker-strip__track">
-        {items.map((asset) => {
-          const product = getMarketProduct(asset.symbol);
-          const positive = asset.change24h >= 0;
-          return (
-            <div key={asset.symbol} className="ticker-item">
-              <span className={`asset-logo asset-logo--${product.tone} asset-logo--xs`} aria-hidden="true">{product.mark}</span>
-              <span className="ticker-item__name">{asset.symbol}</span>
-              <strong>{quote(asset.price)}</strong>
-              <span className={positive ? 'trend trend--up' : 'trend trend--down'}>{positive ? '+' : ''}{asset.change24h.toFixed(2)}%</span>
-            </div>
-          );
-        })}
+      <div className="ticker-strip__viewport">
+        <div className="ticker-strip__track">
+          {[...items, ...items].map((asset, index) => {
+            const product = getMarketProduct(asset.symbol);
+            const positive = asset.change24h >= 0;
+            return (
+              <div key={`${asset.symbol}-${index}`} className="ticker-item">
+                <span className={`asset-logo asset-logo--${product.tone} asset-logo--xs`} aria-hidden="true">{product.mark}</span>
+                <span className="ticker-item__name">{asset.symbol}</span>
+                <strong>{quote(asset.price)}</strong>
+                <span className={positive ? 'trend trend--up' : 'trend trend--down'}>{positive ? '+' : ''}{asset.change24h.toFixed(2)}%</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </section>
   );

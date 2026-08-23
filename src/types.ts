@@ -121,6 +121,7 @@ export interface SupportMessage {
   userId: string;
   userName: string;
   userEmail: string;
+  userPhone?: string;
   senderRole: 'user' | 'admin';
   body: string;
   createdAt: string;

@@ -21,7 +21,7 @@ export function AdminAuthPage() {
       return;
     }
     try {
-      const result = await apiFetch<{ token: string; session: { name: string; email: string; phone?: string; country?: string; role?: 'user' | 'admin' } }>('/api/auth/login', {
+      const result = await apiFetch<{ token: string; session: { name: string; email: string; phone?: string; country?: string; role?: 'user' | 'admin'; tradingScore?: number } }>('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ identifier: email.trim(), password }),
       });

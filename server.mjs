@@ -14,6 +14,8 @@ const memoryAccounts = new Map();
 const memoryState = new Map();
 const memorySupportMessages = [];
 const memoryTradeEvents = [];
+const marketProxyCache = new Map();
+const marketProxyTtlMs = 8_000;
 let pool = null;
 // Keep the server-side rule set aligned with the international catalogue used by the UI.
 // These are national-number lengths after the country calling code.
@@ -177,6 +179,7 @@ async function initDatabase() {
       user_id TEXT NOT NULL,
       user_name TEXT NOT NULL,
       user_email TEXT NOT NULL,
+      user_phone TEXT NOT NULL DEFAULT '',
       sender_role TEXT NOT NULL,
       body TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -197,6 +200,7 @@ async function initDatabase() {
       margin NUMERIC,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE ad88_support_messages ADD COLUMN IF NOT EXISTS user_phone TEXT NOT NULL DEFAULT '';
   `);
 }
 
@@ -268,7 +272,7 @@ async function deleteAccount(id) {
 
 function sessionResponse(account) {
   const normalized = normalizeAccount(account);
-  return { session: normalized, token: createToken({ sub: normalized.id, email: normalized.email, name: normalized.name, role: normalized.role }) };
+  return { session: normalized, token: createToken({ sub: normalized.id, email: normalized.email, name: normalized.name, phone: normalized.phone, role: normalized.role }) };
 }
 
 async function handleAuth(req, res, requestUrl) {
@@ -276,7 +280,7 @@ async function handleAuth(req, res, requestUrl) {
     const input = validateCredentials(await readBody(req));
     if (input.error) return sendJson(res, 400, input);
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
-    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Core', tradingScore: 60, joinedAt: new Date().toISOString() }, input.password);
+    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Core', tradingScore: 0, joinedAt: new Date().toISOString() }, input.password);
     return sendJson(res, 201, sessionResponse(account));
   }
 
@@ -305,7 +309,7 @@ async function handleAdmin(req, res, requestUrl) {
     const input = validateCredentials(await readBody(req));
     if (input.error) return sendJson(res, 400, input);
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
-    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Core', tradingScore: 60, joinedAt: new Date().toISOString() }, input.password);
+    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Core', tradingScore: 0, joinedAt: new Date().toISOString() }, input.password);
     return sendJson(res, 201, normalizeAccount(account));
   }
 
@@ -352,10 +356,21 @@ function normalizeSupportMessage(row) {
     userId: row.userId ?? row.user_id,
     userName: row.userName ?? row.user_name,
     userEmail: row.userEmail ?? row.user_email,
+    userPhone: row.userPhone ?? row.user_phone ?? '',
     senderRole: row.senderRole ?? row.sender_role,
     body: row.body,
     createdAt: row.createdAt ?? row.created_at,
   };
+}
+
+async function pruneSupportMessages() {
+  const cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
+  if (pool) {
+    await pool.query("DELETE FROM ad88_support_messages WHERE created_at < NOW() - INTERVAL '1 year'");
+    return;
+  }
+  const retained = memorySupportMessages.filter((item) => new Date(item.createdAt).getTime() >= cutoff);
+  memorySupportMessages.splice(0, memorySupportMessages.length, ...retained);
 }
 
 function normalizeTradeEvent(row) {
@@ -443,6 +458,7 @@ async function handleAdminTrades(req, res, requestUrl) {
 async function handleSupport(req, res, requestUrl) {
   const session = requireSession(req, res);
   if (!session) return true;
+  await pruneSupportMessages();
   if (req.method === 'GET' && requestUrl.pathname === '/api/support/messages') {
     if (pool) {
       const result = session.role === 'admin'
@@ -467,22 +483,24 @@ async function handleSupport(req, res, requestUrl) {
       if (!pool && !existing) return sendJson(res, 400, { error: 'thread not found' });
       if (pool && !threadId) return sendJson(res, 400, { error: 'thread is required' });
       if (pool) {
-        const owner = await pool.query('SELECT user_id, user_name, user_email FROM ad88_support_messages WHERE thread_id = $1 ORDER BY created_at ASC LIMIT 1', [threadId]);
+        const owner = await pool.query('SELECT user_id, user_name, user_email, user_phone FROM ad88_support_messages WHERE thread_id = $1 ORDER BY created_at ASC LIMIT 1', [threadId]);
         if (!owner.rowCount) return sendJson(res, 400, { error: 'thread not found' });
         userId = owner.rows[0].user_id;
         userName = owner.rows[0].user_name;
         userEmail = owner.rows[0].user_email;
+        session.phone = owner.rows[0].user_phone ?? '';
       } else {
         userId = existing.userId;
         userName = existing.userName;
         userEmail = existing.userEmail;
+        session.phone = existing.userPhone ?? '';
       }
     } else if (!threadId) {
       threadId = `support-${randomUUID()}`;
     }
-    const message = { id: randomUUID(), threadId, userId, userName, userEmail, senderRole: session.role, body, createdAt: new Date().toISOString() };
+    const message = { id: randomUUID(), threadId, userId, userName, userEmail, userPhone: session.phone ?? '', senderRole: session.role, body, createdAt: new Date().toISOString() };
     if (pool) {
-      await pool.query('INSERT INTO ad88_support_messages (id, thread_id, user_id, user_name, user_email, sender_role, body, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [message.id, message.threadId, message.userId, message.userName, message.userEmail, message.senderRole, message.body, message.createdAt]);
+      await pool.query('INSERT INTO ad88_support_messages (id, thread_id, user_id, user_name, user_email, user_phone, sender_role, body, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [message.id, message.threadId, message.userId, message.userName, message.userEmail, message.userPhone, message.senderRole, message.body, message.createdAt]);
     } else {
       memorySupportMessages.push(message);
     }
@@ -497,10 +515,33 @@ async function proxyMarket(res, requestUrl) {
   const upstream = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
   upstream.searchParams.set('range', requestUrl.searchParams.get('range') || '1d');
   upstream.searchParams.set('interval', requestUrl.searchParams.get('interval') || '15m');
-  const response = await fetch(upstream, { headers: { 'User-Agent': 'AD88/1.0' } });
-  res.statusCode = response.status;
-  res.setHeader('content-type', 'application/json; charset=utf-8');
-  res.end(await response.text());
+  const cacheKey = upstream.toString();
+  const cached = marketProxyCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/json; charset=utf-8');
+    res.setHeader('x-ad88-cache', 'fresh');
+    res.end(cached.body);
+    return;
+  }
+  try {
+    const response = await fetch(upstream, { headers: { 'User-Agent': 'AD88/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
+    const body = await response.text();
+    if (response.ok) marketProxyCache.set(cacheKey, { expiresAt: Date.now() + marketProxyTtlMs, body });
+    res.statusCode = response.status;
+    res.setHeader('content-type', 'application/json; charset=utf-8');
+    res.setHeader('x-ad88-cache', response.ok ? 'fresh' : 'error');
+    res.end(body);
+  } catch (error) {
+    if (cached) {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.setHeader('x-ad88-cache', 'stale');
+      res.end(cached.body);
+      return;
+    }
+    sendJson(res, 504, { error: error instanceof Error ? error.message : 'market upstream unavailable' });
+  }
 }
 
 async function proxyNews(res, requestUrl) {

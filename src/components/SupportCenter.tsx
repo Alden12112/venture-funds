@@ -7,7 +7,7 @@ import { formatDateTime } from '@/lib/format';
 import type { SupportMessage } from '@/types';
 
 const whatsappUrl = 'https://wa.me/60178541111';
-const telegramUrl = 'https://t.me/+60178541111';
+const telegramUrl = 'https://t.me/Alden_1022';
 
 export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
   const { session } = useAuth();
@@ -74,6 +74,7 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
         userId: adminMode ? selectedThread?.latest.userId ?? '' : session.id,
         userName: adminMode ? selectedThread?.latest.userName ?? '' : session.name,
         userEmail: adminMode ? selectedThread?.latest.userEmail ?? '' : session.email,
+        userPhone: adminMode ? selectedThread?.latest.userPhone ?? '' : session.phone ?? '',
         senderRole: adminMode ? 'admin' : 'user',
         body,
         createdAt: new Date().toISOString(),
@@ -96,6 +97,7 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
             <span className="eyebrow">{adminMode ? 'Operations desk' : 'Client care'}</span>
             <h2>{adminMode ? '客服收件箱' : '联系 AD88 客服'}</h2>
             <p>{adminMode ? '集中处理用户消息，回复会同步回前台账号。' : '你的消息会进入后台客服收件箱，回复后会在这里显示。'}</p>
+            <small className="support-console__retention">消息记录保留 1 年 · 联系渠道已置于右侧</small>
           </div>
         </div>
         <div className="support-console__actions">
@@ -115,7 +117,7 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
             {threads.length ? threads.map((thread) => (
               <button type="button" key={thread.threadId} className={`support-thread ${selectedThread?.threadId === thread.threadId ? 'is-active' : ''}`} onClick={() => setActiveThreadId(thread.threadId)}>
                 <span className="support-thread__avatar">{thread.latest.userName.slice(0, 1).toUpperCase()}</span>
-                <span><strong>{thread.latest.userName}</strong><small>{thread.latest.body}</small></span>
+                <span><strong>{thread.latest.userName}</strong><small>{thread.latest.userEmail} · {thread.latest.userPhone || '未留手机号'}</small><small>{thread.latest.body}</small></span>
                 <time>{formatDateTime(thread.latest.createdAt)}</time>
                 {thread.unread ? <span className="support-thread__unread">{thread.unread} 条新消息</span> : null}
               </button>
@@ -125,7 +127,7 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
 
         <div className="support-chat">
           <div className="support-chat__meta">
-            <span><ShieldCheck size={14} /> {adminMode ? selectedThread?.latest.userEmail ?? '选择会话' : '加密客服通道'}</span>
+            <span><ShieldCheck size={14} /> {adminMode ? `${selectedThread?.latest.userEmail ?? '选择会话'} · ${selectedThread?.latest.userPhone || '未留手机号'}` : '加密客服通道'}</span>
             {status ? <span className="support-chat__status">{status}</span> : null}
           </div>
           <div className="support-chat__messages">

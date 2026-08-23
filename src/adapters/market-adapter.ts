@@ -22,7 +22,13 @@ type LoadedAsset = MarketAsset & {
   candles?: Candle[];
   orderBook?: { asks: OrderLevel[]; bids: OrderLevel[] };
   fallback?: boolean;
+  cached?: boolean;
 };
+
+const marketCacheTtlMs = 8_000;
+const assetCache = new Map<string, { expiresAt: number; value: LoadedAsset }>();
+const assetRequests = new Map<string, Promise<LoadedAsset>>();
+const detailCache = new Map<string, { expiresAt: number; value: { selected: MarketQuote; orderBook: { asks: OrderLevel[]; bids: OrderLevel[] }; candles: Candle[] } }>();
 
 const timeframeMap: Record<TimeframeCode, { baseGranularity: number; aggregate: number }> = {
   M1: { baseGranularity: 60, aggregate: 1 }, M5: { baseGranularity: 300, aggregate: 1 }, M15: { baseGranularity: 900, aggregate: 1 },
@@ -52,7 +58,7 @@ function aggregateCandles(candles: Candle[], size: number): Candle[] {
 }
 
 async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(9000) });
+  const response = await fetch(url, { signal: AbortSignal.timeout(6500), headers: { accept: 'application/json' } });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return response.json() as Promise<T>;
 }
@@ -136,6 +142,29 @@ async function loadCoinbaseAsset(product: typeof marketProducts[number]): Promis
   return { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h: open ? ((price - open) / open) * 100 : 0, volume24h: toNumber(stats.volume, toNumber(ticker.volume)) * price, spreadBps: computeSpreadBasisPoints(toNumber(ticker.bid), toNumber(ticker.ask)), updatedAt: ticker.time, open24h: open, high24h: toNumber(stats.high, price), low24h: toNumber(stats.low, price) };
 }
 
+async function loadCachedAsset(product: typeof marketProducts[number]) {
+  const key = product.symbol;
+  const cached = assetCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return { ...cached.value, cached: true };
+  const pending = assetRequests.get(key);
+  if (pending) return { ...(await pending), cached: true };
+  const request = (async () => {
+    try {
+      return product.assetClass === 'crypto' ? await loadCoinbaseAsset(product) : await loadYahooAsset(product);
+    } catch {
+      return fallbackAsset(product);
+    }
+  })();
+  assetRequests.set(key, request);
+  try {
+    const value = await request;
+    assetCache.set(key, { expiresAt: Date.now() + marketCacheTtlMs, value });
+    return value;
+  } finally {
+    assetRequests.delete(key);
+  }
+}
+
 async function loadYahooAsset(product: typeof marketProducts[number]): Promise<LoadedAsset> {
   const data = await getJson<YahooChartResponse>(`/api/market?symbol=${encodeURIComponent(product.providerSymbol)}&range=1d&interval=15m`);
   const result = data.chart?.result?.[0];
@@ -155,6 +184,11 @@ async function loadYahooAsset(product: typeof marketProducts[number]): Promise<L
 }
 
 async function loadSelectedCoinbaseDetails(product: typeof marketProducts[number], timeframe: TimeframeCode, source: SourceMeta) {
+  const cacheKey = `${product.symbol}:${timeframe}`;
+  const cached = detailCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { ...cached.value, selected: { ...cached.value.selected, source } };
+  }
   const config = timeframeMap[timeframe] ?? timeframeMap.M15;
   const [stats, ticker, book, candlesRaw] = await Promise.all([
     getJson<CoinbaseStats>(`${coinbaseBase}/products/${product.productId}/stats`),
@@ -167,17 +201,17 @@ async function loadSelectedCoinbaseDetails(product: typeof marketProducts[number
   const asks = buildOrderLevels(book.asks, 'ask');
   const bids = buildOrderLevels(book.bids, 'bid');
   const selected: MarketQuote = { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h: open24h ? ((price - open24h) / open24h) * 100 : 0, volume24h: toNumber(stats.volume, toNumber(ticker.volume)) * price, spreadBps: computeSpreadBasisPoints(toNumber(ticker.bid), toNumber(ticker.ask)), updatedAt: ticker.time, open24h, high24h: toNumber(stats.high, price), low24h: toNumber(stats.low, price), source };
-  return { selected, orderBook: { asks, bids }, candles: aggregateCandles(candlesRaw.map(parseCandle).sort((left, right) => new Date(left.time).getTime() - new Date(right.time).getTime()), config.aggregate) };
+  const value = { selected, orderBook: { asks, bids }, candles: aggregateCandles(candlesRaw.map(parseCandle).sort((left, right) => new Date(left.time).getTime() - new Date(right.time).getTime()), config.aggregate) };
+  detailCache.set(cacheKey, { expiresAt: Date.now() + marketCacheTtlMs, value });
+  return value;
 }
 
 export async function loadMarketBundle(symbol = 'BTC', timeframe: TimeframeCode = 'M15'): Promise<MarketBundle> {
   const requestStartedAt = Date.now();
   const selectedProduct = getMarketProduct(symbol);
-  const loaded = await Promise.all(marketProducts.map(async (product) => {
-    try { return product.assetClass === 'crypto' ? await loadCoinbaseAsset(product) : await loadYahooAsset(product); } catch { return fallbackAsset(product); }
-  }));
+  const loaded = await Promise.all(marketProducts.map((product) => loadCachedAsset(product)));
   const selectedLoaded = loaded.find((asset) => asset.symbol === selectedProduct.symbol) ?? fallbackAsset(selectedProduct);
-  const source: SourceMeta = { provider: selectedProduct.assetClass === 'crypto' ? 'Coinbase Exchange public market data' : 'Yahoo Finance public market data', mode: selectedLoaded.fallback ? 'mock' : 'api', updatedAt: selectedLoaded.updatedAt, cacheState: selectedLoaded.fallback ? 'stale' : 'fresh', endpoint: selectedProduct.assetClass === 'crypto' ? `${coinbaseBase}/products/*` : '/api/market', latencyMs: Math.max(1, Date.now() - requestStartedAt), health: selectedLoaded.fallback ? 'degraded' : 'healthy', lineage: 'provider → adapter → chart' };
+  const source: SourceMeta = { provider: selectedProduct.assetClass === 'crypto' ? 'Coinbase Exchange public market data' : 'Yahoo Finance public market data', mode: selectedLoaded.fallback ? 'mock' : 'api', updatedAt: selectedLoaded.updatedAt, cacheState: selectedLoaded.fallback ? 'stale' : selectedLoaded.cached ? 'cached' : 'fresh', endpoint: selectedProduct.assetClass === 'crypto' ? `${coinbaseBase}/products/*` : '/api/market', latencyMs: Math.max(1, Date.now() - requestStartedAt), health: selectedLoaded.fallback ? 'degraded' : 'healthy', lineage: 'provider → adapter → chart' };
   let selected: MarketQuote = { ...selectedLoaded, source };
   let orderBook = selectedLoaded.orderBook ?? buildSyntheticBook(selectedLoaded.price, selectedProduct);
   let candles = selectedLoaded.candles ?? makeFallbackCandles(selectedLoaded.price, selectedLoaded.change24h);

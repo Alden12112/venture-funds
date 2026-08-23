@@ -128,7 +128,7 @@ export function AuthPage() {
         country: form.country.trim(),
         status: 'approved',
         submittedAt: new Date().toISOString(),
-        tradingScore: 60,
+        tradingScore: 0,
         passwordDigest,
       };
       writeStorage('pendingRegistrations', [next, ...current]);
@@ -149,7 +149,7 @@ export function AuthPage() {
       return;
     }
     try {
-      const result = await apiFetch<{ token: string; session: { name: string; email: string; phone?: string; country?: string; role?: 'user' | 'admin' } }>('/api/auth/login', {
+      const result = await apiFetch<{ token: string; session: { name: string; email: string; phone?: string; country?: string; role?: 'user' | 'admin'; tradingScore?: number } }>('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ identifier: form.identifier, password: form.password }),
       });
@@ -187,6 +187,7 @@ export function AuthPage() {
       phone: account.phone,
       country: account.country,
       role: 'user',
+      tradingScore: account.tradingScore,
     });
     navigate('/app/dashboard');
   };

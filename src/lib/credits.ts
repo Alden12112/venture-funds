@@ -16,7 +16,7 @@ function now() {
 }
 
 function openingBalance(role?: SessionRole) {
-  return role === 'admin' ? 0 : 1288;
+  return 0;
 }
 
 export function readCreditAccounts() {

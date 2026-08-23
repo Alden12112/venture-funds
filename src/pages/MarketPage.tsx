@@ -15,10 +15,10 @@ import { useLanguage } from '@/context/language-context';
 import { getMarketProduct } from '@/data/assets';
 import { marketFilters } from '@/data/navigation';
 import { apiFetch } from '@/lib/api';
-import type { PaperPosition, TimeframeCode, TradeSide } from '@/types';
+import { ensureCreditAccount, readCreditAccounts, writeCreditAccounts } from '@/lib/credits';
+import type { CreditAccount, PaperPosition, TimeframeCode, TradeSide } from '@/types';
 
 const timeframes: TimeframeCode[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
-const accountEquity = 10000;
 
 function computePnl(position: PaperPosition, markPrice: number) {
   const units = position.lots * position.contractSize;
@@ -37,7 +37,7 @@ function AssetLogo({ symbol, size = 'md' }: { symbol: string; size?: 'sm' | 'md'
 }
 
 export function MarketPage() {
-  const { session } = useAuth();
+  const { session, profile } = useAuth();
   const { t } = useLanguage();
   const [symbol, setSymbol] = useState('XAU');
   const [timeframe, setTimeframe] = useState<TimeframeCode>('M15');
@@ -45,7 +45,7 @@ export function MarketPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [assetClassFilter, setAssetClassFilter] = useState<(typeof marketFilters)[number]>('全部');
   const [side, setSide] = useState<TradeSide>('long');
-  const [lots, setLots] = useState(0.1);
+  const [lots, setLots] = useState(1);
   const [contractSize, setContractSize] = useState(0.01);
   const [leverage, setLeverage] = useState(5);
   const [stopLoss, setStopLoss] = useState('');
@@ -57,6 +57,7 @@ export function MarketPage() {
   const [editTakeProfit, setEditTakeProfit] = useState('');
   const [chartTool, setChartTool] = useState<'cursor' | 'trendline' | 'horizontal' | 'vertical'>('cursor');
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
+  const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(null);
   const market = useAsyncResource(() => loadMarketBundle(symbol, timeframe), [symbol, timeframe, refreshKey]);
 
   const refreshMarkets = () => {
@@ -67,6 +68,14 @@ export function MarketPage() {
   useEffect(() => {
     writeStorage('paperPositions', positions);
   }, [positions]);
+
+  useEffect(() => {
+    if (!session) {
+      setCreditAccount(null);
+      return;
+    }
+    setCreditAccount(ensureCreditAccount(session).account);
+  }, [session?.id]);
 
   const fallbackPrices = useMemo(() => {
     if (market.status !== 'success') return {};
@@ -96,8 +105,12 @@ export function MarketPage() {
   const units = lots * contractSize;
   const notional = units * livePrice;
   const margin = leverage ? notional / leverage : notional;
-  const maxLots = livePrice && contractSize ? (accountEquity * leverage) / (livePrice * contractSize) : 0;
-  const canOpen = margin > 0 && margin <= accountEquity && lots > 0 && contractSize > 0 && leverage > 0;
+  const availableMargin = creditAccount?.available ?? 0;
+  const tradingScore = Number(profile?.tradingScore ?? session?.tradingScore ?? (session?.role === 'admin' ? 100 : 0));
+  const hasTradingScore = tradingScore > 0;
+  const hasAssetMargin = availableMargin >= margin;
+  const maxLots = livePrice && contractSize ? (availableMargin * leverage) / (livePrice * contractSize) : 0;
+  const canOpen = Boolean(session) && hasTradingScore && hasAssetMargin && margin > 0 && lots >= 1 && contractSize > 0 && leverage > 0;
   const userPositions = positions.filter((position) => (position.userId === session?.id || (!position.userId && session?.id)) && position.status !== 'closed');
   const livePositions = userPositions.map((position) => ({ ...position, markPrice: live.prices[position.symbol] ?? position.markPrice }));
   const totalPnl = livePositions.reduce((sum, position) => sum + computePnl(position, position.markPrice), 0);
@@ -128,8 +141,29 @@ export function MarketPage() {
     void apiFetch('/api/trades', { method: 'POST', body: JSON.stringify(event) }).catch(() => undefined);
   };
 
+  const reserveMargin = (amount: number) => {
+    if (!session) return false;
+    const accounts = readCreditAccounts();
+    const current = accounts.find((item) => item.userId === session.id || item.email.toLowerCase() === session.email.toLowerCase());
+    if (!current || current.available < amount) return false;
+    const next = { ...current, available: Number((current.available - amount).toFixed(2)), updatedAt: new Date().toISOString() };
+    writeCreditAccounts(accounts.map((item) => item.userId === current.userId ? next : item));
+    setCreditAccount(next);
+    return true;
+  };
+
+  const releaseMargin = (amount: number) => {
+    if (!session || amount <= 0) return;
+    const accounts = readCreditAccounts();
+    const current = accounts.find((item) => item.userId === session.id || item.email.toLowerCase() === session.email.toLowerCase());
+    if (!current) return;
+    const next = { ...current, available: Number((current.available + amount).toFixed(2)), updatedAt: new Date().toISOString() };
+    writeCreditAccounts(accounts.map((item) => item.userId === current.userId ? next : item));
+    setCreditAccount(next);
+  };
+
   const openPosition = (orderSide: TradeSide = side, orderPrice = livePrice) => {
-    if (!canOpen || !orderPrice) return;
+    if (!canOpen || !orderPrice || !reserveMargin(margin)) return;
     const positionId = crypto.randomUUID();
     const next: PaperPosition = {
       id: positionId,
@@ -164,6 +198,7 @@ export function MarketPage() {
   const closePosition = (id: string) => {
     const position = userPositions.find((item) => item.id === id);
     if (position) {
+      releaseMargin(position.margin * ((position.remainingLots ?? position.lots) / position.lots));
       auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
     }
     setPositions((current) =>
@@ -176,7 +211,10 @@ export function MarketPage() {
   };
 
   const closeAllPositions = () => {
-    userPositions.forEach((position) => auditTrade({ positionId: position.id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin }));
+    userPositions.forEach((position) => {
+      releaseMargin(position.margin * ((position.remainingLots ?? position.lots) / position.lots));
+      auditTrade({ positionId: position.id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
+    });
     setPositions((current) =>
       current.map((position) =>
         userPositions.some((item) => item.id === position.id)
@@ -192,6 +230,7 @@ export function MarketPage() {
     if (!position) return;
     const remaining = position.remainingLots ?? position.lots;
     const closeLots = Math.min(Math.max(partialLots, 0.01), remaining);
+    releaseMargin(position.margin * (closeLots / position.lots));
     auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: closeLots >= remaining ? 'close' : 'partial-close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
     setPositions((current) =>
       current.map((position) => {
@@ -281,7 +320,7 @@ export function MarketPage() {
         <StatCard label={`${selectedAsset?.symbol ?? 'BTC'} ${t('market.price')}`} value={formatCurrency(livePrice)} delta={formatPercent(selectedChange)} />
         <StatCard label={t('market.change24h')} value={formatPercent(selectedChange)} note={`${selectedAsset?.name ?? ''}`} />
         <StatCard label={t('market.volume24h')} value={formatCompact(selectedAsset?.volume24h ?? 0)} note="USD" />
-        <StatCard label={t('market.buyingPower')} value={formatCurrency(accountEquity)} note={t('market.sandboxAccount')} />
+        <StatCard label="资产保证金" value={formatCurrency(availableMargin)} note={hasTradingScore ? '可用积分额度' : '暂无交易评分'} />
       </section>
 
       <section className="content-grid content-grid--two market-workbench">
@@ -352,6 +391,18 @@ export function MarketPage() {
             </div>
             <StatusPill tone={selectedChange >= 0 ? 'success' : 'critical'}>{formatPercent(selectedChange)}</StatusPill>
           </div>
+          <div className="instrument-banner">
+            <AssetLogo symbol={selectedAsset?.symbol ?? symbol} size="lg" />
+            <div className="instrument-banner__copy">
+              <span className="eyebrow">Selected instrument</span>
+              <strong>{selectedAsset?.name ?? symbol}</strong>
+              <span>实时参考价 · {selectedAsset?.assetClass ?? 'market'}</span>
+            </div>
+            <div className="instrument-banner__quote">
+              <strong>{formatNumber(livePrice)}</strong>
+              <span className={selectedChange >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(selectedChange)}</span>
+            </div>
+          </div>
           <div className="trading-chart__toolbar" aria-label="图表工具">
             <span className="chart-toolbar__label">图表工具</span>
             <button type="button" className={`chart-tool ${chartTool === 'cursor' ? 'is-active' : ''}`} onClick={() => setChartTool('cursor')} title="选择"><Crosshair size={15} />选择</button>
@@ -370,16 +421,16 @@ export function MarketPage() {
           <CandleChart candles={market.data.candles} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           <div className="execution-bar">
             <button type="button" className="execution-quote execution-quote--sell" onClick={() => openPosition('short', sellPrice)} disabled={!canOpen}>
-              <span>SELL</span><strong>{formatNumber(sellPrice)}</strong><small>卖出价 · +{quoteSpread.toFixed(2)}</small>
+              <span>SELL</span><strong>{formatNumber(sellPrice)}</strong><small>卖出价</small>
             </button>
             <div className="execution-bar__middle">
               <span className="execution-bar__label">当前价</span>
               <strong>{formatNumber(livePrice)}</strong>
-              <label><span>开仓手数</span><input type="number" min="0.01" step="0.01" value={lots} onChange={(event) => setLots(Number(event.target.value))} /></label>
-              <small>固定点差 {quoteSpread.toFixed(2)} · 沙盒执行</small>
+              <label><span>开仓手数</span><input type="number" min="1" step="1" value={lots} onChange={(event) => setLots(Math.max(1, Number(event.target.value) || 1))} /></label>
+              <small>报价已含交易点差 · 沙盒执行</small>
             </div>
             <button type="button" className="execution-quote execution-quote--buy" onClick={() => openPosition('long', buyPrice)} disabled={!canOpen}>
-              <span>BUY</span><strong>{formatNumber(buyPrice)}</strong><small>买入价 · −{quoteSpread.toFixed(2)}</small>
+              <span>BUY</span><strong>{formatNumber(buyPrice)}</strong><small>买入价</small>
             </button>
           </div>
         </article>
@@ -392,7 +443,7 @@ export function MarketPage() {
               <h2>{t('market.orderTicket')}</h2>
               <p>{t('market.orderHint')}</p>
             </div>
-            <StatusPill tone={canOpen ? 'success' : 'warning'}>{canOpen ? t('market.canOpen') : t('market.marginWarning')}</StatusPill>
+            <StatusPill tone={canOpen ? 'success' : 'warning'}>{canOpen ? t('market.canOpen') : !hasTradingScore ? '等待后台评分' : !hasAssetMargin ? '该资产保证金不足' : t('market.marginWarning')}</StatusPill>
           </div>
 
           <div className="trade-side-control">
@@ -409,7 +460,7 @@ export function MarketPage() {
           <div className="form-grid">
             <label className="field">
               <span>{t('market.lots')}</span>
-              <input type="number" min="0.01" step="0.01" value={lots} onChange={(event) => setLots(Number(event.target.value))} />
+              <input type="number" min="1" step="1" value={lots} onChange={(event) => setLots(Math.max(1, Number(event.target.value) || 1))} />
             </label>
             <label className="field">
               <span>{t('market.contractSize')}</span>
@@ -435,7 +486,7 @@ export function MarketPage() {
 
           <div className="risk-strip">
             <div><span>{t('market.notional')}</span><strong>{formatCurrency(notional)}</strong></div>
-            <div><span>{t('market.margin')}</span><strong>{formatCurrency(margin)}</strong></div>
+            <div><span>此资产保证金</span><strong>{formatCurrency(margin)}</strong></div>
             <div><span>{t('market.units')}</span><strong>{formatNumber(units)}</strong></div>
           </div>
 
@@ -444,7 +495,7 @@ export function MarketPage() {
           </button>
           <div className="risk-note">
             <AlertTriangle size={16} />
-            {t('market.paperOnly')}
+            {!hasTradingScore ? '当前账号没有交易评分，只能查看行情；请等待后台评分。' : !hasAssetMargin ? `当前账号可用保证金 ${formatCurrency(availableMargin)}，低于 ${symbol} 所需的 ${formatCurrency(margin)}。` : t('market.paperOnly')}
           </div>
         </article>
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, BriefcaseBusiness, HandCoins, TrendingUp, WalletCards } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
-import { DataMeta, LoadingState, StatCard, StatusPill } from '@/components/Stats';
+import { LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { Sparkline } from '@/components/Charts';
 import { MarketTicker } from '@/components/MarketTicker';
 import { useAsyncResource } from '@/lib/useAsyncResource';
@@ -78,7 +78,6 @@ export function DashboardPage() {
         eyebrow="总览"
         title="仪表盘"
         description="实时市场、纸上持仓、资金状态和通知放在一张工作台上。"
-        meta={<DataMeta source={marketData.source} />}
         actions={
           <>
             <Link to="/app/market" className="btn btn--ghost">
