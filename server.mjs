@@ -521,17 +521,36 @@ async function proxyMarket(res, requestUrl) {
     res.statusCode = 200;
     res.setHeader('content-type', 'application/json; charset=utf-8');
     res.setHeader('x-ad88-cache', 'fresh');
+    res.setHeader('x-ad88-provider', 'cached-yahoo');
     res.end(cached.body);
     return;
   }
+  let lastStatus = 502;
+  let lastBody = '';
   try {
-    const response = await fetch(upstream, { headers: { 'User-Agent': 'AD88/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
-    const body = await response.text();
-    if (response.ok) marketProxyCache.set(cacheKey, { expiresAt: Date.now() + marketProxyTtlMs, body });
-    res.statusCode = response.status;
+    const candidates = [upstream, new URL(upstream.toString().replace('query1.finance.yahoo.com', 'query2.finance.yahoo.com'))];
+    for (const candidate of candidates) {
+      try {
+        const response = await fetch(candidate, { headers: { 'User-Agent': 'AD88/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
+        const body = await response.text();
+        lastStatus = response.status;
+        lastBody = body;
+        if (!response.ok) continue;
+        marketProxyCache.set(cacheKey, { expiresAt: Date.now() + marketProxyTtlMs, body });
+        res.statusCode = 200;
+        res.setHeader('content-type', 'application/json; charset=utf-8');
+        res.setHeader('x-ad88-cache', 'fresh');
+        res.setHeader('x-ad88-provider', candidate.hostname);
+        res.end(body);
+        return;
+      } catch {
+        continue;
+      }
+    }
+    res.statusCode = lastStatus;
     res.setHeader('content-type', 'application/json; charset=utf-8');
-    res.setHeader('x-ad88-cache', response.ok ? 'fresh' : 'error');
-    res.end(body);
+    res.setHeader('x-ad88-cache', 'error');
+    res.end(lastBody || JSON.stringify({ error: 'market upstream unavailable' }));
   } catch (error) {
     if (cached) {
       res.statusCode = 200;
