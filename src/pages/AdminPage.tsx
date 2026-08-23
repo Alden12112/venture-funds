@@ -29,7 +29,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [grantTarget, setGrantTarget] = useState(initialQuery);
   const [grantAmount, setGrantAmount] = useState(100);
-  const [accountForm, setAccountForm] = useState({ name: '', email: '', phone: '', country: 'Malaysia', password: '' });
+  const [accountForm, setAccountForm] = useState({ name: '', email: '', phone: '', country: 'Malaysia', password: '', role: 'user' as 'user' | 'admin' });
   const [accountMessage, setAccountMessage] = useState('');
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
@@ -133,9 +133,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     try {
       await apiFetch('/api/admin/users', {
         method: 'POST',
-        body: JSON.stringify({ name: accountForm.name.trim(), email: accountForm.email.trim(), phone: buildInternationalPhone(accountCountry, accountForm.phone), country: accountCountry.name, password: accountForm.password }),
+        body: JSON.stringify({ name: accountForm.name.trim(), email: accountForm.email.trim(), phone: buildInternationalPhone(accountCountry, accountForm.phone), country: accountCountry.name, password: accountForm.password, role: accountForm.role }),
       });
-      setAccountForm({ name: '', email: '', phone: '', country: accountCountry.name, password: '' });
+      setAccountForm({ name: '', email: '', phone: '', country: accountCountry.name, password: '', role: 'user' });
       setAccountMessage('账号已创建并自动通过审核，已同步到服务器。');
       setRefreshKey((value) => value + 1);
       return;
@@ -153,11 +153,11 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       country: accountCountry.name,
       status: 'approved',
       submittedAt: new Date().toISOString(),
-      tradingScore: 60,
+      tradingScore: accountForm.role === 'admin' ? 100 : 60,
       passwordDigest: await hashSecret(accountForm.password),
     };
     writeStorage('pendingRegistrations', [next, ...registrations]);
-    setAccountForm({ name: '', email: '', phone: '', country: accountCountry.name, password: '' });
+    setAccountForm({ name: '', email: '', phone: '', country: accountCountry.name, password: '', role: 'user' });
     setAccountMessage('账号已创建并自动通过审核。');
     setRefreshKey((value) => value + 1);
   };
@@ -245,6 +245,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <label className="field"><span>国家 / 地区</span><select value={accountForm.country} onChange={(event) => setAccountForm({ ...accountForm, country: event.target.value, phone: '' })}>{countryDirectory.map((country) => <option key={`${country.code}-${country.name}`} value={country.name}>{country.name} (+{country.dialCode})</option>)}</select></label>
               <label className="field"><span>手机号（{phoneDigitsHint(accountCountry)} 位）</span><div className="phone-input"><span className="phone-input__prefix">+{accountCountry.dialCode}</span><input type="tel" inputMode="numeric" maxLength={accountPhoneMaxLength} value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value.replace(/\D/g, '').slice(0, accountPhoneMaxLength) })} /></div></label>
               <label className="field"><span>初始密码</span><input type="password" autoComplete="new-password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} /></label>
+              <label className="field"><span>账号角色</span><select value={accountForm.role} onChange={(event) => setAccountForm({ ...accountForm, role: event.target.value as 'user' | 'admin' })}><option value="user">普通用户</option><option value="admin">管理员</option></select></label>
             </div>
             <div className="admin-account-create__actions"><button type="button" className="btn btn--primary" onClick={createAccount}><UserPlus size={16} />创建并通过</button>{accountMessage ? <span className="field-hint">{accountMessage}</span> : null}</div>
           </div>

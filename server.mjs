@@ -10,6 +10,7 @@ const port = Number(process.env.PORT || 10000);
 const authSecret = process.env.AUTH_SECRET || 'ad88-local-change-me';
 const adminEmail = (process.env.AD88_ADMIN_EMAIL || '').trim().toLowerCase();
 const adminPassword = process.env.AD88_ADMIN_PASSWORD || '';
+const appSurface = process.env.APP_SURFACE === 'admin' ? 'admin' : 'frontend';
 const memoryAccounts = new Map();
 const memoryState = new Map();
 const memorySupportMessages = [];
@@ -292,6 +293,7 @@ function sessionResponse(account) {
 
 async function handleAuth(req, res, requestUrl) {
   if (req.method === 'POST' && requestUrl.pathname === '/api/auth/register') {
+    if (appSurface === 'admin') return sendJson(res, 403, { error: '管理员服务不开放前台注册' });
     const input = validateCredentials(await readBody(req));
     if (input.error) return sendJson(res, 400, input);
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
@@ -303,11 +305,13 @@ async function handleAuth(req, res, requestUrl) {
     const input = await readBody(req);
     const identifier = String(input.identifier || '').trim();
     const password = String(input.password || '');
-    if (adminEmail && identifier.toLowerCase() === adminEmail && adminPassword && password === adminPassword) {
+    if (appSurface === 'admin' && adminEmail && identifier.toLowerCase() === adminEmail && adminPassword && password === adminPassword) {
       const account = { id: 'env-admin', name: 'AD88 Administrator', email: adminEmail, phone: '', country: 'Global', role: 'admin', status: 'active', tier: 'Enterprise', tradingScore: 100, joinedAt: new Date().toISOString() };
       return sendJson(res, 200, sessionResponse(account));
     }
     const account = await findAccount(identifier);
+    if (appSurface === 'admin' && (!account || account.role !== 'admin')) return sendJson(res, 403, { error: '后台仅允许管理员账号登录' });
+    if (appSurface === 'frontend' && account?.role === 'admin') return sendJson(res, 403, { error: '管理员请使用独立后台地址登录' });
     if (!account || !verifyPassword(password, account.password_hash)) return sendJson(res, 401, { error: 'email, phone or password is incorrect' });
     if (account.status !== 'active' && account.status !== 'approved') return sendJson(res, 403, { error: 'account is not active' });
     return sendJson(res, 200, sessionResponse(account));
@@ -321,10 +325,12 @@ async function handleAdmin(req, res, requestUrl) {
   if (req.method === 'GET' && requestUrl.pathname === '/api/admin/users') return sendJson(res, 200, await listAccounts());
 
   if (req.method === 'POST' && requestUrl.pathname === '/api/admin/users') {
-    const input = validateCredentials(await readBody(req));
+    const body = await readBody(req);
+    const input = validateCredentials(body);
     if (input.error) return sendJson(res, 400, input);
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
-    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Core', tradingScore: 0, joinedAt: new Date().toISOString() }, input.password);
+    const requestedRole = body.role === 'admin' ? 'admin' : 'user';
+    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: requestedRole, status: 'active', tier: requestedRole === 'admin' ? 'Enterprise' : 'Core', tradingScore: requestedRole === 'admin' ? 100 : 0, joinedAt: new Date().toISOString() }, input.password);
     return sendJson(res, 201, normalizeAccount(account));
   }
 

@@ -15,6 +15,7 @@ import { AdminPage } from '@/pages/AdminPage';
 import { AdminAuthPage } from '@/pages/AdminAuthPage';
 import { LegalPage } from '@/pages/LegalPage';
 import { useAuth } from '@/context/auth-context';
+import { isAdminSurface } from '@/lib/surface';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, ready } = useAuth();
@@ -39,6 +40,31 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  if (isAdminSurface) {
+    return (
+      <ThemeProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <Routes>
+              <Route path="/" element={<AdminAuthPage />} />
+              <Route path="/login" element={<AdminAuthPage />} />
+              <Route path="/admin/login" element={<AdminAuthPage />} />
+              <Route
+                path="/admin"
+                element={
+                  <AdminRoute>
+                    <AdminPage standalone />
+                  </AdminRoute>
+                }
+              />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </AuthProvider>
+        </LanguageProvider>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider>
       <LanguageProvider>
@@ -47,7 +73,6 @@ export default function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/auth/:mode" element={<AuthPage />} />
             <Route path="/legal/:page" element={<LegalPage />} />
-            <Route path="/admin/login" element={<AdminAuthPage />} />
             <Route
               path="/app"
               element={
@@ -64,14 +89,6 @@ export default function App() {
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
-            <Route
-              path="/admin"
-              element={
-                <AdminRoute>
-                  <AdminPage standalone />
-                </AdminRoute>
-              }
-            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AuthProvider>

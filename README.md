@@ -1,6 +1,6 @@
 # AD88 Platform
 
-AD88 is a React/Vite finance workspace with a polished market dashboard, sandbox paper trading, international registration, server-backed account management, cross-device workspace sync, and a separate admin console.
+AD88 is a React/Vite finance workspace with a polished market dashboard, sandbox paper trading, international registration, server-backed account management, cross-device workspace sync, and a separate admin console service.
 
 ## Local preview
 
@@ -21,10 +21,19 @@ The production output is generated in `dist/`.
 
 ## Render
 
-`render.yaml` is ready for a Render Node web service and a PostgreSQL database. Connect this repository in Render and use the blueprint configuration, then set the two private admin values:
+`render.yaml` provisions two Render Node web services and one shared PostgreSQL database:
+
+- `ad88-platform`: public user-facing frontend
+- `ad88-admin`: private administrator console
+
+Both services use the same database and `AUTH_SECRET`, so accounts, support messages, trading records and workspace state stay synchronized across devices. The two bundles are built with different `VITE_APP_SURFACE` values and the server also enforces `APP_SURFACE` at runtime.
+
+When the blueprint is first applied, set the two private admin values on `ad88-platform`:
 
 - `AD88_ADMIN_EMAIL`: the administrator email used only for `/admin` login
 - `AD88_ADMIN_PASSWORD`: the administrator password stored only as a Render secret
+
+The admin service reads those values from the frontend service through Render's private `fromService` environment references. Do not put the password in GitHub, source files, or client-side environment variables.
 
 The blueprint generates `AUTH_SECRET` and links `DATABASE_URL` to the database. Account records, password hashes, admin actions and user workspace state are then shared across browsers and devices. Do not use a demo password in production.
 
@@ -37,4 +46,4 @@ Trading and points actions remain sandbox/paper workflows. No real orders or fun
 
 ## GitHub publishing
 
-Create or select the target GitHub repository, push the project, then connect that repository to Render. The local workspace must be linked to the owner's GitHub remote and authenticated GitHub account before the push can be performed.
+The repository is `Alden12112/ad88-platform`. Push the `main` branch, then sync the Render blueprint so the second `ad88-admin` service and shared database are created.

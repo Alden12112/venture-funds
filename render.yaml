@@ -7,6 +7,10 @@ services:
     healthCheckPath: /
     pullRequestPreviewsEnabled: true
     envVars:
+      - key: APP_SURFACE
+        value: frontend
+      - key: VITE_APP_SURFACE
+        value: frontend
       - key: DATABASE_URL
         fromDatabase:
           name: ad88-postgres
@@ -17,6 +21,37 @@ services:
         sync: false
       - key: AD88_ADMIN_PASSWORD
         sync: false
+  - type: web
+    name: ad88-admin
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: APP_SURFACE
+        value: admin
+      - key: VITE_APP_SURFACE
+        value: admin
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ad88-postgres
+          property: connectionString
+      - key: AUTH_SECRET
+        fromService:
+          type: web
+          name: ad88-platform
+          envVarKey: AUTH_SECRET
+      - key: AD88_ADMIN_EMAIL
+        fromService:
+          type: web
+          name: ad88-platform
+          envVarKey: AD88_ADMIN_EMAIL
+      - key: AD88_ADMIN_PASSWORD
+        fromService:
+          type: web
+          name: ad88-platform
+          envVarKey: AD88_ADMIN_PASSWORD
 databases:
   - name: ad88-postgres
     databaseName: ad88
