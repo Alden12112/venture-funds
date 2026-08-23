@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: ad88-platform
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /
+    pullRequestPreviewsEnabled: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ad88-postgres
+          property: connectionString
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: AD88_ADMIN_EMAIL
+        sync: false
+      - key: AD88_ADMIN_PASSWORD
+        sync: false
+databases:
+  - name: ad88-postgres
+    databaseName: ad88
+    user: ad88
+    plan: free

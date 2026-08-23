@@ -1,0 +1,195 @@
+import { useMemo } from 'react';
+import type { Candle } from '@/types';
+import { useElementSize } from '@/lib/useElementSize';
+import { formatNumber } from '@/lib/format';
+
+function pathFromPoints(points: Array<[number, number]>) {
+  return points.map(([x, y], index) => `${index === 0 ? 'M' : 'L'} ${x} ${y}`).join(' ');
+}
+
+export function Sparkline({ values, positive = true }: { values: number[]; positive?: boolean }) {
+  const { ref, size } = useElementSize<HTMLDivElement>();
+  const width = Math.max(size.width, 120);
+  const height = Math.max(size.height, 56);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const pad = (max - min || 1) * 0.18;
+  const domainMin = min - pad;
+  const domainMax = max + pad;
+  const points = values.map((value, index) => {
+    const x = (index / Math.max(values.length - 1, 1)) * (width - 12) + 6;
+    const y = height - 8 - ((value - domainMin) / (domainMax - domainMin)) * (height - 16);
+    return [x, y] as [number, number];
+  });
+  const d = pathFromPoints(points);
+
+  return (
+    <div className="sparkline" ref={ref}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="价格走势">
+        <path d={d} fill="none" stroke="currentColor" strokeWidth="2" className={positive ? 'sparkline__line sparkline__line--up' : 'sparkline__line sparkline__line--down'} />
+        <circle cx={points.at(-1)?.[0] ?? width - 8} cy={points.at(-1)?.[1] ?? height / 2} r="3.5" className={positive ? 'sparkline__dot sparkline__dot--up' : 'sparkline__dot sparkline__dot--down'} />
+      </svg>
+    </div>
+  );
+}
+
+export function CandleChart({ candles }: { candles: Candle[] }) {
+  const { ref, size } = useElementSize<HTMLDivElement>();
+  const width = Math.max(size.width, 320);
+  const height = Math.max(size.height, 320);
+  const chart = useMemo(() => {
+    if (!candles.length) return null;
+    const min = Math.min(...candles.map((item) => item.low));
+    const max = Math.max(...candles.map((item) => item.high));
+    const pad = (max - min || 1) * 0.12;
+    const domainMin = min - pad;
+    const domainMax = max + pad;
+    const plotHeight = height - 54;
+    const plotWidth = width - 52;
+    const candleWidth = Math.max(4, plotWidth / candles.length * 0.48);
+    const points = candles.map((candle, index) => {
+      const x = 38 + (index / Math.max(candles.length - 1, 1)) * plotWidth;
+      const mapY = (value: number) => 18 + (1 - (value - domainMin) / (domainMax - domainMin)) * plotHeight;
+      return {
+        x,
+        open: mapY(candle.open),
+        close: mapY(candle.close),
+        high: mapY(candle.high),
+        low: mapY(candle.low),
+        bullish: candle.close >= candle.open,
+      };
+    });
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => domainMin + (domainMax - domainMin) * ratio);
+    const closeLine = pathFromPoints(points.map((point) => [point.x, point.close]));
+    const latest = points.at(-1);
+    return { points, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY: latest?.close ?? height / 2 };
+  }, [candles, height, width]);
+
+  if (!chart) {
+    return <div className="chart-empty">没有足够的K线数据</div>;
+  }
+
+  const { points, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY } = chart;
+
+  return (
+    <div className="chart-frame" ref={ref}>
+      <svg viewBox={`0 0 ${width} ${height}`} className="chart chart--candle" role="img" aria-label="K线图">
+        <defs>
+          <linearGradient id="candleGlow" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.16" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <g className="chart-grid">
+          {yTicks.map((tick) => {
+            const y = 18 + (1 - (tick - domainMin) / (domainMax - domainMin)) * (height - 54);
+            return <line key={tick} x1="38" x2={width - 16} y1={y} y2={y} />;
+          })}
+        </g>
+        <g className="chart-axis">
+          {yTicks.map((tick) => {
+            const y = 18 + (1 - (tick - domainMin) / (domainMax - domainMin)) * (height - 54);
+            return (
+              <text key={tick} x="10" y={y + 4} className="chart-axis__label">
+                {formatNumber(tick)}
+              </text>
+            );
+          })}
+        </g>
+        <path d={`${closeLine} L ${width - 16} ${height - 36} L 38 ${height - 36} Z`} className="chart-trend-area" />
+        <path d={closeLine} className="chart-trend-line" />
+        <line x1="38" x2={width - 16} y1={latestCloseY} y2={latestCloseY} className="chart-price-guide" />
+        {points.map((point, index) => {
+          const candle = candles[index];
+          return (
+            <g key={candle.time}>
+              <line x1={point.x} x2={point.x} y1={point.high} y2={point.low} className={point.bullish ? 'chart-candle chart-candle--up' : 'chart-candle chart-candle--down'} />
+              <rect
+                x={point.x - candleWidth / 2}
+                y={Math.min(point.open, point.close)}
+                width={candleWidth}
+                height={Math.max(2, Math.abs(point.open - point.close))}
+                rx="1.5"
+                className={point.bullish ? 'chart-candle chart-candle--up' : 'chart-candle chart-candle--down'}
+              />
+            </g>
+          );
+        })}
+        <circle cx={points.at(-1)?.x ?? width - 20} cy={latestCloseY} r="4" className="chart-last-dot" />
+      </svg>
+    </div>
+  );
+}
+
+export function DepthChart({
+  bids,
+  asks,
+}: {
+  bids: Array<{ price: number; cumulative: number }>;
+  asks: Array<{ price: number; cumulative: number }>;
+}) {
+  const { ref, size } = useElementSize<HTMLDivElement>();
+  const width = Math.max(size.width, 320);
+  const height = Math.max(size.height, 240);
+
+  const chart = useMemo(() => {
+    const values = [...bids, ...asks];
+    if (!values.length) return null;
+    const minPrice = Math.min(...values.map((item) => item.price));
+    const maxPrice = Math.max(...values.map((item) => item.price));
+    const maxDepth = Math.max(...values.map((item) => item.cumulative));
+    const mapX = (price: number) => 42 + ((price - minPrice) / (maxPrice - minPrice)) * (width - 60);
+    const mapY = (depth: number) => height - 30 - (depth / maxDepth) * (height - 56);
+    const makePath = (points: Array<{ price: number; cumulative: number }>) =>
+      pathFromPoints(points.map((point) => [mapX(point.price), mapY(point.cumulative)]));
+    return {
+      minPrice,
+      maxPrice,
+      maxDepth,
+      bidsPath: makePath(bids),
+      asksPath: makePath(asks),
+    };
+  }, [asks, bids, height, width]);
+
+  if (!chart) {
+    return <div className="chart-empty">没有足够的深度数据</div>;
+  }
+
+  const { minPrice, maxPrice, maxDepth, bidsPath, asksPath } = chart;
+
+  return (
+    <div className="chart-frame" ref={ref}>
+      <svg viewBox={`0 0 ${width} ${height}`} className="chart chart--depth" role="img" aria-label="深度图">
+        <defs>
+          <linearGradient id="bidDepthFill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
+          </linearGradient>
+          <linearGradient id="askDepthFill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        <g className="chart-grid">
+          <line x1="42" x2={width - 16} y1={height - 30} y2={height - 30} />
+        </g>
+        <path d={`${bidsPath} L ${width - 16} ${height - 30} L 42 ${height - 30} Z`} className="chart-depth chart-depth--bid" />
+        <path d={`${asksPath} L ${width - 16} ${height - 30} L 42 ${height - 30} Z`} className="chart-depth chart-depth--ask" />
+        <g className="chart-axis">
+          <text x="10" y="20" className="chart-axis__label">
+            {formatNumber(maxDepth)}
+          </text>
+          <text x="10" y={height - 32} className="chart-axis__label">
+            0
+          </text>
+          <text x="42" y={height - 8} className="chart-axis__label">
+            {formatNumber(minPrice)}
+          </text>
+          <text x={width - 96} y={height - 8} className="chart-axis__label">
+            {formatNumber(maxPrice)}
+          </text>
+        </g>
+      </svg>
+    </div>
+  );
+}
