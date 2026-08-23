@@ -46,4 +46,4 @@ Trading and points actions remain sandbox/paper workflows. No real orders or fun
 
 ## GitHub publishing
 
-The repository is `Alden12112/ad88-platform`. Push the `main` branch, then sync the Render blueprint so the second `ad88-admin` service and shared database are created.
+The repository is `Alden12112/ad88-platform`. Push the `main` branch, then sync the Render blueprint so the second `ad88-admin` service is created alongside the existing frontend service.
