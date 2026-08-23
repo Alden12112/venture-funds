@@ -8,7 +8,7 @@ export interface CountryOption {
 // Calling codes are kept in one catalogue so registration, profile editing and
 // admin account creation always apply the same international-phone rules.
 const rawCountryDirectory: CountryOption[] = [
-  { code: 'MY', name: 'Malaysia', dialCode: '60', digits: 10 },
+  { code: 'MY', name: 'Malaysia', dialCode: '60', digits: [9, 10] },
   { code: 'SG', name: 'Singapore', dialCode: '65', digits: 8 },
   { code: 'CN', name: 'China', dialCode: '86', digits: 11 },
   { code: 'ID', name: 'Indonesia', dialCode: '62', digits: [9, 12] },
