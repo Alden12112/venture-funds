@@ -17,7 +17,7 @@ import { hashSecret, isValidEmail } from '@/lib/auth';
 import { apiFetch, ApiError, isApiUnavailable } from '@/lib/api';
 import { SupportCenter } from '@/components/SupportCenter';
 
-const tabs = ['全部账号', '注册审核', '积分管理', '月报', '交易评分', '流水通知', '客服中心', '内容配置', '审核流'] as const;
+const tabs = ['全部账号', '注册审核', 'U 管理', '月报', '交易记录', '流水通知', '客服中心', '内容配置', '审核流'] as const;
 
 export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const { session } = useAuth();
@@ -206,7 +206,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         <StatCard label={t('admin.metricAccounts')} value={String(report.totalAccounts)} note={t('admin.metricAccountsNote')} />
         <StatCard label={t('admin.metricNew')} value={String(report.monthlyRegistrations)} note={report.monthLabel} />
         <StatCard label={t('admin.metricLedger')} value={String(report.monthlyLedgerEntries)} note={`${t('admin.metricDeposit')} ${formatCurrency(report.monthlyInflow)}`} />
-        <StatCard label="积分余额" value={String(totalCredits)} note={`待审 ${pendingCredits}`} />
+        <StatCard label="U 余额" value={String(totalCredits)} note={`待审 ${pendingCredits} U`} />
       </section>
 
       <section className="panel panel--controls">
@@ -259,8 +259,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                   <th>状态</th>
                   <th>地区</th>
                   <th>等级</th>
-                  <th className="text-end">积分余额</th>
-                  <th className="text-end">交易评分</th>
+                  <th className="text-end">U 余额</th>
                   <th>加入时间</th>
                   <th>操作</th>
                 </tr>
@@ -276,8 +275,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                       <td><StatusPill tone={user.status === 'active' ? 'success' : user.status === 'pending' ? 'warning' : 'critical'}>{user.status}</StatusPill></td>
                       <td>{user.country}</td>
                       <td>{user.tier}</td>
-                      <td className="text-end">{credit?.balance ?? 0}</td>
-                      <td className="text-end">{user.tradingScore ?? 0}</td>
+                      <td className="text-end">{credit?.balance ?? 0} U</td>
                       <td>{formatDateTime(user.joinedAt)}</td>
                       <td>{admin.data.registrations.some((item) => item.id === user.id) ? <button type="button" className="btn btn--danger btn--sm" onClick={() => deleteAccount(user.id)}><Trash2 size={14} />删除</button> : <span className="text-muted">系统账号</span>}</td>
                     </tr>
@@ -307,7 +305,6 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                   <th>Phone</th>
                   <th>Region</th>
                   <th>Status</th>
-                  <th className="text-end">Score</th>
                   <th>Submitted</th>
                   <th>Action</th>
                 </tr>
@@ -320,7 +317,6 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                     <td>{item.phone}</td>
                     <td>{item.country}</td>
                     <td><StatusPill tone={item.status === 'approved' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{item.status}</StatusPill></td>
-                    <td className="text-end">{item.tradingScore}</td>
                     <td>{formatDateTime(item.submittedAt)}</td>
                     <td>
                       {item.status === 'pending' ? (
@@ -338,13 +334,13 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         </article>
       ) : null}
 
-      {tab === '积分管理' ? (
+      {tab === 'U 管理' ? (
         <section className="content-grid content-grid--two">
           <article className="panel credit-admin">
             <div className="panel__head">
               <div>
-                <h2>积分发放</h2>
-                <p>输入账号、邮箱或点击下面账户，再输入要发放的积分。</p>
+                <h2>U 发放</h2>
+                <p>输入账号、邮箱或点击下面账户，再输入要发放的 U。</p>
               </div>
               <StatusPill tone={grantAccount || grantUser ? 'success' : 'warning'}>{grantAccount || grantUser ? '已选账号' : '等待选择'}</StatusPill>
             </div>
@@ -354,13 +350,13 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                 <input value={grantTarget} onChange={(event) => setGrantTarget(event.target.value)} placeholder="输入账号或点击账户" />
               </label>
               <label className="field">
-                <span>发放积分</span>
+                <span>发放 U</span>
                 <input type="number" min="1" step="1" value={grantAmount} onChange={(event) => setGrantAmount(Number(event.target.value))} />
               </label>
             </div>
             <button type="button" className="btn btn--primary" onClick={grantToTarget} disabled={!grantLookup || (!grantAccount && !grantUser) || grantAmount <= 0}>
               <PlusCircle size={16} />
-              发放积分
+              发放 U
             </button>
             <div className="table-wrap">
               <table className="table table--interactive">
@@ -397,7 +393,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
           <article className="panel">
             <div className="panel__head">
               <div>
-                <h2>积分申请审核</h2>
+                <h2>U 申请审核</h2>
                 <p>前台提交的申请会在这里等待批准。</p>
               </div>
               <StatusPill tone={pendingCreditRequests.length ? 'warning' : 'muted'}>{pendingCreditRequests.length} 待审</StatusPill>
@@ -407,7 +403,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                 {admin.data.creditRequests.map((request) => (
                   <div key={request.id} className="stack-list__row">
                     <div>
-                      <strong>{request.userName} / {request.amount} 积分</strong>
+                      <strong>{request.userName} / {request.amount} U</strong>
                       <span>{request.email}</span>
                       <span>{request.reason}</span>
                     </div>
@@ -427,7 +423,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               </div>
             ) : (
               <div className="state-block">
-                <strong>暂无积分申请</strong>
+                <strong>暂无 U 申请</strong>
                 <p>用户在前台提交后，这里会出现审核动作。</p>
               </div>
             )}
@@ -448,7 +444,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <StatCard label={t('admin.reportApproved')} value={String(report.monthlyApproved)} note={t('admin.reportRegistrations')} />
               <StatCard label={t('admin.reportPositions')} value={String(report.monthlyPositions)} note={t('admin.reportMarket')} />
               <StatCard label={t('admin.reportUnread')} value={String(report.unreadNotifications)} note={t('admin.reportMonthScope')} />
-              <StatCard label={t('admin.reportAverage')} value={String(report.averageTradingScore)} note={t('admin.reportAccountsScope')} />
+              <StatCard label="交易事件" value={String(visibleTradeEvents.length)} note="跨设备审计记录" />
             </section>
           </article>
           <article className="panel">
@@ -494,7 +490,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         </section>
       ) : null}
 
-      {tab === '交易评分' ? (
+      {tab === '交易记录' ? (
         <section className="content-grid content-grid--two">
           <article className="panel">
             <div className="panel__head">

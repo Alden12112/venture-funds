@@ -91,10 +91,10 @@ export function DashboardPage() {
       <MarketTicker assets={marketData.assets} />
 
       <section className="metric-grid">
-            <StatCard label="资产总额" value={formatCurrency(totalAssets)} delta={totalAssets ? formatPercent(todayChange) : undefined} note={totalAssets ? '按可用积分额度显示' : '暂无积分，资产为 0'} />
+        <StatCard label="资产总额" value={formatCurrency(totalAssets)} delta={totalAssets ? formatPercent(todayChange) : undefined} note={totalAssets ? '按可用 U 额度显示' : '暂无 U，资产为 0'} />
         <StatCard label="今日涨跌" value={formatPercent(todayChange)} note="基于仓位加权" />
         <StatCard label="待审核流水" value={String(openOrders)} note="资金与复核" />
-        <StatCard label="可用积分" value={String(creditAccount?.available ?? 0)} note={`待审 ${creditAccount?.pending ?? 0}`} />
+        <StatCard label="可用 U" value={String(creditAccount?.available ?? 0)} note={`待审 ${creditAccount?.pending ?? 0} U`} />
       </section>
 
       <section className="dashboard-visual-band">
@@ -103,7 +103,7 @@ export function DashboardPage() {
           <div>
             <span className="eyebrow">AD88 market pulse</span>
             <h2>实时价格与账户状态</h2>
-            <p>交易资产、可用积分额度和客服消息都会在同一工作区保持清晰分层。</p>
+            <p>交易资产、可用 U 额度和客服消息都会在同一工作区保持清晰分层。</p>
           </div>
           <Sparkline values={trendSeries} positive={todayChange >= 0} />
         </article>
@@ -125,19 +125,19 @@ export function DashboardPage() {
         <article className="panel credit-console">
           <div className="panel__head">
             <div>
-              <h2>积分账户</h2>
-              <p>前台可以申请积分，后台审核后会进入可用余额。</p>
+              <h2>U 账户</h2>
+              <p>前台可以申请 U，后台审核后会进入可用余额。</p>
             </div>
             <StatusPill tone="info"><WalletCards size={14} /> {String(creditAccount?.balance ?? 0)}</StatusPill>
           </div>
           <div className="credit-balance-grid">
-            <StatCard label="账户余额" value={String(creditAccount?.balance ?? 0)} note="累计积分" />
-            <StatCard label="可用积分" value={String(creditAccount?.available ?? 0)} note="可用于沙盒额度" />
+            <StatCard label="账户余额" value={String(creditAccount?.balance ?? 0)} note="累计 U" />
+            <StatCard label="可用 U" value={String(creditAccount?.available ?? 0)} note="可用于交易额度" />
             <StatCard label="待审核" value={String(creditAccount?.pending ?? 0)} note="申请中" />
           </div>
           <div className="form-grid">
             <label className="field">
-              <span>申请积分</span>
+              <span>申请 U</span>
               <input type="number" min="1" step="1" value={creditAmount} onChange={(event) => setCreditAmount(Number(event.target.value))} />
             </label>
             <label className="field">
@@ -147,14 +147,14 @@ export function DashboardPage() {
           </div>
           <button type="button" className="btn btn--primary" onClick={submitCreditRequest}>
             <HandCoins size={16} />
-            提交积分申请
+            提交 U 申请
           </button>
         </article>
 
         <article className="panel">
           <div className="panel__head">
             <div>
-              <h2>积分申请记录</h2>
+              <h2>U 申请记录</h2>
               <p>最近申请会同步到后台审核台。</p>
             </div>
             <StatusPill tone={recentCreditRequests.some((item) => item.status === 'pending') ? 'warning' : 'muted'}>
@@ -166,7 +166,7 @@ export function DashboardPage() {
               {recentCreditRequests.map((request) => (
                 <div key={request.id} className="stack-list__row">
                   <div>
-                    <strong>{request.amount} 积分</strong>
+                    <strong>{request.amount} U</strong>
                     <span>{request.reason}</span>
                   </div>
                   <div className="stack-list__meta">
@@ -180,7 +180,7 @@ export function DashboardPage() {
             </div>
           ) : (
             <div className="state-block">
-              <strong>还没有积分申请</strong>
+              <strong>还没有 U 申请</strong>
               <p>输入数量后提交，后台就能看到并处理。</p>
             </div>
           )}
@@ -221,7 +221,7 @@ export function DashboardPage() {
                       <span className={item.delta >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(item.delta)}</span>
                     </td>
                   </tr>
-                )) : <tr><td colSpan={5}><div className="empty-inline"><WalletCards size={18} /><span>暂无资产。积分通过后台审核后，资产额度会自动显示。</span></div></td></tr>}
+                )) : <tr><td colSpan={5}><div className="empty-inline"><WalletCards size={18} /><span>暂无资产。U 通过后台审核后，资产额度会自动显示。</span></div></td></tr>}
               </tbody>
             </table>
           </div>

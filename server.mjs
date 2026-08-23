@@ -457,7 +457,7 @@ function validateTradeEvent(input) {
   const leverage = input.leverage == null ? undefined : Number(input.leverage);
   const margin = input.margin == null ? undefined : Number(input.margin);
   if (!/^[A-Z0-9]{1,16}$/.test(symbol) || !['long', 'short'].includes(side) || !['open', 'close', 'partial-close', 'risk-update'].includes(action)) return { error: 'invalid trade event' };
-  if (!Number.isFinite(lots) || lots <= 0 || lots > 100000 || !Number.isFinite(price) || price <= 0) return { error: 'invalid trade values' };
+  if (!Number.isFinite(lots) || lots < 0.01 || lots > 100000 || !Number.isFinite(price) || price <= 0) return { error: 'invalid trade values' };
   if (contractSize !== undefined && (!Number.isFinite(contractSize) || contractSize <= 0)) return { error: 'invalid contract size' };
   if (leverage !== undefined && (!Number.isFinite(leverage) || leverage <= 0)) return { error: 'invalid leverage' };
   if (margin !== undefined && (!Number.isFinite(margin) || margin < 0)) return { error: 'invalid margin' };

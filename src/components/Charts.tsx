@@ -135,8 +135,8 @@ export function CandleChart({
             );
           })}
         </g>
-        <path d={`${closeLine} L ${width - 16} ${height - 36} L 38 ${height - 36} Z`} className="chart-trend-area" />
-        <path d={closeLine} className="chart-trend-line" />
+        <path d={`${closeLine} L ${width - 16} ${height - 36} L 38 ${height - 36} Z`} className="chart-trend-area" fill="url(#candleGlow)" />
+        <path d={closeLine} className="chart-trend-line" fill="none" />
         <line x1="38" x2={width - 16} y1={latestCloseY} y2={latestCloseY} className="chart-price-guide" />
         <g className="chart-drawings">
           {drawings.map((drawing, index) => {

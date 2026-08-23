@@ -37,7 +37,7 @@ function AssetLogo({ symbol, size = 'md' }: { symbol: string; size?: 'sm' | 'md'
 }
 
 export function MarketPage() {
-  const { session, profile } = useAuth();
+  const { session } = useAuth();
   const { t } = useLanguage();
   const [symbol, setSymbol] = useState('XAU');
   const [timeframe, setTimeframe] = useState<TimeframeCode>('M15');
@@ -46,7 +46,7 @@ export function MarketPage() {
   const [assetClassFilter, setAssetClassFilter] = useState<(typeof marketFilters)[number]>('全部');
   const [showAllInstruments, setShowAllInstruments] = useState(false);
   const [side, setSide] = useState<TradeSide>('long');
-  const [lots, setLots] = useState(1);
+  const [lots, setLots] = useState(0.01);
   const [contractSize, setContractSize] = useState(0.01);
   const [leverage, setLeverage] = useState(5);
   const [stopLoss, setStopLoss] = useState('');
@@ -125,11 +125,9 @@ export function MarketPage() {
   const notional = units * orderPreviewPrice;
   const margin = leverage ? notional / leverage : notional;
   const availableMargin = creditAccount?.available ?? 0;
-  const tradingScore = Number(profile?.tradingScore ?? session?.tradingScore ?? (session?.role === 'admin' ? 100 : 0));
-  const hasTradingScore = tradingScore > 0;
   const hasAssetMargin = availableMargin >= margin;
   const maxLots = orderPreviewPrice && contractSize ? (availableMargin * leverage) / (orderPreviewPrice * contractSize) : 0;
-  const canOpen = Boolean(session) && hasTradingScore && hasAssetMargin && margin > 0 && lots >= 1 && contractSize > 0 && leverage > 0;
+  const canOpen = Boolean(session) && hasAssetMargin && margin > 0 && lots >= 0.01 && contractSize > 0 && leverage > 0;
   const livePositions = userPositions.map((position) => {
     const referencePrice = priceFor(position.symbol, position.markPrice);
     const quote = getExecutionQuote(position.symbol, referencePrice);
@@ -353,7 +351,7 @@ export function MarketPage() {
         <StatCard label={`${selectedAsset?.symbol ?? 'BTC'} ${t('market.price')}`} value={formatCurrency(livePrice)} delta={formatPercent(selectedChange)} />
         <StatCard label={t('market.change24h')} value={formatPercent(selectedChange)} note={`${selectedAsset?.name ?? ''}`} />
         <StatCard label={t('market.volume24h')} value={formatCompact(selectedAsset?.volume24h ?? 0)} note="USD" />
-        <StatCard label="资产保证金" value={formatCurrency(availableMargin)} note={hasTradingScore ? '可用积分额度' : '暂无交易评分'} />
+        <StatCard label="可用保证金" value={formatCurrency(availableMargin)} note="可用 U 额度" />
       </section>
 
       <section className="content-grid content-grid--two market-workbench">
@@ -466,16 +464,16 @@ export function MarketPage() {
           <CandleChart candles={market.data.candles} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           <div className="execution-bar">
             <button type="button" className="execution-quote execution-quote--sell" onClick={() => openPosition('short', sellPrice)} disabled={!canOpen}>
-              <span>SELL · BID</span><strong>{formatNumber(sellPrice)}</strong><small>做空开仓 / 做多平仓</small>
+              <span>SELL · BID</span><strong>{formatNumber(sellPrice)}</strong><small>做空</small>
             </button>
             <div className="execution-bar__middle">
               <span className="execution-bar__label">参考中间价</span>
               <strong>{formatNumber(livePrice)}</strong>
-              <label><span>开仓手数</span><input type="number" min="1" step="1" value={lots} onChange={(event) => setLots(Math.max(1, Number(event.target.value) || 1))} /></label>
-              <small>点差 {executionQuote.spread.toFixed(executionQuote.decimals)} · 沙盒执行</small>
+              <label><span>开仓手数</span><input type="number" min="0.01" step="0.01" value={lots} onChange={(event) => setLots(Math.max(0.01, Number(event.target.value) || 0.01))} /></label>
+              <small>点差 {executionQuote.spread.toFixed(executionQuote.decimals)}</small>
             </div>
             <button type="button" className="execution-quote execution-quote--buy" onClick={() => openPosition('long', buyPrice)} disabled={!canOpen}>
-              <span>BUY · ASK</span><strong>{formatNumber(buyPrice)}</strong><small>做多开仓 / 做空平仓</small>
+              <span>BUY · ASK</span><strong>{formatNumber(buyPrice)}</strong><small>做多</small>
             </button>
           </div>
         </article>
@@ -488,7 +486,7 @@ export function MarketPage() {
               <h2>{t('market.orderTicket')}</h2>
               <p>{t('market.orderHint')}</p>
             </div>
-            <StatusPill tone={canOpen ? 'success' : 'warning'}>{canOpen ? t('market.canOpen') : !hasTradingScore ? '等待后台评分' : !hasAssetMargin ? '该资产保证金不足' : t('market.marginWarning')}</StatusPill>
+            <StatusPill tone={canOpen ? 'success' : 'warning'}>{canOpen ? t('market.canOpen') : !session ? '请先登录' : !hasAssetMargin ? '该资产保证金不足' : t('market.marginWarning')}</StatusPill>
           </div>
 
           <div className="trade-side-control">
@@ -505,7 +503,7 @@ export function MarketPage() {
           <div className="form-grid">
             <label className="field">
               <span>{t('market.lots')}</span>
-              <input type="number" min="1" step="1" value={lots} onChange={(event) => setLots(Math.max(1, Number(event.target.value) || 1))} />
+              <input type="number" min="0.01" step="0.01" value={lots} onChange={(event) => setLots(Math.max(0.01, Number(event.target.value) || 0.01))} />
             </label>
             <label className="field">
               <span>{t('market.contractSize')}</span>
@@ -540,7 +538,7 @@ export function MarketPage() {
           </button>
           <div className="risk-note">
             <AlertTriangle size={16} />
-            {!hasTradingScore ? '当前账号没有交易评分，只能查看行情；请等待后台评分。' : !hasAssetMargin ? `当前账号可用保证金 ${formatCurrency(availableMargin)}，低于 ${symbol} 所需的 ${formatCurrency(margin)}。` : t('market.paperOnly')}
+            {!session ? '登录后可按账户可用 U 额度开仓。' : !hasAssetMargin ? `当前账号可用保证金 ${formatCurrency(availableMargin)}，低于 ${symbol} 所需的 ${formatCurrency(margin)}。` : t('market.paperOnly')}
           </div>
         </article>
 
@@ -710,7 +708,7 @@ export function MarketPage() {
             <span>{t('market.source')} {market.data.source.provider}</span>
             <span>{t('market.updated')} {formatDateTime(market.data.source.updatedAt)}</span>
             <span>{t('market.cache')} {market.data.source.cacheState}</span>
-            <span>沙盒执行点差 {executionQuote.spread.toFixed(executionQuote.decimals)} ({spread.toFixed(2)} bps)</span>
+            <span>点差 {executionQuote.spread.toFixed(executionQuote.decimals)} ({spread.toFixed(2)} bps)</span>
           </div>
         </article>
       </section>
