@@ -16,6 +16,12 @@ const memorySupportMessages = [];
 const memoryTradeEvents = [];
 const marketProxyCache = new Map();
 const marketProxyTtlMs = 8_000;
+const marketFallbackPrices = {
+  'GC=F': [4680.6, 0.42], 'SI=F': [54.18, -0.18], 'CL=F': [79.22, 1.1], 'NG=F': [2.86, -1.42], 'HG=F': [4.31, 0.68],
+  SCCO: [94.3, 0.36], 'BZ=F': [82.14, 0.62], 'PL=F': [982.4, 0.21], 'PA=F': [1028.5, -0.38], 'ZC=F': [432.25, 0.15],
+  'ZW=F': [548.5, -0.27], 'KC=F': [312.8, 0.74], 'EURUSD=X': [1.0912, -0.12], 'GBPUSD=X': [1.2748, 0.21],
+  'JPY=X': [156.42, 0.09], 'AUDUSD=X': [0.6543, -0.08], 'CAD=X': [1.3714, 0.04], '^GSPC': [5615.2, 0.34], '^NDX': [19842.1, 0.48], '^GDAXI': [18422.6, 0.26],
+};
 let pool = null;
 // Keep the server-side rule set aligned with the international catalogue used by the UI.
 // These are national-number lengths after the country calling code.
@@ -45,6 +51,15 @@ function setCommonHeaders(res) {
   res.setHeader('cache-control', 'no-store');
   res.setHeader('x-content-type-options', 'nosniff');
   res.setHeader('referrer-policy', 'same-origin');
+}
+
+function buildMarketFallback(symbol) {
+  const [price, change] = marketFallbackPrices[symbol] || [100, 0];
+  const previousClose = price / (1 + change / 100);
+  const now = Math.floor(Date.now() / 1000);
+  const timestamps = Array.from({ length: 48 }, (_, index) => now - (47 - index) * 900);
+  const closes = timestamps.map((_, index) => price - (price - previousClose) * ((47 - index) / 47));
+  return { ad88Fallback: true, chart: { result: [{ meta: { regularMarketPrice: price, regularMarketTime: now, previousClose, chartPreviousClose: previousClose, regularMarketDayHigh: price * 1.01, regularMarketDayLow: price * 0.99, regularMarketVolume: 0 }, timestamp: timestamps, indicators: { quote: [{ open: closes, high: closes.map((value) => value * 1.002), low: closes.map((value) => value * 0.998), close: closes, volume: closes.map(() => 0) }] } }] } };
 }
 
 function normalizePhone(value) {
@@ -546,6 +561,13 @@ async function proxyMarket(res, requestUrl) {
       } catch {
         continue;
       }
+    }
+    if (lastStatus === 429 || !lastBody) {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.setHeader('x-ad88-cache', 'fallback');
+      res.end(JSON.stringify(buildMarketFallback(symbol)));
+      return;
     }
     res.statusCode = lastStatus;
     res.setHeader('content-type', 'application/json; charset=utf-8');

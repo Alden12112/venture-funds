@@ -13,7 +13,7 @@ interface YahooChartResult {
   timestamp?: number[];
   indicators?: { quote?: Array<{ open?: Array<number | null>; high?: Array<number | null>; low?: Array<number | null>; close?: Array<number | null>; volume?: Array<number | null> }> };
 }
-interface YahooChartResponse { chart?: { result?: YahooChartResult[] } }
+interface YahooChartResponse { ad88Fallback?: boolean; chart?: { result?: YahooChartResult[] } }
 
 type LoadedAsset = MarketAsset & {
   open24h: number;
@@ -167,6 +167,7 @@ async function loadCachedAsset(product: typeof marketProducts[number]) {
 
 async function loadYahooAsset(product: typeof marketProducts[number]): Promise<LoadedAsset> {
   const data = await getJson<YahooChartResponse>(`/api/market?symbol=${encodeURIComponent(product.providerSymbol)}&range=1d&interval=15m`);
+  if (data.ad88Fallback) throw new Error(`Market provider fallback for ${product.symbol}`);
   const result = data.chart?.result?.[0];
   if (!result?.meta) throw new Error(`Market data unavailable for ${product.symbol}`);
   const meta = result.meta;
