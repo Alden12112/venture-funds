@@ -3,7 +3,7 @@ import type { LanguageCode } from '@/types';
 type TranslationKey = string;
 
 const commonZh = {
-  'market.description': '实时价格由 WebSocket 数据流驱动，K 线和订单簿来自真实公共行情 API。',
+  'market.description': '加密资产使用交易所实时订阅；其他品种每秒检查公开报价，并明确显示源报价时间。',
   'market.price': '价格',
   'market.change24h': '24h 涨跌',
   'market.volume24h': '24h 成交量',
@@ -51,7 +51,7 @@ const commonZh = {
 };
 
 const commonMs = {
-  'market.description': 'Harga masa nyata dipacu aliran WebSocket; carta dan buku pesanan datang daripada API pasaran awam.',
+  'market.description': 'Aset kripto menggunakan langganan bursa masa nyata; instrumen lain diperiksa setiap saat dengan masa sebut harga sumber yang jelas.',
   'market.price': 'Harga',
   'market.change24h': 'Perubahan 24j',
   'market.volume24h': 'Volum 24j',
@@ -99,7 +99,7 @@ const commonMs = {
 };
 
 const commonEn = {
-  'market.description': 'Live price uses a WebSocket stream; candles and order book come from public market APIs.',
+  'market.description': 'Crypto uses an exchange stream; other instruments are checked every second with the source quote timestamp kept visible.',
   'market.price': 'Price',
   'market.change24h': '24h change',
   'market.volume24h': '24h volume',

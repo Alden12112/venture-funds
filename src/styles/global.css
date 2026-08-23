@@ -979,6 +979,29 @@ table {
   color: var(--accent-strong);
 }
 
+.instrument-disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 2px 0;
+  border-top: 1px solid var(--border);
+}
+
+.instrument-disclosure > div {
+  display: grid;
+  gap: 3px;
+}
+
+.instrument-disclosure strong {
+  font-size: 13px;
+}
+
+.instrument-disclosure span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .field {
   display: grid;
   gap: 7px;
@@ -3150,6 +3173,16 @@ table {
   .execution-bar,
   .support-console__body {
     grid-template-columns: 1fr;
+  }
+
+  .instrument-disclosure {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .instrument-disclosure .btn {
+    width: 100%;
+    justify-content: center;
   }
 
   .instrument-banner {

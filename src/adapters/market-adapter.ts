@@ -1,5 +1,5 @@
 import type { Candle, MarketAsset, MarketBundle, MarketQuote, OrderLevel, SourceMeta, TimeframeCode } from '@/types';
-import { getMarketProduct, marketProducts } from '@/data/assets';
+import { getExecutionQuote, getMarketProduct, marketProducts } from '@/data/assets';
 
 const coinbaseBase = 'https://api.exchange.coinbase.com';
 
@@ -73,16 +73,13 @@ function buildOrderLevels(levels: Array<[string, string, number]>, side: 'bid' |
 }
 
 function spreadFor(product: typeof marketProducts[number]) {
-  if (product.assetClass === 'forex') return 1.2;
-  if (product.assetClass === 'commodity') return 5.5;
-  if (product.assetClass === 'equity' || product.assetClass === 'index') return 7.5;
-  return 4;
+  const fallbackPrice = fallbackPriceForSpread(product.symbol);
+  return getExecutionQuote(product.symbol, fallbackPrice).spreadBps;
 }
 
 function buildSyntheticBook(price: number, product: typeof marketProducts[number]) {
-  const spreadBps = spreadFor(product);
-  const halfSpread = price * spreadBps / 20000;
-  const tick = Math.max(price / 10000, halfSpread / 2);
+  const quote = getExecutionQuote(product.symbol, price);
+  const tick = Math.max(10 ** -quote.decimals, quote.spread / 2);
   const asks: OrderLevel[] = [];
   const bids: OrderLevel[] = [];
   let askDepth = 0;
@@ -92,8 +89,8 @@ function buildSyntheticBook(price: number, product: typeof marketProducts[number
     const bidSize = Number((0.22 + index * 0.045).toFixed(4));
     askDepth += askSize;
     bidDepth += bidSize;
-    asks.push({ price: price + halfSpread + tick * index, size: askSize, depth: askDepth, side: 'ask' });
-    bids.push({ price: price - halfSpread - tick * index, size: bidSize, depth: bidDepth, side: 'bid' });
+    asks.push({ price: Number((quote.ask + tick * index).toFixed(quote.decimals)), size: askSize, depth: askDepth, side: 'ask' });
+    bids.push({ price: Number((quote.bid - tick * index).toFixed(quote.decimals)), size: bidSize, depth: bidDepth, side: 'bid' });
   }
   return { asks, bids };
 }
@@ -126,11 +123,15 @@ function fallbackPrice(symbol: string) {
   return values[symbol] ?? { price: 100, change: 0, volume: 1000000 };
 }
 
+function fallbackPriceForSpread(symbol: string) {
+  return fallbackPrice(symbol).price;
+}
+
 function fallbackAsset(product: typeof marketProducts[number]): LoadedAsset {
   const snapshot = fallbackPrice(product.symbol);
   return {
     symbol: product.symbol, name: product.name, assetClass: product.assetClass, price: snapshot.price, change24h: snapshot.change, volume24h: snapshot.volume,
-    spreadBps: spreadFor(product), updatedAt: new Date().toISOString(), open24h: snapshot.price / (1 + snapshot.change / 100), high24h: snapshot.price * 1.012,
+    spreadBps: getExecutionQuote(product.symbol, snapshot.price).spreadBps, updatedAt: new Date().toISOString(), open24h: snapshot.price / (1 + snapshot.change / 100), high24h: snapshot.price * 1.012,
     low24h: snapshot.price * 0.988, candles: makeFallbackCandles(snapshot.price, snapshot.change), orderBook: buildSyntheticBook(snapshot.price, product), fallback: true,
   };
 }
@@ -139,7 +140,7 @@ async function loadCoinbaseAsset(product: typeof marketProducts[number]): Promis
   const [ticker, stats] = await Promise.all([getJson<CoinbaseTicker>(`${coinbaseBase}/products/${product.productId}/ticker`), getJson<CoinbaseStats>(`${coinbaseBase}/products/${product.productId}/stats`)]);
   const price = toNumber(ticker.price, toNumber(stats.last));
   const open = toNumber(stats.open, price);
-  return { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h: open ? ((price - open) / open) * 100 : 0, volume24h: toNumber(stats.volume, toNumber(ticker.volume)) * price, spreadBps: computeSpreadBasisPoints(toNumber(ticker.bid), toNumber(ticker.ask)), updatedAt: ticker.time, open24h: open, high24h: toNumber(stats.high, price), low24h: toNumber(stats.low, price) };
+  return { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h: open ? ((price - open) / open) * 100 : 0, volume24h: toNumber(stats.volume, toNumber(ticker.volume)) * price, spreadBps: getExecutionQuote(product.symbol, price).spreadBps, updatedAt: ticker.time, open24h: open, high24h: toNumber(stats.high, price), low24h: toNumber(stats.low, price) };
 }
 
 async function loadCachedAsset(product: typeof marketProducts[number]) {
@@ -181,7 +182,7 @@ async function loadYahooAsset(product: typeof marketProducts[number]): Promise<L
     return { time: new Date(time * 1000).toISOString(), open, high: toNumber(quote?.high?.[index], Math.max(open, close)), low: toNumber(quote?.low?.[index], Math.min(open, close)), close, volume: toNumber(quote?.volume?.[index]) };
   }).filter((candle) => candle.close > 0);
   const change24h = previousClose ? ((price - previousClose) / previousClose) * 100 : 0;
-  return { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h, volume24h: toNumber(meta.regularMarketVolume), spreadBps: spreadFor(product), updatedAt: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : new Date().toISOString(), open24h: previousClose, high24h: toNumber(meta.regularMarketDayHigh, price), low24h: toNumber(meta.regularMarketDayLow, price), candles: candles.length > 4 ? candles : makeFallbackCandles(price, change24h), orderBook: buildSyntheticBook(price, product) };
+  return { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h, volume24h: toNumber(meta.regularMarketVolume), spreadBps: getExecutionQuote(product.symbol, price).spreadBps, updatedAt: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : new Date().toISOString(), open24h: previousClose, high24h: toNumber(meta.regularMarketDayHigh, price), low24h: toNumber(meta.regularMarketDayLow, price), candles: candles.length > 4 ? candles : makeFallbackCandles(price, change24h), orderBook: buildSyntheticBook(price, product) };
 }
 
 async function loadSelectedCoinbaseDetails(product: typeof marketProducts[number], timeframe: TimeframeCode, source: SourceMeta) {
@@ -201,7 +202,7 @@ async function loadSelectedCoinbaseDetails(product: typeof marketProducts[number
   const open24h = toNumber(stats.open, price);
   const asks = buildOrderLevels(book.asks, 'ask');
   const bids = buildOrderLevels(book.bids, 'bid');
-  const selected: MarketQuote = { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h: open24h ? ((price - open24h) / open24h) * 100 : 0, volume24h: toNumber(stats.volume, toNumber(ticker.volume)) * price, spreadBps: computeSpreadBasisPoints(toNumber(ticker.bid), toNumber(ticker.ask)), updatedAt: ticker.time, open24h, high24h: toNumber(stats.high, price), low24h: toNumber(stats.low, price), source };
+  const selected: MarketQuote = { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h: open24h ? ((price - open24h) / open24h) * 100 : 0, volume24h: toNumber(stats.volume, toNumber(ticker.volume)) * price, spreadBps: getExecutionQuote(product.symbol, price).spreadBps, updatedAt: ticker.time, open24h, high24h: toNumber(stats.high, price), low24h: toNumber(stats.low, price), source };
   const value = { selected, orderBook: { asks, bids }, candles: aggregateCandles(candlesRaw.map(parseCandle).sort((left, right) => new Date(left.time).getTime() - new Date(right.time).getTime()), config.aggregate) };
   detailCache.set(cacheKey, { expiresAt: Date.now() + marketCacheTtlMs, value });
   return value;
@@ -229,4 +230,19 @@ export async function loadMarketBundle(symbol = 'BTC', timeframe: TimeframeCode 
 export function computeSpreadBasisPoints(bestBid: number, bestAsk: number) {
   if (!bestBid || !bestAsk) return 0;
   return ((bestAsk - bestBid) / ((bestAsk + bestBid) / 2)) * 10000;
+}
+
+export async function loadIndicativeQuote(symbol: string) {
+  const product = getMarketProduct(symbol);
+  if (product.productId) throw new Error('Crypto quotes are streamed through the exchange ticker');
+  const data = await getJson<YahooChartResponse>(`/api/market?symbol=${encodeURIComponent(product.providerSymbol)}&range=1d&interval=1m&fast=1`);
+  if (data.ad88Fallback) throw new Error(`Market provider fallback for ${product.symbol}`);
+  const meta = data.chart?.result?.[0]?.meta;
+  const price = toNumber(meta?.regularMarketPrice);
+  if (!price) throw new Error(`Market price unavailable for ${product.symbol}`);
+  return {
+    symbol: product.symbol,
+    price,
+    quoteUpdatedAt: meta?.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : new Date().toISOString(),
+  };
 }

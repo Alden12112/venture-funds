@@ -29,6 +29,50 @@ export const marketProducts = [
 
 export type MarketProductSymbol = (typeof marketProducts)[number]['symbol'];
 
+type ExecutionSpec = {
+  /** Total sandbox bid/ask spread in the instrument quote currency. */
+  spread: number;
+  decimals: number;
+};
+
+// These are deliberately visible paper-trading execution spreads, rather than
+// a claim about an exchange's order book. The two-sided quote is recalculated
+// from the latest reference price on every price update.
+const executionSpecs: Record<string, ExecutionSpec> = {
+  XAU: { spread: 0.30, decimals: 2 }, XAG: { spread: 0.035, decimals: 3 },
+  CL: { spread: 0.03, decimals: 3 }, NG: { spread: 0.006, decimals: 4 },
+  HG: { spread: 0.004, decimals: 4 }, SCCO: { spread: 0.04, decimals: 2 },
+  BRN: { spread: 0.03, decimals: 3 }, PL: { spread: 0.45, decimals: 2 },
+  PA: { spread: 0.65, decimals: 2 }, CORN: { spread: 0.25, decimals: 2 },
+  WHEAT: { spread: 0.25, decimals: 2 }, COFFEE: { spread: 0.30, decimals: 2 },
+  BTC: { spread: 8, decimals: 2 }, ETH: { spread: 0.60, decimals: 2 },
+  SOL: { spread: 0.05, decimals: 3 }, XRP: { spread: 0.0012, decimals: 4 },
+  LINK: { spread: 0.012, decimals: 3 }, AVAX: { spread: 0.012, decimals: 3 },
+  EURUSD: { spread: 0.00012, decimals: 5 }, GBPUSD: { spread: 0.00014, decimals: 5 },
+  USDJPY: { spread: 0.012, decimals: 3 }, AUDUSD: { spread: 0.00012, decimals: 5 },
+  USDCAD: { spread: 0.00014, decimals: 5 }, SPX: { spread: 0.80, decimals: 2 },
+  NAS100: { spread: 2.00, decimals: 2 }, DAX: { spread: 1.20, decimals: 2 },
+};
+
+function roundQuote(value: number, decimals: number) {
+  return Number(value.toFixed(decimals));
+}
+
+export function getExecutionQuote(symbol: string, referencePrice: number) {
+  const spec = executionSpecs[symbol.toUpperCase()] ?? { spread: Math.max(referencePrice * 0.0005, 0.01), decimals: referencePrice < 1 ? 5 : 2 };
+  const halfSpread = spec.spread / 2;
+  const bid = roundQuote(Math.max(0, referencePrice - halfSpread), spec.decimals);
+  const ask = roundQuote(referencePrice + halfSpread, spec.decimals);
+  const spread = roundQuote(Math.max(0, ask - bid), spec.decimals);
+  return {
+    bid,
+    ask,
+    spread,
+    decimals: spec.decimals,
+    spreadBps: referencePrice ? (spread / referencePrice) * 10_000 : 0,
+  };
+}
+
 export function getMarketProduct(symbol: string) {
   return marketProducts.find((product) => product.symbol === symbol.toUpperCase()) ?? marketProducts[0];
 }

@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, CheckCircle2, Clock3, Crosshair, Database, Gauge, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2, Wifi } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, CheckCircle2, ChevronDown, ChevronUp, Clock3, Crosshair, Database, Gauge, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2, Wifi } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { CandleChart, DepthChart } from '@/components/Charts';
 import type { ChartDrawing } from '@/components/Charts';
 import { DataMeta, LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { MarketTicker } from '@/components/MarketTicker';
 import { useAsyncResource } from '@/lib/useAsyncResource';
-import { computeSpreadBasisPoints, loadMarketBundle } from '@/adapters/market-adapter';
+import { loadMarketBundle } from '@/adapters/market-adapter';
 import { formatCurrency, formatPercent, formatCompact, formatNumber, formatDateTime } from '@/lib/format';
-import { useLiveTickers } from '@/lib/useLiveTicker';
+import { useIndicativeQuotePulse, useLiveTickers } from '@/lib/useLiveTicker';
 import { readStorage, writeStorage } from '@/lib/storage';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
-import { getMarketProduct } from '@/data/assets';
+import { getExecutionQuote, getMarketProduct } from '@/data/assets';
 import { marketFilters } from '@/data/navigation';
 import { apiFetch } from '@/lib/api';
 import { ensureCreditAccount, readCreditAccounts, writeCreditAccounts } from '@/lib/credits';
@@ -20,11 +20,11 @@ import type { CreditAccount, PaperPosition, TimeframeCode, TradeSide } from '@/t
 
 const timeframes: TimeframeCode[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
-function computePnl(position: PaperPosition, markPrice: number) {
-  const units = position.lots * position.contractSize;
+function computePnl(position: PaperPosition, exitPrice: number, lots = position.remainingLots ?? position.lots) {
+  const units = lots * position.contractSize;
   return position.side === 'long'
-    ? (markPrice - position.entryPrice) * units
-    : (position.entryPrice - markPrice) * units;
+    ? (exitPrice - position.entryPrice) * units
+    : (position.entryPrice - exitPrice) * units;
 }
 
 function AssetLogo({ symbol, size = 'md' }: { symbol: string; size?: 'sm' | 'md' | 'lg' }) {
@@ -44,6 +44,7 @@ export function MarketPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [assetClassFilter, setAssetClassFilter] = useState<(typeof marketFilters)[number]>('全部');
+  const [showAllInstruments, setShowAllInstruments] = useState(false);
   const [side, setSide] = useState<TradeSide>('long');
   const [lots, setLots] = useState(1);
   const [contractSize, setContractSize] = useState(0.01);
@@ -82,37 +83,58 @@ export function MarketPage() {
     return Object.fromEntries(market.data.assets.map((asset) => [asset.symbol, asset.price]));
   }, [market]);
   const live = useLiveTickers(fallbackPrices);
+  const userPositions = positions.filter((position) => (position.userId === session?.id || (!position.userId && session?.id)) && position.status !== 'closed');
+  const watchedSymbols = useMemo(() => [symbol, ...userPositions.map((position) => position.symbol)], [symbol, userPositions]);
+  const quotePulse = useIndicativeQuotePulse(watchedSymbols, fallbackPrices);
+  const priceFor = (assetSymbol: string, fallback: number) => {
+    const product = getMarketProduct(assetSymbol);
+    return product.productId ? live.prices[assetSymbol] ?? fallback : quotePulse.prices[assetSymbol] ?? fallback;
+  };
   const fallbackPrice = market.status === 'success' ? market.data.selected.price : 0;
-  const livePrice = live.prices[symbol] || fallbackPrice;
-  const selectedUpdatedAt = live.lastTickAt[symbol] ? new Date(live.lastTickAt[symbol]).toISOString() : market.status === 'success' ? market.data.selected.updatedAt : new Date().toISOString();
+  const livePrice = priceFor(symbol, fallbackPrice);
+  const selectedUpdatedAt = getMarketProduct(symbol).productId && live.lastTickAt[symbol]
+    ? new Date(live.lastTickAt[symbol]).toISOString()
+    : quotePulse.quoteUpdatedAt[symbol]
+      ? new Date(quotePulse.quoteUpdatedAt[symbol]).toISOString()
+      : market.status === 'success' ? market.data.selected.updatedAt : new Date().toISOString();
   const selectedAsset = market.status === 'success' ? { ...market.data.selected, price: livePrice, updatedAt: selectedUpdatedAt } : null;
-  const spread = market.status === 'success' ? computeSpreadBasisPoints(market.data.orderBook.bids[0].price, market.data.orderBook.asks[0].price) : 0;
+  const executionQuote = getExecutionQuote(symbol, livePrice);
+  const spread = executionQuote.spreadBps;
   const selectedChange = selectedAsset?.change24h ?? 0;
 
   const rows = useMemo(() => {
     if (market.status !== 'success') return [];
     return market.data.assets.map((asset) => ({
       ...asset,
-      price: live.prices[asset.symbol] ?? asset.price,
-      updatedAt: live.lastTickAt[asset.symbol] ? new Date(live.lastTickAt[asset.symbol]).toISOString() : asset.updatedAt,
+      price: priceFor(asset.symbol, asset.price),
+      updatedAt: getMarketProduct(asset.symbol).productId && live.lastTickAt[asset.symbol]
+        ? new Date(live.lastTickAt[asset.symbol]).toISOString()
+        : quotePulse.quoteUpdatedAt[asset.symbol]
+          ? new Date(quotePulse.quoteUpdatedAt[asset.symbol]).toISOString()
+          : asset.updatedAt,
     }));
-  }, [live.lastTickAt, live.prices, market]);
-  const visibleRows = useMemo(() => {
+  }, [live.lastTickAt, live.prices, market, quotePulse.prices, quotePulse.quoteUpdatedAt]);
+  const filteredRows = useMemo(() => {
     if (assetClassFilter === '全部') return rows;
     return rows.filter((asset) => asset.assetClass === assetClassFilter);
   }, [assetClassFilter, rows]);
+  const visibleRows = useMemo(() => showAllInstruments ? filteredRows : filteredRows.slice(0, 10), [filteredRows, showAllInstruments]);
 
   const units = lots * contractSize;
-  const notional = units * livePrice;
+  const orderPreviewPrice = side === 'long' ? executionQuote.ask : executionQuote.bid;
+  const notional = units * orderPreviewPrice;
   const margin = leverage ? notional / leverage : notional;
   const availableMargin = creditAccount?.available ?? 0;
   const tradingScore = Number(profile?.tradingScore ?? session?.tradingScore ?? (session?.role === 'admin' ? 100 : 0));
   const hasTradingScore = tradingScore > 0;
   const hasAssetMargin = availableMargin >= margin;
-  const maxLots = livePrice && contractSize ? (availableMargin * leverage) / (livePrice * contractSize) : 0;
+  const maxLots = orderPreviewPrice && contractSize ? (availableMargin * leverage) / (orderPreviewPrice * contractSize) : 0;
   const canOpen = Boolean(session) && hasTradingScore && hasAssetMargin && margin > 0 && lots >= 1 && contractSize > 0 && leverage > 0;
-  const userPositions = positions.filter((position) => (position.userId === session?.id || (!position.userId && session?.id)) && position.status !== 'closed');
-  const livePositions = userPositions.map((position) => ({ ...position, markPrice: live.prices[position.symbol] ?? position.markPrice }));
+  const livePositions = userPositions.map((position) => {
+    const referencePrice = priceFor(position.symbol, position.markPrice);
+    const quote = getExecutionQuote(position.symbol, referencePrice);
+    return { ...position, markPrice: position.side === 'long' ? quote.bid : quote.ask };
+  });
   const totalPnl = livePositions.reduce((sum, position) => sum + computePnl(position, position.markPrice), 0);
   const selectedPosition = livePositions.find((position) => position.id === selectedPositionId) ?? livePositions[0];
 
@@ -133,9 +155,8 @@ export function MarketPage() {
     if (market.status === 'success') setRefreshing(false);
   }, [market.status, market.status === 'success' ? market.data.source.updatedAt : '']);
 
-  const quoteSpread = 0.30;
-  const sellPrice = Number((livePrice + quoteSpread).toFixed(2));
-  const buyPrice = Number((livePrice - quoteSpread).toFixed(2));
+  const sellPrice = executionQuote.bid;
+  const buyPrice = executionQuote.ask;
 
   const auditTrade = (event: { positionId: string; symbol: string; side: TradeSide; action: 'open' | 'close' | 'partial-close' | 'risk-update'; lots: number; price: number; contractSize?: number; leverage?: number; margin?: number }) => {
     void apiFetch('/api/trades', { method: 'POST', body: JSON.stringify(event) }).catch(() => undefined);
@@ -152,18 +173,25 @@ export function MarketPage() {
     return true;
   };
 
-  const releaseMargin = (amount: number) => {
+  const settlePaperTrade = (amount: number, pnl = 0) => {
     if (!session || amount <= 0) return;
     const accounts = readCreditAccounts();
     const current = accounts.find((item) => item.userId === session.id || item.email.toLowerCase() === session.email.toLowerCase());
     if (!current) return;
-    const next = { ...current, available: Number((current.available + amount).toFixed(2)), updatedAt: new Date().toISOString() };
+    const next = {
+      ...current,
+      balance: Number((current.balance + pnl).toFixed(2)),
+      available: Number((current.available + amount + pnl).toFixed(2)),
+      updatedAt: new Date().toISOString(),
+    };
     writeCreditAccounts(accounts.map((item) => item.userId === current.userId ? next : item));
     setCreditAccount(next);
   };
 
-  const openPosition = (orderSide: TradeSide = side, orderPrice = livePrice) => {
-    if (!canOpen || !orderPrice || !reserveMargin(margin)) return;
+  const openPosition = (orderSide: TradeSide = side, orderPrice = orderPreviewPrice) => {
+    const orderNotional = lots * contractSize * orderPrice;
+    const orderMargin = leverage ? orderNotional / leverage : orderNotional;
+    if (!canOpen || !orderPrice || !reserveMargin(orderMargin)) return;
     const positionId = crypto.randomUUID();
     const next: PaperPosition = {
       id: positionId,
@@ -176,8 +204,8 @@ export function MarketPage() {
       leverage,
       entryPrice: orderPrice,
       markPrice: orderPrice,
-      notional,
-      margin,
+      notional: orderNotional,
+      margin: orderMargin,
       stopLoss: stopLoss ? Number(stopLoss) : undefined,
       takeProfit: takeProfit ? Number(takeProfit) : undefined,
       openedAt: new Date().toISOString(),
@@ -187,7 +215,7 @@ export function MarketPage() {
     };
     setPositions((current) => [next, ...current]);
     setSelectedPositionId(next.id);
-    auditTrade({ positionId, symbol, side: orderSide, action: 'open', lots, price: orderPrice, contractSize, leverage, margin });
+    auditTrade({ positionId, symbol, side: orderSide, action: 'open', lots, price: orderPrice, contractSize, leverage, margin: orderMargin });
   };
 
   useEffect(() => {
@@ -198,7 +226,8 @@ export function MarketPage() {
   const closePosition = (id: string) => {
     const position = userPositions.find((item) => item.id === id);
     if (position) {
-      releaseMargin(position.margin * ((position.remainingLots ?? position.lots) / position.lots));
+      const closeLots = position.remainingLots ?? position.lots;
+      settlePaperTrade(position.margin * (closeLots / position.lots), computePnl(position, position.markPrice, closeLots));
       auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
     }
     setPositions((current) =>
@@ -212,7 +241,8 @@ export function MarketPage() {
 
   const closeAllPositions = () => {
     userPositions.forEach((position) => {
-      releaseMargin(position.margin * ((position.remainingLots ?? position.lots) / position.lots));
+      const closeLots = position.remainingLots ?? position.lots;
+      settlePaperTrade(position.margin * (closeLots / position.lots), computePnl(position, position.markPrice, closeLots));
       auditTrade({ positionId: position.id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
     });
     setPositions((current) =>
@@ -230,7 +260,7 @@ export function MarketPage() {
     if (!position) return;
     const remaining = position.remainingLots ?? position.lots;
     const closeLots = Math.min(Math.max(partialLots, 0.01), remaining);
-    releaseMargin(position.margin * (closeLots / position.lots));
+    settlePaperTrade(position.margin * (closeLots / position.lots), computePnl(position, position.markPrice, closeLots));
     auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: closeLots >= remaining ? 'close' : 'partial-close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
     setPositions((current) =>
       current.map((position) => {
@@ -277,10 +307,13 @@ export function MarketPage() {
   }
 
   const selectedIsCrypto = selectedAsset?.assetClass === 'crypto';
-  const selectedFeedState = selectedIsCrypto && live.lastTickAt[symbol] ? live.status : market.data.source.cacheState === 'fresh' ? 'http-fresh' : market.data.source.cacheState;
+  const selectedFeedState = selectedIsCrypto && live.lastTickAt[symbol]
+    ? live.status
+    : quotePulse.status === 'fresh' ? 'http-fresh' : quotePulse.status === 'polling' ? 'polling' : quotePulse.status === 'stale' ? 'stale' : market.data.source.cacheState;
   const liveTone = selectedFeedState === 'live' || selectedFeedState === 'http-fresh' ? 'success' : selectedFeedState === 'stale' || selectedFeedState === 'offline' ? 'critical' : 'warning';
-  const liveLabel = selectedFeedState === 'live' ? '实时订阅' : selectedFeedState === 'http-fresh' ? 'HTTP 实时' : selectedFeedState === 'cached' ? '缓存' : selectedFeedState === 'stale' ? '延迟' : selectedFeedState === 'offline' ? '离线' : '连接中';
+  const liveLabel = selectedFeedState === 'live' ? '实时订阅' : selectedFeedState === 'http-fresh' ? '每秒检查' : selectedFeedState === 'polling' ? '更新中' : selectedFeedState === 'cached' ? '缓存' : selectedFeedState === 'stale' ? '延迟' : selectedFeedState === 'offline' ? '离线' : '连接中';
   const endpointLabel = market.data.source.endpoint === '/api/market' ? '同源行情代理' : selectedIsCrypto ? 'Coinbase 公共订阅' : '公共行情 API';
+  const quoteCheckAt = selectedIsCrypto ? live.lastTickAt[symbol] : quotePulse.lastCheckedAt[symbol];
 
   return (
     <div className="page-stack">
@@ -305,14 +338,14 @@ export function MarketPage() {
           <div>
             <span className="eyebrow">Data plane</span>
             <h2>行情数据链路</h2>
-            <p>公开市场数据经过 AD88 adapter 统一进入行情、图表和订单簿。</p>
+            <p>公开市场数据经统一报价层进入行情、图表、执行价格与持仓估值。</p>
           </div>
         </div>
         <div className="market-data-plane__grid">
-          <div className="market-data-plane__metric"><span><Wifi size={13} />连接健康</span><strong><StatusPill tone={liveTone}>{liveLabel}</StatusPill></strong><small>{selectedIsCrypto ? 'WebSocket ticker' : 'HTTP quote refresh'}</small></div>
+          <div className="market-data-plane__metric"><span><Wifi size={13} />连接健康</span><strong><StatusPill tone={liveTone}>{liveLabel}</StatusPill></strong><small>{selectedIsCrypto ? 'Exchange WebSocket ticker' : '1 秒报价检查 · 公开数据源'}</small></div>
           <div className="market-data-plane__metric"><span><Database size={13} />数据源</span><strong>{market.data.source.provider}</strong><small>{endpointLabel} · {market.data.source.mode === 'mock' ? '回退数据' : 'API adapter'}</small></div>
-          <div className="market-data-plane__metric"><span><Clock3 size={13} />更新时间</span><strong>{formatDateTime(market.data.source.updatedAt)}</strong><small>延迟 {market.data.source.latencyMs ?? '—'} ms · 缓存 {market.data.source.cacheState}</small></div>
-          <div className="market-data-plane__metric"><span><Gauge size={13} />刷新反馈</span><strong>{refreshing ? '读取中…' : '已同步'} <CheckCircle2 size={14} /></strong><small>数据血缘：{market.data.source.lineage ?? 'provider → adapter → view'}</small></div>
+          <div className="market-data-plane__metric"><span><Clock3 size={13} />报价时间</span><strong>{formatDateTime(selectedAsset?.updatedAt ?? market.data.source.updatedAt)}</strong><small>最近检查 {quoteCheckAt ? formatDateTime(new Date(quoteCheckAt).toISOString()) : '等待首笔'} · 缓存 {market.data.source.cacheState}</small></div>
+          <div className="market-data-plane__metric"><span><Gauge size={13} />执行模型</span><strong>{refreshing ? '同步中…' : '双边报价'} <CheckCircle2 size={14} /></strong><small>透明点差 {executionQuote.spread.toFixed(executionQuote.decimals)} · bid/ask → 仓位估值</small></div>
         </div>
       </section>
 
@@ -335,7 +368,7 @@ export function MarketPage() {
           <div className="asset-selector">
             <div className="market-filter-row">
               {marketFilters.map((filter) => (
-                <button key={filter} type="button" className={`chip ${assetClassFilter === filter ? 'is-active' : ''}`} onClick={() => setAssetClassFilter(filter)}>
+                <button key={filter} type="button" className={`chip ${assetClassFilter === filter ? 'is-active' : ''}`} onClick={() => { setAssetClassFilter(filter); setShowAllInstruments(false); }}>
                   {filter === '全部' ? '全部资产' : filter === 'crypto' ? '加密' : filter === 'commodity' ? '商品' : filter === 'forex' ? '外汇' : filter === 'equity' ? '股票' : '指数'}
                 </button>
               ))}
@@ -381,6 +414,18 @@ export function MarketPage() {
               </tbody>
             </table>
           </div>
+          {filteredRows.length > 10 ? (
+            <div className="instrument-disclosure">
+              <div>
+                <strong>{showAllInstruments ? `已显示 ${filteredRows.length} 个品种` : '首屏保留 10 个重点品种'}</strong>
+                <span>{showAllInstruments ? '可从上方筛选缩小范围。' : `另有 ${filteredRows.length - 10} 个品种可交易或关注。`}</span>
+              </div>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setShowAllInstruments((value) => !value)}>
+                {showAllInstruments ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                {showAllInstruments ? '收起品种' : '显示更多品种'}
+              </button>
+            </div>
+          ) : null}
         </article>
 
         <article className="panel market-chart-panel market-chart-panel--pro">
@@ -421,16 +466,16 @@ export function MarketPage() {
           <CandleChart candles={market.data.candles} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           <div className="execution-bar">
             <button type="button" className="execution-quote execution-quote--sell" onClick={() => openPosition('short', sellPrice)} disabled={!canOpen}>
-              <span>SELL</span><strong>{formatNumber(sellPrice)}</strong><small>卖出价</small>
+              <span>SELL · BID</span><strong>{formatNumber(sellPrice)}</strong><small>做空开仓 / 做多平仓</small>
             </button>
             <div className="execution-bar__middle">
-              <span className="execution-bar__label">当前价</span>
+              <span className="execution-bar__label">参考中间价</span>
               <strong>{formatNumber(livePrice)}</strong>
               <label><span>开仓手数</span><input type="number" min="1" step="1" value={lots} onChange={(event) => setLots(Math.max(1, Number(event.target.value) || 1))} /></label>
-              <small>报价已含交易点差 · 沙盒执行</small>
+              <small>点差 {executionQuote.spread.toFixed(executionQuote.decimals)} · 沙盒执行</small>
             </div>
             <button type="button" className="execution-quote execution-quote--buy" onClick={() => openPosition('long', buyPrice)} disabled={!canOpen}>
-              <span>BUY</span><strong>{formatNumber(buyPrice)}</strong><small>买入价</small>
+              <span>BUY · ASK</span><strong>{formatNumber(buyPrice)}</strong><small>做多开仓 / 做空平仓</small>
             </button>
           </div>
         </article>
@@ -503,7 +548,7 @@ export function MarketPage() {
           <div className="panel__head">
             <div>
               <h2>{t('market.positions')}</h2>
-              <p>{t('market.positionsHint')}</p>
+              <p>每秒按最新可执行平仓价重估。做多按 bid，做空按 ask。</p>
             </div>
             <div className="panel__actions">
               <StatusPill tone={totalPnl >= 0 ? 'success' : 'critical'}>{formatCurrency(totalPnl)}</StatusPill>
@@ -539,7 +584,7 @@ export function MarketPage() {
                           {position.symbol}
                           <span className={`side-badge side-badge--${position.side}`}>{position.side === 'long' ? '做多' : '做空'}</span>
                         </strong>
-                        <span>{t('market.entry')} {formatCurrency(position.entryPrice)} / {t('market.mark')} {formatCurrency(position.markPrice)}</span>
+                        <span>{t('market.entry')} {formatCurrency(position.entryPrice)} / 可平仓价 {formatCurrency(position.markPrice)}</span>
                         <span>剩余 {remaining.toFixed(2)} / 已平 {Number(position.closedLots ?? 0).toFixed(2)} lots</span>
                       </div>
                       <div className="position-row__meta">
@@ -665,7 +710,7 @@ export function MarketPage() {
             <span>{t('market.source')} {market.data.source.provider}</span>
             <span>{t('market.updated')} {formatDateTime(market.data.source.updatedAt)}</span>
             <span>{t('market.cache')} {market.data.source.cacheState}</span>
-            <span>{t('market.spread')} {spread.toFixed(2)} bps</span>
+            <span>沙盒执行点差 {executionQuote.spread.toFixed(executionQuote.decimals)} ({spread.toFixed(2)} bps)</span>
           </div>
         </article>
       </section>

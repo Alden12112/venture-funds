@@ -568,6 +568,7 @@ async function proxyMarket(res, requestUrl) {
   upstream.searchParams.set('range', requestUrl.searchParams.get('range') || '1d');
   upstream.searchParams.set('interval', requestUrl.searchParams.get('interval') || '15m');
   const cacheKey = upstream.toString();
+  const cacheTtlMs = requestUrl.searchParams.get('fast') === '1' ? 950 : marketProxyTtlMs;
   const cached = marketProxyCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     res.statusCode = 200;
@@ -588,7 +589,7 @@ async function proxyMarket(res, requestUrl) {
         lastStatus = response.status;
         lastBody = body;
         if (!response.ok) continue;
-        marketProxyCache.set(cacheKey, { expiresAt: Date.now() + marketProxyTtlMs, body });
+        marketProxyCache.set(cacheKey, { expiresAt: Date.now() + cacheTtlMs, body });
         res.statusCode = 200;
         res.setHeader('content-type', 'application/json; charset=utf-8');
         res.setHeader('x-ad88-cache', 'fresh');
