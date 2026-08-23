@@ -15,8 +15,9 @@ import type { RegisteredUser } from '@/types';
 import { buildInternationalPhone, countryDirectory, getCountryOption, isValidCountryPhone, phoneDigitsHint } from '@/data/countries';
 import { hashSecret, isValidEmail } from '@/lib/auth';
 import { apiFetch, ApiError, isApiUnavailable } from '@/lib/api';
+import { SupportCenter } from '@/components/SupportCenter';
 
-const tabs = ['全部账号', '注册审核', '积分管理', '月报', '交易评分', '流水通知', '内容配置', '审核流'] as const;
+const tabs = ['全部账号', '注册审核', '积分管理', '月报', '交易评分', '流水通知', '客服中心', '内容配置', '审核流'] as const;
 
 export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const { session } = useAuth();
@@ -39,13 +40,13 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         <PageHeader
           eyebrow="权限"
           title="后台管理"
-          description="当前会话没有管理员权限。请用管理员账户从 /auth/login 登录后再进入 /admin。"
+          description="当前会话没有管理员权限。请从独立的 /admin/login 入口进入后台。"
         />
         <EmptyState
           title="无权限访问"
           text="后台页已和前台分离，需要管理员身份。"
           action={
-            <Link to="/auth/login" className="btn btn--primary">
+            <Link to="/admin/login" className="btn btn--primary">
               去登录 <ArrowRight size={16} />
             </Link>
           }
@@ -67,6 +68,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const visibleUsers = admin.data.users.filter((user) => matches(user.name) || matches(user.email) || matches(user.phone) || matches(user.country));
   const visibleRegistrations = admin.data.registrations.filter((item) => matches(item.fullName) || matches(item.gmail) || matches(item.phone) || matches(item.country));
   const visiblePositions = admin.data.paperPositions.filter((item) => matches(item.userName) || matches(item.userId) || matches(item.symbol));
+  const visibleTradeEvents = admin.data.tradeEvents.filter((item) => matches(item.userName) || matches(item.userEmail) || matches(item.userId) || matches(item.symbol) || matches(item.action));
   const visibleLedger = admin.data.ledgerEntries.filter((item) => matches(item.refId) || matches(item.note) || matches(item.type));
   const visibleNotifications = admin.data.notifications.filter((item) => matches(item.title) || matches(item.body) || matches(item.category));
   const visibleCreditAccounts = admin.data.creditAccounts.filter((item) => matches(item.userName) || matches(item.email) || matches(item.userId));
@@ -492,22 +494,36 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       ) : null}
 
       {tab === '交易评分' ? (
-        <article className="panel">
-          <div className="stack-list">
-            {visiblePositions.map((item) => (
-              <div key={item.id} className="stack-list__row">
-                <div>
-                  <strong>{item.userName ?? item.userId ?? 'Unknown'} / {item.symbol} {item.side.toUpperCase()}</strong>
-                  <span>{item.lots} lots / leverage {item.leverage}x / entry {formatCurrency(item.entryPrice)}</span>
+        <section className="content-grid content-grid--two">
+          <article className="panel">
+            <div className="panel__head">
+              <div><h2>交易审计记录</h2><p>前台沙盒开仓、平仓和风控更新会实时同步到这里。</p></div>
+              <StatusPill tone={visibleTradeEvents.length ? 'info' : 'muted'}>{visibleTradeEvents.length} 条</StatusPill>
+            </div>
+            <div className="stack-list">
+              {visibleTradeEvents.length ? visibleTradeEvents.map((item) => (
+                <div key={item.id} className="stack-list__row">
+                  <div>
+                    <strong>{item.userName ?? item.userEmail ?? item.userId} / {item.symbol} {item.side.toUpperCase()}</strong>
+                    <span>{item.action} · {item.lots} lots · {formatCurrency(item.price)}</span>
+                  </div>
+                  <div className="stack-list__meta"><StatusPill tone={item.action === 'open' ? 'success' : item.action === 'risk-update' ? 'info' : 'warning'}>{item.action}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div>
                 </div>
-                <div className="stack-list__meta">
-                  <StatusPill tone={item.margin < 1000 ? 'success' : item.margin < 3000 ? 'warning' : 'critical'}>{formatCurrency(item.margin)}</StatusPill>
-                  <span>{formatDateTime(item.openedAt)}</span>
+              )) : <div className="state-block"><strong>暂无跨设备交易事件</strong><p>用户完成一次沙盒操作后，记录会出现在这里。</p></div>}
+            </div>
+          </article>
+          <article className="panel">
+            <div className="panel__head"><div><h2>当前沙盒持仓</h2><p>同浏览器的持仓快照，用于辅助风险查看。</p></div></div>
+            <div className="stack-list">
+              {visiblePositions.map((item) => (
+                <div key={item.id} className="stack-list__row">
+                  <div><strong>{item.userName ?? item.userId ?? 'Unknown'} / {item.symbol} {item.side.toUpperCase()}</strong><span>{item.lots} lots / leverage {item.leverage}x / entry {formatCurrency(item.entryPrice)}</span></div>
+                  <div className="stack-list__meta"><StatusPill tone={item.margin < 1000 ? 'success' : item.margin < 3000 ? 'warning' : 'critical'}>{formatCurrency(item.margin)}</StatusPill><span>{formatDateTime(item.openedAt)}</span></div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </article>
+              ))}
+            </div>
+          </article>
+        </section>
       ) : null}
 
       {tab === '流水通知' ? (
@@ -536,6 +552,8 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
           </article>
         </section>
       ) : null}
+
+      {tab === '客服中心' ? <SupportCenter adminMode /> : null}
 
       {tab === '内容配置' ? (
         <article className="panel">

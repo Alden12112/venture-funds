@@ -35,7 +35,7 @@ export function useLiveTickers(fallbackPrices: PriceMap = {}) {
       socket.send(
         JSON.stringify({
           type: 'subscribe',
-          product_ids: marketProducts.map((product) => product.productId),
+          product_ids: marketProducts.flatMap((product) => product.productId ? [product.productId] : []),
           channels: ['ticker'],
         }),
       );

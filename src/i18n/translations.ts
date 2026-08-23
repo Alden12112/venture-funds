@@ -149,7 +149,7 @@ const commonEn = {
 export const translations: Record<LanguageCode, Record<string, string>> = {
   zh: {
     'nav.dashboard': '仪表盘',
-    'nav.market': '行情',
+    'nav.market': '交易',
     'nav.news': '新闻',
     'nav.ledger': '资金流水',
     'nav.notifications': '通知中心',

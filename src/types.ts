@@ -12,6 +12,9 @@ export interface SourceMeta {
   updatedAt: string;
   cacheState: DataCacheState;
   endpoint?: string;
+  latencyMs?: number;
+  health?: 'healthy' | 'degraded' | 'offline';
+  lineage?: string;
 }
 
 export interface MarketAsset {
@@ -112,6 +115,17 @@ export interface NotificationBundle {
   source: SourceMeta;
 }
 
+export interface SupportMessage {
+  id: string;
+  threadId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  senderRole: 'user' | 'admin';
+  body: string;
+  createdAt: string;
+}
+
 export interface LedgerEntry {
   id: string;
   type: 'deposit' | 'withdraw' | 'transfer' | 'review';
@@ -176,6 +190,7 @@ export interface AdminBundle {
   users: UserProfile[];
   registrations: RegisteredUser[];
   paperPositions: PaperPosition[];
+  tradeEvents: TradeAuditEvent[];
   creditAccounts: CreditAccount[];
   creditRequests: CreditRequest[];
   ledgerEntries: LedgerEntry[];
@@ -214,6 +229,25 @@ export interface ShellLink {
 }
 
 export type TradeSide = 'long' | 'short';
+
+export type TradeAuditAction = 'open' | 'close' | 'partial-close' | 'risk-update';
+
+export interface TradeAuditEvent {
+  id: string;
+  positionId?: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  symbol: string;
+  side: TradeSide;
+  action: TradeAuditAction;
+  lots: number;
+  price: number;
+  contractSize?: number;
+  leverage?: number;
+  margin?: number;
+  createdAt: string;
+}
 
 export type TimeframeCode = 'M1' | 'M5' | 'M15' | 'M30' | 'H1' | 'H4' | 'D1' | 'W1' | 'MN';
 

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, RefreshCw, Settings2, Trash2 } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, CheckCircle2, Clock3, Crosshair, Database, Gauge, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2, Wifi } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { CandleChart, DepthChart } from '@/components/Charts';
+import type { ChartDrawing } from '@/components/Charts';
 import { DataMeta, LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { MarketTicker } from '@/components/MarketTicker';
 import { useAsyncResource } from '@/lib/useAsyncResource';
@@ -13,6 +14,7 @@ import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
 import { getMarketProduct } from '@/data/assets';
 import { marketFilters } from '@/data/navigation';
+import { apiFetch } from '@/lib/api';
 import type { PaperPosition, TimeframeCode, TradeSide } from '@/types';
 
 const timeframes: TimeframeCode[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
@@ -37,9 +39,10 @@ function AssetLogo({ symbol, size = 'md' }: { symbol: string; size?: 'sm' | 'md'
 export function MarketPage() {
   const { session } = useAuth();
   const { t } = useLanguage();
-  const [symbol, setSymbol] = useState('BTC');
+  const [symbol, setSymbol] = useState('XAU');
   const [timeframe, setTimeframe] = useState<TimeframeCode>('M15');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   const [assetClassFilter, setAssetClassFilter] = useState<(typeof marketFilters)[number]>('全部');
   const [side, setSide] = useState<TradeSide>('long');
   const [lots, setLots] = useState(0.1);
@@ -52,7 +55,14 @@ export function MarketPage() {
   const [partialLots, setPartialLots] = useState(0.01);
   const [editStopLoss, setEditStopLoss] = useState('');
   const [editTakeProfit, setEditTakeProfit] = useState('');
+  const [chartTool, setChartTool] = useState<'cursor' | 'trendline' | 'horizontal' | 'vertical'>('cursor');
+  const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
   const market = useAsyncResource(() => loadMarketBundle(symbol, timeframe), [symbol, timeframe, refreshKey]);
+
+  const refreshMarkets = () => {
+    setRefreshing(true);
+    setRefreshKey((value) => value + 1);
+  };
 
   useEffect(() => {
     writeStorage('paperPositions', positions);
@@ -106,19 +116,32 @@ export function MarketPage() {
     setPartialLots(Math.min(0.01, selectedPosition.remainingLots ?? selectedPosition.lots));
   }, [selectedPosition?.id]);
 
-  const openPosition = () => {
-    if (!canOpen || !livePrice) return;
+  useEffect(() => {
+    if (market.status === 'success') setRefreshing(false);
+  }, [market.status, market.status === 'success' ? market.data.source.updatedAt : '']);
+
+  const quoteSpread = 0.30;
+  const sellPrice = Number((livePrice + quoteSpread).toFixed(2));
+  const buyPrice = Number((livePrice - quoteSpread).toFixed(2));
+
+  const auditTrade = (event: { positionId: string; symbol: string; side: TradeSide; action: 'open' | 'close' | 'partial-close' | 'risk-update'; lots: number; price: number; contractSize?: number; leverage?: number; margin?: number }) => {
+    void apiFetch('/api/trades', { method: 'POST', body: JSON.stringify(event) }).catch(() => undefined);
+  };
+
+  const openPosition = (orderSide: TradeSide = side, orderPrice = livePrice) => {
+    if (!canOpen || !orderPrice) return;
+    const positionId = crypto.randomUUID();
     const next: PaperPosition = {
-      id: crypto.randomUUID(),
+      id: positionId,
       userId: session?.id,
       userName: session?.name,
       symbol,
-      side,
+      side: orderSide,
       lots,
       contractSize,
       leverage,
-      entryPrice: livePrice,
-      markPrice: livePrice,
+      entryPrice: orderPrice,
+      markPrice: orderPrice,
       notional,
       margin,
       stopLoss: stopLoss ? Number(stopLoss) : undefined,
@@ -130,9 +153,19 @@ export function MarketPage() {
     };
     setPositions((current) => [next, ...current]);
     setSelectedPositionId(next.id);
+    auditTrade({ positionId, symbol, side: orderSide, action: 'open', lots, price: orderPrice, contractSize, leverage, margin });
   };
 
+  useEffect(() => {
+    setDrawings([]);
+    setChartTool('cursor');
+  }, [symbol]);
+
   const closePosition = (id: string) => {
+    const position = userPositions.find((item) => item.id === id);
+    if (position) {
+      auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
+    }
     setPositions((current) =>
       current.map((position) =>
         position.id === id
@@ -143,6 +176,7 @@ export function MarketPage() {
   };
 
   const closeAllPositions = () => {
+    userPositions.forEach((position) => auditTrade({ positionId: position.id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin }));
     setPositions((current) =>
       current.map((position) =>
         userPositions.some((item) => item.id === position.id)
@@ -154,13 +188,18 @@ export function MarketPage() {
   };
 
   const closePartialPosition = (id: string) => {
+    const position = userPositions.find((item) => item.id === id);
+    if (!position) return;
+    const remaining = position.remainingLots ?? position.lots;
+    const closeLots = Math.min(Math.max(partialLots, 0.01), remaining);
+    auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: closeLots >= remaining ? 'close' : 'partial-close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
     setPositions((current) =>
       current.map((position) => {
         if (position.id !== id) return position;
-        const remaining = position.remainingLots ?? position.lots;
-        const closeLots = Math.min(Math.max(partialLots, 0.01), remaining);
-        const nextRemaining = Math.max(0, Number((remaining - closeLots).toFixed(2)));
-        const nextClosed = Number(((position.closedLots ?? 0) + closeLots).toFixed(2));
+        const currentRemaining = position.remainingLots ?? position.lots;
+        const currentCloseLots = Math.min(Math.max(partialLots, 0.01), currentRemaining);
+        const nextRemaining = Math.max(0, Number((currentRemaining - currentCloseLots).toFixed(2)));
+        const nextClosed = Number(((position.closedLots ?? 0) + currentCloseLots).toFixed(2));
         return {
           ...position,
           remainingLots: nextRemaining,
@@ -173,6 +212,10 @@ export function MarketPage() {
   };
 
   const saveRiskSettings = (id: string) => {
+    const position = userPositions.find((item) => item.id === id);
+    if (position) {
+      auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: 'risk-update', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
+    }
     setPositions((current) =>
       current.map((position) =>
         position.id === id
@@ -191,10 +234,14 @@ export function MarketPage() {
   }
 
   if (market.status === 'error') {
-    return <div className="state-block state-block--error"><strong>行情读取失败</strong><p>{market.error}</p></div>;
+    return <div className="state-block state-block--error"><strong>行情读取失败</strong><p>{market.error}</p><button type="button" className="btn btn--ghost" onClick={refreshMarkets}><RefreshCw size={15} />重新连接数据源</button></div>;
   }
 
-  const liveTone = live.status === 'live' ? 'success' : live.status === 'stale' ? 'critical' : 'warning';
+  const selectedIsCrypto = selectedAsset?.assetClass === 'crypto';
+  const selectedFeedState = selectedIsCrypto && live.lastTickAt[symbol] ? live.status : market.data.source.cacheState === 'fresh' ? 'http-fresh' : market.data.source.cacheState;
+  const liveTone = selectedFeedState === 'live' || selectedFeedState === 'http-fresh' ? 'success' : selectedFeedState === 'stale' || selectedFeedState === 'offline' ? 'critical' : 'warning';
+  const liveLabel = selectedFeedState === 'live' ? '实时订阅' : selectedFeedState === 'http-fresh' ? 'HTTP 实时' : selectedFeedState === 'cached' ? '缓存' : selectedFeedState === 'stale' ? '延迟' : selectedFeedState === 'offline' ? '离线' : '连接中';
+  const endpointLabel = market.data.source.endpoint === '/api/market' ? '同源行情代理' : selectedIsCrypto ? 'Coinbase 公共订阅' : '公共行情 API';
 
   return (
     <div className="page-stack">
@@ -204,14 +251,31 @@ export function MarketPage() {
         description={t('market.description')}
         meta={<DataMeta source={market.data.source} />}
         actions={
-          <button type="button" className="btn btn--ghost" onClick={() => setRefreshKey((value) => value + 1)}>
+          <button type="button" className={`btn btn--ghost ${refreshing ? 'is-busy' : ''}`} onClick={refreshMarkets} disabled={refreshing}>
             <RefreshCw size={16} />
-            {t('action.refresh')}
+            {refreshing ? '正在同步…' : t('action.refresh')}
           </button>
         }
       />
 
       <MarketTicker assets={rows} />
+
+      <section className="market-data-plane" aria-label="行情数据连接状态">
+        <div className="market-data-plane__identity">
+          <span className={`market-data-plane__signal market-data-plane__signal--${liveTone}`}><Activity size={18} /></span>
+          <div>
+            <span className="eyebrow">Data plane</span>
+            <h2>行情数据链路</h2>
+            <p>公开市场数据经过 AD88 adapter 统一进入行情、图表和订单簿。</p>
+          </div>
+        </div>
+        <div className="market-data-plane__grid">
+          <div className="market-data-plane__metric"><span><Wifi size={13} />连接健康</span><strong><StatusPill tone={liveTone}>{liveLabel}</StatusPill></strong><small>{selectedIsCrypto ? 'WebSocket ticker' : 'HTTP quote refresh'}</small></div>
+          <div className="market-data-plane__metric"><span><Database size={13} />数据源</span><strong>{market.data.source.provider}</strong><small>{endpointLabel} · {market.data.source.mode === 'mock' ? '回退数据' : 'API adapter'}</small></div>
+          <div className="market-data-plane__metric"><span><Clock3 size={13} />更新时间</span><strong>{formatDateTime(market.data.source.updatedAt)}</strong><small>延迟 {market.data.source.latencyMs ?? '—'} ms · 缓存 {market.data.source.cacheState}</small></div>
+          <div className="market-data-plane__metric"><span><Gauge size={13} />刷新反馈</span><strong>{refreshing ? '读取中…' : '已同步'} <CheckCircle2 size={14} /></strong><small>数据血缘：{market.data.source.lineage ?? 'provider → adapter → view'}</small></div>
+        </div>
+      </section>
 
       <section className="metric-grid metric-grid--compact">
         <StatCard label={`${selectedAsset?.symbol ?? 'BTC'} ${t('market.price')}`} value={formatCurrency(livePrice)} delta={formatPercent(selectedChange)} />
@@ -227,7 +291,7 @@ export function MarketPage() {
               <h2>{t('market.assets')}</h2>
               <p>{t('market.assetsHint')}</p>
             </div>
-            <StatusPill tone={liveTone}>{live.status}</StatusPill>
+            <StatusPill tone={liveTone}>{liveLabel}</StatusPill>
           </div>
           <div className="asset-selector">
             <div className="market-filter-row">
@@ -280,13 +344,21 @@ export function MarketPage() {
           </div>
         </article>
 
-        <article className="panel market-chart-panel">
+        <article className="panel market-chart-panel market-chart-panel--pro">
           <div className="panel__head">
             <div>
               <h2>{selectedAsset?.symbol} {t('market.chart')}</h2>
               <p>{t('market.updated')} {formatDateTime(selectedAsset?.updatedAt ?? market.data.source.updatedAt)}</p>
             </div>
             <StatusPill tone={selectedChange >= 0 ? 'success' : 'critical'}>{formatPercent(selectedChange)}</StatusPill>
+          </div>
+          <div className="trading-chart__toolbar" aria-label="图表工具">
+            <span className="chart-toolbar__label">图表工具</span>
+            <button type="button" className={`chart-tool ${chartTool === 'cursor' ? 'is-active' : ''}`} onClick={() => setChartTool('cursor')} title="选择"><Crosshair size={15} />选择</button>
+            <button type="button" className={`chart-tool ${chartTool === 'trendline' ? 'is-active' : ''}`} onClick={() => setChartTool('trendline')} title="趋势线"><Ruler size={15} />趋势线</button>
+            <button type="button" className={`chart-tool ${chartTool === 'horizontal' ? 'is-active' : ''}`} onClick={() => setChartTool('horizontal')} title="水平线"><Minus size={15} />水平线</button>
+            <button type="button" className={`chart-tool ${chartTool === 'vertical' ? 'is-active' : ''}`} onClick={() => setChartTool('vertical')} title="垂直线"><Plus size={15} />垂直线</button>
+            <button type="button" className="chart-tool" onClick={() => setDrawings([])} title="清除画线"><Undo2 size={15} />清除</button>
           </div>
           <div className="timeframe-row">
             {timeframes.map((item) => (
@@ -295,7 +367,21 @@ export function MarketPage() {
               </button>
             ))}
           </div>
-          <CandleChart candles={market.data.candles} />
+          <CandleChart candles={market.data.candles} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
+          <div className="execution-bar">
+            <button type="button" className="execution-quote execution-quote--sell" onClick={() => openPosition('short', sellPrice)} disabled={!canOpen}>
+              <span>SELL</span><strong>{formatNumber(sellPrice)}</strong><small>卖出价 · +{quoteSpread.toFixed(2)}</small>
+            </button>
+            <div className="execution-bar__middle">
+              <span className="execution-bar__label">当前价</span>
+              <strong>{formatNumber(livePrice)}</strong>
+              <label><span>开仓手数</span><input type="number" min="0.01" step="0.01" value={lots} onChange={(event) => setLots(Number(event.target.value))} /></label>
+              <small>固定点差 {quoteSpread.toFixed(2)} · 沙盒执行</small>
+            </div>
+            <button type="button" className="execution-quote execution-quote--buy" onClick={() => openPosition('long', buyPrice)} disabled={!canOpen}>
+              <span>BUY</span><strong>{formatNumber(buyPrice)}</strong><small>买入价 · −{quoteSpread.toFixed(2)}</small>
+            </button>
+          </div>
         </article>
       </section>
 
@@ -353,7 +439,7 @@ export function MarketPage() {
             <div><span>{t('market.units')}</span><strong>{formatNumber(units)}</strong></div>
           </div>
 
-          <button type="button" className="btn btn--primary btn--block" onClick={openPosition} disabled={!canOpen}>
+          <button type="button" className="btn btn--primary btn--block" onClick={() => openPosition()} disabled={!canOpen}>
             {t('market.placeSandboxOrder')}
           </button>
           <div className="risk-note">

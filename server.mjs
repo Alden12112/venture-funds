@@ -12,20 +12,13 @@ const adminEmail = (process.env.AD88_ADMIN_EMAIL || '').trim().toLowerCase();
 const adminPassword = process.env.AD88_ADMIN_PASSWORD || '';
 const memoryAccounts = new Map();
 const memoryState = new Map();
+const memorySupportMessages = [];
+const memoryTradeEvents = [];
 let pool = null;
+// Keep the server-side rule set aligned with the international catalogue used by the UI.
+// These are national-number lengths after the country calling code.
 const countryPhoneRules = {
-  Malaysia: { dialCode: '60', digits: [9, 9] },
-  Singapore: { dialCode: '65', digits: [8, 8] },
-  China: { dialCode: '86', digits: [11, 11] },
-  Indonesia: { dialCode: '62', digits: [9, 12] },
-  Thailand: { dialCode: '66', digits: [9, 9] },
-  'United States': { dialCode: '1', digits: [10, 10] },
-  Canada: { dialCode: '1', digits: [10, 10] },
-  'United Kingdom': { dialCode: '44', digits: [9, 10] },
-  Australia: { dialCode: '61', digits: [9, 9] },
-  India: { dialCode: '91', digits: [10, 10] },
-  Japan: { dialCode: '81', digits: [9, 10] },
-  'South Korea': { dialCode: '82', digits: [9, 10] },
+  Malaysia:[60,9],Singapore:[65,8],China:[86,11],Indonesia:[62,9,12],Thailand:[66,9],Brunei:[673,7],Philippines:[63,10],Vietnam:[84,9],Cambodia:[855,8,9],Laos:[856,8,10],Myanmar:[95,8,10],Taiwan:[886,9],"Hong Kong":[852,8],Macao:[853,8],Japan:[81,9,10],"South Korea":[82,9,10],India:[91,10],Pakistan:[92,10],Bangladesh:[880,10],"Sri Lanka":[94,9],Nepal:[977,10],Australia:[61,9],"New Zealand":[64,9],Fiji:[679,7],"Papua New Guinea":[675,8],"United States":[1,10],Canada:[1,10],Mexico:[52,10],Brazil:[55,11],Argentina:[54,10],Chile:[56,9],Colombia:[57,10],Peru:[51,9],Uruguay:[598,8],Paraguay:[595,9],Bolivia:[591,8],Ecuador:[593,9],Venezuela:[58,10],"Costa Rica":[506,8],Panama:[507,8],Guatemala:[502,8],"Dominican Republic":[1,10],Jamaica:[1,10],"United Kingdom":[44,9,10],Ireland:[353,9],France:[33,9],Germany:[49,10,11],Spain:[34,9],Portugal:[351,9],Italy:[39,9,10],Netherlands:[31,9],Belgium:[32,9],Luxembourg:[352,9],Switzerland:[41,9],Austria:[43,10,11],Denmark:[45,8],Sweden:[46,9,10],Norway:[47,8],Finland:[358,9,10],Iceland:[354,7],Poland:[48,9],Czechia:[420,9],Slovakia:[421,9],Hungary:[36,9],Romania:[40,9],Bulgaria:[359,9],Greece:[30,10],Cyprus:[357,8],Malta:[356,8],Croatia:[385,8],Slovenia:[386,8],Serbia:[381,9],"Bosnia and Herzegovina":[387,8],Montenegro:[382,8],"North Macedonia":[389,8],Albania:[355,9],Ukraine:[380,9],Moldova:[373,8],Belarus:[375,9],Lithuania:[370,8],Latvia:[371,8],Estonia:[372,7],Russia:[7,10],Georgia:[995,9],Armenia:[374,8],Azerbaijan:[994,9],"Türkiye":[90,10],Israel:[972,9],"United Arab Emirates":[971,9],"Saudi Arabia":[966,9],Qatar:[974,8],Kuwait:[965,8],Bahrain:[973,8],Oman:[968,8],Jordan:[962,9],Lebanon:[961,7,8],Iraq:[964,10],Iran:[98,10],Afghanistan:[93,9],Egypt:[20,10],Morocco:[212,9],Algeria:[213,9],Tunisia:[216,8],Libya:[218,9],Sudan:[249,9],Ethiopia:[251,9],Kenya:[254,9],Tanzania:[255,9],Uganda:[256,9],Rwanda:[250,9],Ghana:[233,9],Nigeria:[234,10],"South Africa":[27,9],Zimbabwe:[263,9],Zambia:[260,9],Malawi:[265,9],Mozambique:[258,9],Angola:[244,9],Namibia:[264,9],Botswana:[267,8],Mauritius:[230,8],Seychelles:[248,7],Cameroon:[237,9],"Côte d’Ivoire":[225,10],Senegal:[221,9],Mali:[223,8],"Burkina Faso":[226,8],Niger:[227,8],Togo:[228,8],Benin:[229,8],"DR Congo":[243,9],"Republic of the Congo":[242,9],Gabon:[241,8],"Equatorial Guinea":[240,9],Kazakhstan:[7,10],Uzbekistan:[998,9],Kyrgyzstan:[996,9],Tajikistan:[992,9],Turkmenistan:[993,8],Mongolia:[976,8],Maldives:[960,7],Bhutan:[975,8],Bahamas:[1,10],Barbados:[1,10],"Trinidad and Tobago":[1,10],"Antigua and Barbuda":[1,10],"Saint Kitts and Nevis":[1,10],"Saint Lucia":[1,10],Grenada:[1,10],"Saint Vincent and the Grenadines":[1,10],Dominica:[1,10],Belize:[501,7],Nicaragua:[505,8],Honduras:[504,8],"El Salvador":[503,8],Haiti:[509,8],Cuba:[53,8],Samoa:[685,7],Tonga:[676,5],Vanuatu:[678,7],"Solomon Islands":[677,7],Micronesia:[691,7],"Marshall Islands":[692,7],Palau:[680,7],Kiribati:[686,5],Nauru:[674,7],Tuvalu:[688,5],Madagascar:[261,9],Réunion:[262,9],"Cabo Verde":[238,7],"Sierra Leone":[232,8],Liberia:[231,7],Gambia:[220,7],Guinea:[224,9],"Guinea-Bissau":[245,7],Mauritania:[222,8],Chad:[235,8],"Central African Republic":[236,8],"São Tomé and Príncipe":[239,7],Djibouti:[253,8],Somalia:[252,8],Eritrea:[291,7],"South Sudan":[211,9],Mayotte:[262,9],Palestine:[970,9],Syria:[963,9],Yemen:[967,9],"San Marino":[378,8,10],"Vatican City":[39,10],Monaco:[377,8],"Liechtenstein":[423,7],Andorra:[376,6],"Faroe Islands":[298,6],Greenland:[299,6],Gibraltar:[350,8],"Isle of Man":[44,10],Jersey:[44,10],Guernsey:[44,10],Curaçao:[599,7],Aruba:[297,7],"Sint Maarten":[1,10],Bermuda:[1,10],"Cayman Islands":[1,10],"Puerto Rico":[1,10],Guam:[1,10],"U.S. Virgin Islands":[1,10],
 };
 
 const contentTypes = {
@@ -140,8 +133,10 @@ function validateCredentials(input) {
   const country = String(input.country || 'Other');
   const rule = countryPhoneRules[country];
   const phoneDigits = normalizePhone(phone);
-  const nationalDigits = rule && phoneDigits.startsWith(rule.dialCode) ? phoneDigits.slice(rule.dialCode.length) : phoneDigits;
-  const validCountryPhone = rule ? phoneDigits.startsWith(rule.dialCode) && nationalDigits.length >= rule.digits[0] && nationalDigits.length <= rule.digits[1] : true;
+  const dialCode = rule ? String(rule[0]) : '';
+  const lengths = rule ? rule.slice(1) : [];
+  const nationalDigits = rule && phoneDigits.startsWith(dialCode) ? phoneDigits.slice(dialCode.length) : phoneDigits;
+  const validCountryPhone = rule ? phoneDigits.startsWith(dialCode) && nationalDigits.length >= lengths[0] && nationalDigits.length <= lengths[lengths.length - 1] : false;
   if (name.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email) || !/^\+?[1-9][\d\s().-]{7,20}$/.test(phone) || !validCountryPhone || password.length < 8) {
     return { error: 'invalid registration fields' };
   }
@@ -175,6 +170,32 @@ async function initDatabase() {
       state_value JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (user_id, state_key)
+    );
+    CREATE TABLE IF NOT EXISTS ad88_support_messages (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      user_name TEXT NOT NULL,
+      user_email TEXT NOT NULL,
+      sender_role TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS ad88_trade_events (
+      id TEXT PRIMARY KEY,
+      position_id TEXT,
+      user_id TEXT NOT NULL,
+      user_name TEXT,
+      user_email TEXT,
+      symbol TEXT NOT NULL,
+      side TEXT NOT NULL,
+      action TEXT NOT NULL,
+      lots NUMERIC NOT NULL,
+      price NUMERIC NOT NULL,
+      contract_size NUMERIC,
+      leverage NUMERIC,
+      margin NUMERIC,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
 }
@@ -232,9 +253,15 @@ async function deleteAccount(id) {
   if (pool) {
     await pool.query('DELETE FROM ad88_accounts WHERE id = $1 AND role <> $2', [id, 'admin']);
     await pool.query('DELETE FROM ad88_user_state WHERE user_id = $1', [id]);
+    await pool.query('DELETE FROM ad88_support_messages WHERE user_id = $1', [id]);
+    await pool.query('DELETE FROM ad88_trade_events WHERE user_id = $1', [id]);
   } else {
     const account = memoryAccounts.get(id);
-    if (account?.role !== 'admin') memoryAccounts.delete(id);
+    if (account?.role !== 'admin') {
+      memoryAccounts.delete(id);
+      memorySupportMessages.splice(0, memorySupportMessages.length, ...memorySupportMessages.filter((item) => item.userId !== id));
+      memoryTradeEvents.splice(0, memoryTradeEvents.length, ...memoryTradeEvents.filter((item) => item.userId !== id));
+    }
     memoryState.delete(id);
   }
 }
@@ -318,6 +345,152 @@ async function handleSync(req, res, requestUrl) {
   return sendJson(res, 404, { error: 'sync route not found' });
 }
 
+function normalizeSupportMessage(row) {
+  return {
+    id: row.id,
+    threadId: row.threadId ?? row.thread_id,
+    userId: row.userId ?? row.user_id,
+    userName: row.userName ?? row.user_name,
+    userEmail: row.userEmail ?? row.user_email,
+    senderRole: row.senderRole ?? row.sender_role,
+    body: row.body,
+    createdAt: row.createdAt ?? row.created_at,
+  };
+}
+
+function normalizeTradeEvent(row) {
+  return {
+    id: row.id,
+    positionId: row.positionId ?? row.position_id,
+    userId: row.userId ?? row.user_id,
+    userName: row.userName ?? row.user_name,
+    userEmail: row.userEmail ?? row.user_email,
+    symbol: row.symbol,
+    side: row.side,
+    action: row.action,
+    lots: Number(row.lots),
+    price: Number(row.price),
+    contractSize: row.contractSize == null && row.contract_size == null ? undefined : Number(row.contractSize ?? row.contract_size),
+    leverage: row.leverage == null ? undefined : Number(row.leverage),
+    margin: row.margin == null ? undefined : Number(row.margin),
+    createdAt: row.createdAt ?? row.created_at,
+  };
+}
+
+function validateTradeEvent(input) {
+  const symbol = String(input.symbol || '').trim().toUpperCase();
+  const side = String(input.side || '');
+  const action = String(input.action || '');
+  const lots = Number(input.lots);
+  const price = Number(input.price);
+  const contractSize = input.contractSize == null ? undefined : Number(input.contractSize);
+  const leverage = input.leverage == null ? undefined : Number(input.leverage);
+  const margin = input.margin == null ? undefined : Number(input.margin);
+  if (!/^[A-Z0-9]{1,16}$/.test(symbol) || !['long', 'short'].includes(side) || !['open', 'close', 'partial-close', 'risk-update'].includes(action)) return { error: 'invalid trade event' };
+  if (!Number.isFinite(lots) || lots <= 0 || lots > 100000 || !Number.isFinite(price) || price <= 0) return { error: 'invalid trade values' };
+  if (contractSize !== undefined && (!Number.isFinite(contractSize) || contractSize <= 0)) return { error: 'invalid contract size' };
+  if (leverage !== undefined && (!Number.isFinite(leverage) || leverage <= 0)) return { error: 'invalid leverage' };
+  if (margin !== undefined && (!Number.isFinite(margin) || margin < 0)) return { error: 'invalid margin' };
+  return { symbol, side, action, lots, price, contractSize, leverage, margin, positionId: String(input.positionId || '').slice(0, 120) || undefined };
+}
+
+async function listTradeEvents(session, admin = false) {
+  if (pool) {
+    const result = admin
+      ? await pool.query('SELECT * FROM ad88_trade_events ORDER BY created_at DESC LIMIT 500')
+      : await pool.query('SELECT * FROM ad88_trade_events WHERE user_id = $1 ORDER BY created_at DESC LIMIT 500', [session.sub]);
+    return result.rows.map(normalizeTradeEvent);
+  }
+  return memoryTradeEvents
+    .filter((item) => admin || item.userId === session.sub)
+    .slice(-500)
+    .reverse()
+    .map(normalizeTradeEvent);
+}
+
+async function handleTrades(req, res, requestUrl) {
+  const session = requireSession(req, res);
+  if (!session) return true;
+  if (req.method === 'GET' && requestUrl.pathname === '/api/trades') return sendJson(res, 200, await listTradeEvents(session));
+  if (req.method === 'POST' && requestUrl.pathname === '/api/trades') {
+    const input = validateTradeEvent(await readBody(req));
+    if (input.error) return sendJson(res, 400, input);
+    const event = {
+      id: randomUUID(),
+      positionId: input.positionId,
+      userId: session.sub,
+      userName: session.name,
+      userEmail: session.email,
+      ...input,
+      createdAt: new Date().toISOString(),
+    };
+    if (pool) {
+      await pool.query('INSERT INTO ad88_trade_events (id, position_id, user_id, user_name, user_email, symbol, side, action, lots, price, contract_size, leverage, margin, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)', [event.id, event.positionId ?? null, event.userId, event.userName, event.userEmail, event.symbol, event.side, event.action, event.lots, event.price, event.contractSize ?? null, event.leverage ?? null, event.margin ?? null, event.createdAt]);
+    } else {
+      memoryTradeEvents.push(event);
+    }
+    return sendJson(res, 201, normalizeTradeEvent(event));
+  }
+  return sendJson(res, 404, { error: 'trade route not found' });
+}
+
+async function handleAdminTrades(req, res, requestUrl) {
+  if (!requireSession(req, res, 'admin')) return true;
+  if (req.method === 'GET' && requestUrl.pathname === '/api/admin/trades') return sendJson(res, 200, await listTradeEvents({ sub: '' }, true));
+  return sendJson(res, 404, { error: 'admin trade route not found' });
+}
+
+async function handleSupport(req, res, requestUrl) {
+  const session = requireSession(req, res);
+  if (!session) return true;
+  if (req.method === 'GET' && requestUrl.pathname === '/api/support/messages') {
+    if (pool) {
+      const result = session.role === 'admin'
+        ? await pool.query('SELECT * FROM ad88_support_messages ORDER BY created_at ASC')
+        : await pool.query('SELECT * FROM ad88_support_messages WHERE user_id = $1 ORDER BY created_at ASC', [session.sub]);
+      return sendJson(res, 200, result.rows.map(normalizeSupportMessage));
+    }
+    const messages = session.role === 'admin' ? memorySupportMessages : memorySupportMessages.filter((item) => item.userId === session.sub);
+    return sendJson(res, 200, messages);
+  }
+  if (req.method === 'POST' && requestUrl.pathname === '/api/support/messages') {
+    const input = await readBody(req);
+    const body = String(input.body || '').trim().slice(0, 2000);
+    if (!body) return sendJson(res, 400, { error: 'message is required' });
+    const requestedThreadId = String(input.threadId || '').trim();
+    const existing = requestedThreadId ? memorySupportMessages.find((item) => item.threadId === requestedThreadId) : null;
+    let threadId = requestedThreadId;
+    let userId = session.sub;
+    let userName = session.name;
+    let userEmail = session.email;
+    if (session.role === 'admin') {
+      if (!pool && !existing) return sendJson(res, 400, { error: 'thread not found' });
+      if (pool && !threadId) return sendJson(res, 400, { error: 'thread is required' });
+      if (pool) {
+        const owner = await pool.query('SELECT user_id, user_name, user_email FROM ad88_support_messages WHERE thread_id = $1 ORDER BY created_at ASC LIMIT 1', [threadId]);
+        if (!owner.rowCount) return sendJson(res, 400, { error: 'thread not found' });
+        userId = owner.rows[0].user_id;
+        userName = owner.rows[0].user_name;
+        userEmail = owner.rows[0].user_email;
+      } else {
+        userId = existing.userId;
+        userName = existing.userName;
+        userEmail = existing.userEmail;
+      }
+    } else if (!threadId) {
+      threadId = `support-${randomUUID()}`;
+    }
+    const message = { id: randomUUID(), threadId, userId, userName, userEmail, senderRole: session.role, body, createdAt: new Date().toISOString() };
+    if (pool) {
+      await pool.query('INSERT INTO ad88_support_messages (id, thread_id, user_id, user_name, user_email, sender_role, body, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [message.id, message.threadId, message.userId, message.userName, message.userEmail, message.senderRole, message.body, message.createdAt]);
+    } else {
+      memorySupportMessages.push(message);
+    }
+    return sendJson(res, 201, message);
+  }
+  return sendJson(res, 404, { error: 'support route not found' });
+}
+
 async function proxyMarket(res, requestUrl) {
   const symbol = requestUrl.searchParams.get('symbol') || 'GC=F';
   if (!/^[A-Z0-9=^.-]+$/.test(symbol)) return sendJson(res, 400, { error: 'invalid market symbol' });
@@ -372,7 +545,10 @@ const server = http.createServer(async (req, res) => {
       const handled = await handleAuth(req, res, requestUrl);
       if (handled !== false) return;
     }
+    if (requestUrl.pathname.startsWith('/api/admin/trades')) return handleAdminTrades(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/')) return handleAdmin(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/trades')) return handleTrades(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/support/')) return handleSupport(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/sync')) return handleSync(req, res, requestUrl);
     if (requestUrl.pathname === '/api/market') return proxyMarket(res, requestUrl);
     if (requestUrl.pathname === '/api/news') return proxyNews(res, requestUrl);

@@ -14,13 +14,6 @@ import { useAuth } from '@/context/auth-context';
 import { createCreditRequest, ensureCreditAccount, readCreditRequests } from '@/lib/credits';
 import type { CreditAccount, CreditRequest } from '@/types';
 
-const holdings = [
-  { symbol: 'BTC', units: 7.8, cost: 59800 },
-  { symbol: 'ETH', units: 42, cost: 3110 },
-  { symbol: 'SOL', units: 480, cost: 143.2 },
-  { symbol: 'LINK', units: 1200, cost: 13.9 },
-];
-
 export function DashboardPage() {
   const { session } = useAuth();
   const market = useAsyncResource(() => loadMarketBundle('BTC'), []);
@@ -62,17 +55,9 @@ export function DashboardPage() {
   const ledgerData = ledger.data;
   const notificationData = notifications.data;
 
-  const portfolio = holdings.map((item) => {
-    const quote = marketData.assets.find((asset) => asset.symbol === item.symbol);
-    const value = (quote?.price ?? 0) * item.units;
-    const cost = item.cost * item.units;
-    const delta = cost ? ((value - cost) / cost) * 100 : 0;
-    return { ...item, value, cost, delta, price: quote?.price ?? 0 };
-  });
-
-  const totalAssets = portfolio.reduce((sum, item) => sum + item.value, 0);
-  const totalCost = portfolio.reduce((sum, item) => sum + item.cost, 0);
-  const todayChange = totalCost ? ((totalAssets - totalCost) / totalCost) * 100 : 0;
+  const totalAssets = creditAccount?.balance ?? 0;
+  const todayChange = 0;
+  const portfolio: Array<{ symbol: string; units: number; value: number; delta: number; price: number }> = [];
   const openOrders = ledgerData.entries.filter((entry) => entry.status === 'pending').length;
   const unread = notificationData.items.filter((item) => !item.read).length;
   const trendSeries = marketData.candles.slice(-12).map((item) => item.close);
@@ -98,7 +83,7 @@ export function DashboardPage() {
           <>
             <Link to="/app/market" className="btn btn--ghost">
               <BriefcaseBusiness size={16} />
-              查看行情
+              查看交易
             </Link>
           </>
         }
@@ -107,7 +92,7 @@ export function DashboardPage() {
       <MarketTicker assets={marketData.assets} />
 
       <section className="metric-grid">
-        <StatCard label="资产总览" value={formatCurrency(totalAssets)} delta={formatPercent(todayChange)} note="按当前持仓估算" />
+            <StatCard label="资产总额" value={formatCurrency(totalAssets)} delta={totalAssets ? formatPercent(todayChange) : undefined} note={totalAssets ? '按可用积分额度显示' : '暂无积分，资产为 0'} />
         <StatCard label="今日涨跌" value={formatPercent(todayChange)} note="基于仓位加权" />
         <StatCard label="待审核流水" value={String(openOrders)} note="资金与复核" />
         <StatCard label="可用积分" value={String(creditAccount?.available ?? 0)} note={`待审 ${creditAccount?.pending ?? 0}`} />
@@ -118,15 +103,15 @@ export function DashboardPage() {
           <img src="/assets/trading-workstation-hero.png" alt="" className="market-mural__image" />
           <div>
             <span className="eyebrow">AD88 market pulse</span>
-            <h2>实时价格与风险带</h2>
-            <p>BTC 主图、组合权重和资金动作会集中反馈到交易工作台。</p>
+            <h2>实时价格与账户状态</h2>
+            <p>交易资产、可用积分额度和客服消息都会在同一工作区保持清晰分层。</p>
           </div>
           <Sparkline values={trendSeries} positive={todayChange >= 0} />
         </article>
         <article className="action-rail">
           <Link to="/app/market" className="action-rail__item">
             <TrendingUp size={18} />
-            <span>打开行情并做多/做空测算</span>
+            <span>打开交易台并做多/做空测算</span>
             <ArrowRight size={16} />
           </Link>
           <Link to="/app/ledger" className="action-rail__item">
@@ -224,7 +209,7 @@ export function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {portfolio.map((item) => (
+                {portfolio.length ? portfolio.map((item) => (
                   <tr key={item.symbol}>
                     <td>
                       <strong>{item.symbol}</strong>
@@ -237,7 +222,7 @@ export function DashboardPage() {
                       <span className={item.delta >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(item.delta)}</span>
                     </td>
                   </tr>
-                ))}
+                )) : <tr><td colSpan={5}><div className="empty-inline"><WalletCards size={18} /><span>暂无资产。积分通过后台审核后，资产额度会自动显示。</span></div></td></tr>}
               </tbody>
             </table>
           </div>

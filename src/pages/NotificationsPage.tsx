@@ -14,6 +14,7 @@ const categories = ['全部', 'system', 'market', 'task', 'fund'] as const;
 export function NotificationsPage() {
   const navigate = useNavigate();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   const bundle = useAsyncResource(() => loadNotificationBundle(), [refreshKey]);
   const [category, setCategory] = useState<(typeof categories)[number]>('全部');
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -21,14 +22,20 @@ export function NotificationsPage() {
   useEffect(() => {
     if (bundle.status !== 'success') return;
     setItems(bundle.data.items);
+    setRefreshing(false);
   }, [bundle.status]);
+
+  const refreshNotifications = () => {
+    setRefreshing(true);
+    setRefreshKey((value) => value + 1);
+  };
 
   if (bundle.status === 'loading') {
     return <LoadingState label="正在载入通知" />;
   }
 
   if (bundle.status === 'error') {
-    return <div className="state-block state-block--error"><strong>通知中心暂时不可用</strong><p>{bundle.error}</p></div>;
+    return <div className="state-block state-block--error"><strong>通知中心暂时不可用</strong><p>{bundle.error}</p><button type="button" className="btn btn--ghost" onClick={refreshNotifications}><RefreshCw size={15} />重新连接通知源</button></div>;
   }
 
   const filtered = useMemo(() => {
@@ -74,9 +81,9 @@ export function NotificationsPage() {
               <MailOpen size={16} />
               全部已读
             </button>
-            <button type="button" className="btn btn--ghost" onClick={() => setRefreshKey((value) => value + 1)}>
+            <button type="button" className={`btn btn--ghost ${refreshing ? 'is-busy' : ''}`} onClick={refreshNotifications} disabled={refreshing}>
               <RefreshCw size={16} />
-              刷新
+              {refreshing ? '正在同步…' : '刷新'}
             </button>
           </>
         }

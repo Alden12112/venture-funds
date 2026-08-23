@@ -10,7 +10,7 @@ export const brand = {
 
 export const shellLinks: ShellLink[] = [
   { to: '/app/dashboard', label: '仪表盘', icon: 'LayoutDashboard' },
-  { to: '/app/market', label: '行情', icon: 'BarChart3' },
+  { to: '/app/market', label: '交易', icon: 'BarChart3' },
   { to: '/app/news', label: '新闻', icon: 'Newspaper' },
   { to: '/app/ledger', label: '资金流水', icon: 'FileClock' },
   { to: '/app/notifications', label: '通知中心', icon: 'BellRing' },

@@ -153,8 +153,12 @@ export function AuthPage() {
         method: 'POST',
         body: JSON.stringify({ identifier: form.identifier, password: form.password }),
       });
+      if (result.session.role === 'admin') {
+        setError('后台账号请使用独立后台入口登录。');
+        return;
+      }
       signIn({ ...result.session, token: result.token });
-      navigate(result.session.role === 'admin' ? '/admin' : '/app/dashboard');
+      navigate('/app/dashboard');
       return;
     } catch (error) {
       if (!(error instanceof ApiError) || !isApiUnavailable(error)) {

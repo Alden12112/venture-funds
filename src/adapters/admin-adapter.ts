@@ -1,4 +1,4 @@
-import type { AdminBundle, PaperPosition, RegisteredUser, UserProfile } from '@/types';
+import type { AdminBundle, PaperPosition, RegisteredUser, TradeAuditEvent, UserProfile } from '@/types';
 import { readStorage } from '@/lib/storage';
 import { loadLedgerBundle } from '@/adapters/ledger-adapter';
 import { loadNotificationBundle } from '@/adapters/notification-adapter';
@@ -117,6 +117,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
   }));
   const registrations = remoteUsers ? [...localRegistrations, ...remoteRegistrations.filter((remote) => !localRegistrations.some((local) => local.id === remote.id))] : localRegistrations;
   const paperPositions = readStorage<PaperPosition[]>('paperPositions', []);
+  const tradeEvents = await apiFetch<TradeAuditEvent[]>('/api/admin/trades').catch(() => []);
   const ledger = await loadLedgerBundle();
   const notifications = await loadNotificationBundle();
   const now = new Date();
@@ -137,7 +138,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
   const creditRequests = readCreditRequests();
   const monthRegistrations = registrations.filter((item) => isCurrentMonth(item.submittedAt, now));
   const monthLedgerEntries = ledger.entries.filter((item) => isCurrentMonth(item.time, now));
-  const monthPositions = paperPositions.filter((item) => isCurrentMonth(item.openedAt, now));
+  const monthPositions = (tradeEvents.length ? tradeEvents.filter((item) => item.action === 'open') : paperPositions).filter((item) => isCurrentMonth('createdAt' in item ? item.createdAt : item.openedAt, now));
   const unreadNotifications = notifications.items.filter((item) => isCurrentMonth(item.createdAt, now) && !item.read);
   const monthlyApproved = monthRegistrations.filter((item) => item.status === 'approved').length;
   const monthlyInflow = monthLedgerEntries.filter((item) => item.direction === 'in').reduce((sum, item) => sum + item.amount, 0);
@@ -149,6 +150,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     users: allUsers,
     registrations,
     paperPositions,
+    tradeEvents,
     creditAccounts,
     creditRequests,
     ledgerEntries: ledger.entries,

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Activity, Clock3, Database, GitBranch, Gauge } from 'lucide-react';
 import type { SourceMeta } from '@/types';
 import { formatDateTime } from '@/lib/format';
 import { useLanguage } from '@/context/language-context';
@@ -26,11 +27,17 @@ export function StatCard({
 
 export function DataMeta({ source }: { source: SourceMeta }) {
   const { t } = useLanguage();
+  const cacheTone = source.cacheState === 'fresh' ? 'success' : source.cacheState === 'cached' ? 'warning' : 'critical';
+  const healthTone = source.health === 'healthy' || (!source.health && source.cacheState === 'fresh') ? 'success' : source.health === 'offline' || source.cacheState === 'offline' ? 'critical' : 'warning';
+  const modeLabel = source.mode === 'api' ? 'API' : source.mode === 'mock' ? 'Fallback' : source.mode.toUpperCase();
   return (
     <div className="data-meta">
-      <span>{t('meta.source')} {source.provider}</span>
-      <span>{t('meta.updated')} {formatDateTime(source.updatedAt)}</span>
-      <span>{t('meta.cache')} {source.cacheState}</span>
+      <span className="data-meta__item data-meta__item--source"><Database size={13} /><span><small>{t('meta.source')}</small><strong>{source.provider}</strong></span></span>
+      <span className="data-meta__item"><Clock3 size={13} /><span><small>{t('meta.updated')}</small><strong>{formatDateTime(source.updatedAt)}</strong></span></span>
+      <span className="data-meta__item"><Activity size={13} /><span><small>连接</small><strong><span className={`data-meta__status data-meta__status--${healthTone}`}>{source.health ?? (source.cacheState === 'fresh' ? 'healthy' : 'degraded')}</span></strong></span></span>
+      <span className="data-meta__item"><Gauge size={13} /><span><small>{t('meta.cache')} / 模式</small><strong><span className={`data-meta__status data-meta__status--${cacheTone}`}>{source.cacheState} · {modeLabel}</span></strong></span></span>
+      {source.latencyMs != null ? <span className="data-meta__item"><span><small>延迟</small><strong>{source.latencyMs} ms</strong></span></span> : null}
+      {source.lineage ? <span className="data-meta__item data-meta__item--lineage"><GitBranch size={13} /><span><small>数据血缘</small><strong>{source.lineage}</strong></span></span> : null}
     </div>
   );
 }

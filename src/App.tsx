@@ -12,6 +12,7 @@ import { LedgerPage } from '@/pages/LedgerPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { AdminPage } from '@/pages/AdminPage';
+import { AdminAuthPage } from '@/pages/AdminAuthPage';
 import { LegalPage } from '@/pages/LegalPage';
 import { useAuth } from '@/context/auth-context';
 
@@ -29,6 +30,14 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { session, ready } = useAuth();
+
+  if (!ready) return <div className="page-loading">正在准备后台会话...</div>;
+  if (!session || session.role !== 'admin') return <Navigate to="/admin/login" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -38,6 +47,7 @@ export default function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/auth/:mode" element={<AuthPage />} />
             <Route path="/legal/:page" element={<LegalPage />} />
+            <Route path="/admin/login" element={<AdminAuthPage />} />
             <Route
               path="/app"
               element={
@@ -57,9 +67,9 @@ export default function App() {
             <Route
               path="/admin"
               element={
-                <ProtectedRoute>
+                <AdminRoute>
                   <AdminPage standalone />
-                </ProtectedRoute>
+                </AdminRoute>
               }
             />
             <Route path="*" element={<Navigate to="/" replace />} />

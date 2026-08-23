@@ -5,6 +5,7 @@ import { DataMeta, LoadingState, StatCard, StatusPill } from '@/components/Stats
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadLedgerBundle } from '@/adapters/ledger-adapter';
 import { formatCurrency, formatDateTime } from '@/lib/format';
+import { SupportCenter } from '@/components/SupportCenter';
 
 const filters = ['全部', 'deposit', 'withdraw', 'transfer', 'review'] as const;
 
@@ -114,6 +115,8 @@ export function LedgerPage() {
           </div>
         </article>
       </section>
+
+      <SupportCenter />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, type MouseEvent } from 'react';
 import type { Candle } from '@/types';
 import { useElementSize } from '@/lib/useElementSize';
 import { formatNumber } from '@/lib/format';
@@ -33,8 +33,25 @@ export function Sparkline({ values, positive = true }: { values: number[]; posit
   );
 }
 
-export function CandleChart({ candles }: { candles: Candle[] }) {
+export type ChartDrawing = {
+  type: 'trendline' | 'horizontal' | 'vertical';
+  start: [number, number];
+  end: [number, number];
+};
+
+export function CandleChart({
+  candles,
+  drawTool = 'cursor',
+  drawings = [],
+  onAddDrawing,
+}: {
+  candles: Candle[];
+  drawTool?: 'cursor' | 'trendline' | 'horizontal' | 'vertical';
+  drawings?: ChartDrawing[];
+  onAddDrawing?: (drawing: ChartDrawing) => void;
+}) {
   const { ref, size } = useElementSize<HTMLDivElement>();
+  const [pendingPoint, setPendingPoint] = useState<[number, number] | null>(null);
   const width = Math.max(size.width, 320);
   const height = Math.max(size.height, 320);
   const chart = useMemo(() => {
@@ -70,10 +87,32 @@ export function CandleChart({ candles }: { candles: Candle[] }) {
   }
 
   const { points, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY } = chart;
+  const mapDrawingPoint = ([xRatio, yRatio]: [number, number]) => ({ x: 38 + xRatio * (width - 52), y: 18 + yRatio * (height - 54) });
+  const handleChartClick = (event: MouseEvent<SVGSVGElement>) => {
+    if (drawTool === 'cursor' || !onAddDrawing) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, ((event.clientX - rect.left) / rect.width * width - 38) / (width - 52)));
+    const y = Math.max(0, Math.min(1, ((event.clientY - rect.top) / rect.height * height - 18) / (height - 54)));
+    const point: [number, number] = [x, y];
+    if (drawTool === 'horizontal') {
+      onAddDrawing({ type: drawTool, start: [0, y], end: [1, y] });
+      return;
+    }
+    if (drawTool === 'vertical') {
+      onAddDrawing({ type: drawTool, start: [x, 0], end: [x, 1] });
+      return;
+    }
+    if (!pendingPoint) {
+      setPendingPoint(point);
+      return;
+    }
+    onAddDrawing({ type: drawTool, start: pendingPoint, end: point });
+    setPendingPoint(null);
+  };
 
   return (
     <div className="chart-frame" ref={ref}>
-      <svg viewBox={`0 0 ${width} ${height}`} className="chart chart--candle" role="img" aria-label="K线图">
+      <svg viewBox={`0 0 ${width} ${height}`} className={`chart chart--candle chart--draw-${drawTool}`} role="img" aria-label="K线图" onClick={handleChartClick}>
         <defs>
           <linearGradient id="candleGlow" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="currentColor" stopOpacity="0.16" />
@@ -99,6 +138,14 @@ export function CandleChart({ candles }: { candles: Candle[] }) {
         <path d={`${closeLine} L ${width - 16} ${height - 36} L 38 ${height - 36} Z`} className="chart-trend-area" />
         <path d={closeLine} className="chart-trend-line" />
         <line x1="38" x2={width - 16} y1={latestCloseY} y2={latestCloseY} className="chart-price-guide" />
+        <g className="chart-drawings">
+          {drawings.map((drawing, index) => {
+            const start = mapDrawingPoint(drawing.start);
+            const end = mapDrawingPoint(drawing.end);
+            return <line key={`${drawing.type}-${index}`} x1={start.x} y1={start.y} x2={end.x} y2={end.y} className={`chart-drawing chart-drawing--${drawing.type}`} />;
+          })}
+          {pendingPoint ? <circle cx={mapDrawingPoint(pendingPoint).x} cy={mapDrawingPoint(pendingPoint).y} r="5" className="chart-drawing__pending" /> : null}
+        </g>
         {points.map((point, index) => {
           const candle = candles[index];
           return (

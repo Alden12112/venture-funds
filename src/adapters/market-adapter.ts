@@ -9,7 +9,7 @@ interface CoinbaseBook { bids: Array<[string, string, number]>; asks: Array<[str
 type CoinbaseCandle = [number, number, number, number, number, number];
 
 interface YahooChartResult {
-  meta?: { regularMarketPrice?: number; previousClose?: number; chartPreviousClose?: number; regularMarketDayHigh?: number; regularMarketDayLow?: number; regularMarketVolume?: number };
+  meta?: { regularMarketPrice?: number; regularMarketTime?: number; previousClose?: number; chartPreviousClose?: number; regularMarketDayHigh?: number; regularMarketDayLow?: number; regularMarketVolume?: number };
   timestamp?: number[];
   indicators?: { quote?: Array<{ open?: Array<number | null>; high?: Array<number | null>; low?: Array<number | null>; close?: Array<number | null>; volume?: Array<number | null> }> };
 }
@@ -106,11 +106,14 @@ function makeFallbackCandles(price: number, change24h: number) {
 
 function fallbackPrice(symbol: string) {
   const values: Record<string, { price: number; change: number; volume: number }> = {
-    XAU: { price: 2375.4, change: 0.42, volume: 8.4e9 }, XAG: { price: 28.18, change: -0.18, volume: 1.6e9 },
+    XAU: { price: 4680.6, change: 0.42, volume: 8.4e9 }, XAG: { price: 54.18, change: -0.18, volume: 1.6e9 },
     CL: { price: 79.22, change: 1.1, volume: 4.2e9 }, NG: { price: 2.86, change: -1.42, volume: 1.3e9 },
-    HG: { price: 4.31, change: 0.68, volume: 1.1e9 }, SCCO: { price: 94.3, change: 0.36, volume: 2.8e8 },
+    HG: { price: 4.31, change: 0.68, volume: 1.1e9 }, SCCO: { price: 94.3, change: 0.36, volume: 2.8e8 }, BRN: { price: 82.14, change: 0.62, volume: 3.3e9 },
+    PL: { price: 982.4, change: 0.21, volume: 1.4e9 }, PA: { price: 1028.5, change: -0.38, volume: 5.7e8 }, CORN: { price: 432.25, change: 0.15, volume: 1.2e9 },
+    WHEAT: { price: 548.5, change: -0.27, volume: 1.1e9 }, COFFEE: { price: 312.8, change: 0.74, volume: 8.1e8 },
     EURUSD: { price: 1.0912, change: -0.12, volume: 3.2e10 }, GBPUSD: { price: 1.2748, change: 0.21, volume: 2.1e10 },
-    USDJPY: { price: 156.42, change: 0.09, volume: 2.7e10 }, SPX: { price: 5615.2, change: 0.34, volume: 4.9e10 },
+    USDJPY: { price: 156.42, change: 0.09, volume: 2.7e10 }, AUDUSD: { price: 0.6543, change: -0.08, volume: 1.4e10 }, USDCAD: { price: 1.3714, change: 0.04, volume: 1.6e10 },
+    SPX: { price: 5615.2, change: 0.34, volume: 4.9e10 }, NAS100: { price: 19842.1, change: 0.48, volume: 3.2e10 }, DAX: { price: 18422.6, change: 0.26, volume: 1.9e10 },
     BTC: { price: 76000, change: 0.4, volume: 3.2e10 }, ETH: { price: 2400, change: 0.2, volume: 1.8e10 }, SOL: { price: 93, change: 0.1, volume: 1.2e10 },
     XRP: { price: 1.47, change: 0.1, volume: 4.3e9 }, LINK: { price: 11.3, change: 0.1, volume: 2.2e8 }, AVAX: { price: 7.4, change: 0.1, volume: 7.2e7 },
   };
@@ -148,7 +151,7 @@ async function loadYahooAsset(product: typeof marketProducts[number]): Promise<L
     return { time: new Date(time * 1000).toISOString(), open, high: toNumber(quote?.high?.[index], Math.max(open, close)), low: toNumber(quote?.low?.[index], Math.min(open, close)), close, volume: toNumber(quote?.volume?.[index]) };
   }).filter((candle) => candle.close > 0);
   const change24h = previousClose ? ((price - previousClose) / previousClose) * 100 : 0;
-  return { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h, volume24h: toNumber(meta.regularMarketVolume), spreadBps: spreadFor(product), updatedAt: new Date().toISOString(), open24h: previousClose, high24h: toNumber(meta.regularMarketDayHigh, price), low24h: toNumber(meta.regularMarketDayLow, price), candles: candles.length > 4 ? candles : makeFallbackCandles(price, change24h), orderBook: buildSyntheticBook(price, product) };
+  return { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h, volume24h: toNumber(meta.regularMarketVolume), spreadBps: spreadFor(product), updatedAt: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : new Date().toISOString(), open24h: previousClose, high24h: toNumber(meta.regularMarketDayHigh, price), low24h: toNumber(meta.regularMarketDayLow, price), candles: candles.length > 4 ? candles : makeFallbackCandles(price, change24h), orderBook: buildSyntheticBook(price, product) };
 }
 
 async function loadSelectedCoinbaseDetails(product: typeof marketProducts[number], timeframe: TimeframeCode, source: SourceMeta) {
@@ -168,12 +171,13 @@ async function loadSelectedCoinbaseDetails(product: typeof marketProducts[number
 }
 
 export async function loadMarketBundle(symbol = 'BTC', timeframe: TimeframeCode = 'M15'): Promise<MarketBundle> {
+  const requestStartedAt = Date.now();
   const selectedProduct = getMarketProduct(symbol);
   const loaded = await Promise.all(marketProducts.map(async (product) => {
     try { return product.assetClass === 'crypto' ? await loadCoinbaseAsset(product) : await loadYahooAsset(product); } catch { return fallbackAsset(product); }
   }));
   const selectedLoaded = loaded.find((asset) => asset.symbol === selectedProduct.symbol) ?? fallbackAsset(selectedProduct);
-  const source: SourceMeta = { provider: selectedProduct.assetClass === 'crypto' ? 'Coinbase Exchange public market data' : 'Yahoo Finance public market data', mode: selectedLoaded.fallback ? 'mock' : 'api', updatedAt: selectedLoaded.updatedAt, cacheState: selectedLoaded.fallback ? 'stale' : 'fresh', endpoint: selectedProduct.assetClass === 'crypto' ? `${coinbaseBase}/products/*` : '/api/market' };
+  const source: SourceMeta = { provider: selectedProduct.assetClass === 'crypto' ? 'Coinbase Exchange public market data' : 'Yahoo Finance public market data', mode: selectedLoaded.fallback ? 'mock' : 'api', updatedAt: selectedLoaded.updatedAt, cacheState: selectedLoaded.fallback ? 'stale' : 'fresh', endpoint: selectedProduct.assetClass === 'crypto' ? `${coinbaseBase}/products/*` : '/api/market', latencyMs: Math.max(1, Date.now() - requestStartedAt), health: selectedLoaded.fallback ? 'degraded' : 'healthy', lineage: 'provider → adapter → chart' };
   let selected: MarketQuote = { ...selectedLoaded, source };
   let orderBook = selectedLoaded.orderBook ?? buildSyntheticBook(selectedLoaded.price, selectedProduct);
   let candles = selectedLoaded.candles ?? makeFallbackCandles(selectedLoaded.price, selectedLoaded.change24h);
@@ -184,7 +188,7 @@ export async function loadMarketBundle(symbol = 'BTC', timeframe: TimeframeCode 
     candles = aggregateCandles(candles, config.aggregate);
   }
   const assets = loaded.map(({ open24h: _open, high24h: _high, low24h: _low, candles: _candles, orderBook: _book, fallback: _fallback, ...asset }) => asset);
-  return { assets: assets.map((asset) => asset.symbol === selected.symbol ? { ...asset, ...selected } : asset), selected, candles, orderBook, depth: { bids: orderBook.bids.slice().reverse().map((level) => ({ price: level.price, cumulative: level.depth })), asks: orderBook.asks.map((level) => ({ price: level.price, cumulative: level.depth })) }, source: { ...source, updatedAt: selected.updatedAt } };
+  return { assets: assets.map((asset) => asset.symbol === selected.symbol ? { ...asset, ...selected } : asset), selected, candles, orderBook, depth: { bids: orderBook.bids.slice().reverse().map((level) => ({ price: level.price, cumulative: level.depth })), asks: orderBook.asks.map((level) => ({ price: level.price, cumulative: level.depth })) }, source: { ...source, updatedAt: selected.updatedAt, latencyMs: Math.max(1, Date.now() - requestStartedAt), health: source.cacheState === 'fresh' ? 'healthy' : source.cacheState === 'cached' ? 'degraded' : 'offline' } };
 }
 
 export function computeSpreadBasisPoints(bestBid: number, bestAsk: number) {

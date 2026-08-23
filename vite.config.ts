@@ -76,6 +76,8 @@ export default defineConfig({
     proxy: {
       '/api/auth': 'http://127.0.0.1:10000',
       '/api/admin': 'http://127.0.0.1:10000',
+      '/api/support': 'http://127.0.0.1:10000',
+      '/api/trades': 'http://127.0.0.1:10000',
       '/api/sync': 'http://127.0.0.1:10000',
     },
   },

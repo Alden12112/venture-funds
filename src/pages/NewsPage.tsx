@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, Filter, Globe2, Search, RefreshCcw, Target } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, EmptyState, LoadingState, StatusPill } from '@/components/Stats';
@@ -13,7 +13,17 @@ export function NewsPage() {
   const [tone, setTone] = useState<'全部' | 'positive' | 'neutral' | 'alert'>('全部');
   const [windowDays, setWindowDays] = useState<7 | 30>(30);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   const news = useAsyncResource(() => loadNewsBundle(), [refreshKey]);
+
+  const refreshNews = () => {
+    setRefreshing(true);
+    setRefreshKey((value) => value + 1);
+  };
+
+  useEffect(() => {
+    if (news.status === 'success') setRefreshing(false);
+  }, [news.status, news.status === 'success' ? news.data.source.updatedAt : '']);
 
   const filtered = useMemo(() => {
     if (news.status !== 'success') return [];
@@ -34,7 +44,7 @@ export function NewsPage() {
   }
 
   if (news.status === 'error') {
-    return <div className="state-block state-block--error"><strong>新闻暂时无法加载</strong><p>{news.error}</p></div>;
+    return <div className="state-block state-block--error"><strong>新闻暂时无法加载</strong><p>{news.error}</p><button type="button" className="btn btn--ghost" onClick={refreshNews}><RefreshCcw size={15} />重新连接新闻源</button></div>;
   }
 
   return (
@@ -45,9 +55,9 @@ export function NewsPage() {
         description="新闻列表、分类和搜索都走同一套适配层。"
         meta={<DataMeta source={news.data.source} />}
         actions={
-          <button type="button" className="btn btn--ghost" onClick={() => setRefreshKey((value) => value + 1)}>
+          <button type="button" className={`btn btn--ghost ${refreshing ? 'is-busy' : ''}`} onClick={refreshNews} disabled={refreshing}>
             <RefreshCcw size={16} />
-            刷新
+            {refreshing ? '正在同步…' : '刷新'}
           </button>
         }
       />
