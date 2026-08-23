@@ -11,10 +11,6 @@ services:
         value: frontend
       - key: VITE_APP_SURFACE
         value: frontend
-      - key: DATABASE_URL
-        fromDatabase:
-          name: ad88-postgres
-          property: connectionString
       - key: AUTH_SECRET
         generateValue: true
       - key: AD88_ADMIN_EMAIL
@@ -33,10 +29,8 @@ services:
         value: admin
       - key: VITE_APP_SURFACE
         value: admin
-      - key: DATABASE_URL
-        fromDatabase:
-          name: ad88-postgres
-          property: connectionString
+      - key: REMOTE_API_ORIGIN
+        value: https://ad88-platform.onrender.com
       - key: AUTH_SECRET
         fromService:
           type: web
@@ -52,8 +46,3 @@ services:
           type: web
           name: ad88-platform
           envVarKey: AD88_ADMIN_PASSWORD
-databases:
-  - name: ad88-postgres
-    databaseName: ad88
-    user: ad88
-    plan: free

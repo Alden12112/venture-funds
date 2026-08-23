@@ -11,6 +11,7 @@ const authSecret = process.env.AUTH_SECRET || 'ad88-local-change-me';
 const adminEmail = (process.env.AD88_ADMIN_EMAIL || '').trim().toLowerCase();
 const adminPassword = process.env.AD88_ADMIN_PASSWORD || '';
 const appSurface = process.env.APP_SURFACE === 'admin' ? 'admin' : 'frontend';
+const remoteApiOrigin = (process.env.REMOTE_API_ORIGIN || '').trim().replace(/\/$/, '');
 const memoryAccounts = new Map();
 const memoryState = new Map();
 const memorySupportMessages = [];
@@ -141,6 +142,33 @@ async function readBody(req) {
     if (body.length > 1_000_000) throw new Error('request too large');
   }
   return body ? JSON.parse(body) : {};
+}
+
+async function forwardToRemoteApi(req, res, requestUrl, body, bridgeAuth = false) {
+  if (!remoteApiOrigin) return false;
+  const payload = body === undefined && req.method !== 'GET' && req.method !== 'HEAD' ? await readBody(req) : body;
+  const target = `${remoteApiOrigin}${requestUrl.pathname}${requestUrl.search}`;
+  const headers = { accept: 'application/json' };
+  const token = getToken(req);
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (payload !== undefined) headers['content-type'] = 'application/json';
+  if (bridgeAuth) headers['x-ad88-admin-bridge'] = authSecret;
+  try {
+    const response = await fetch(target, {
+      method: req.method,
+      headers,
+      body: payload === undefined || req.method === 'GET' || req.method === 'HEAD' ? undefined : JSON.stringify(payload),
+      signal: AbortSignal.timeout(12_000),
+    });
+    res.statusCode = response.status;
+    res.setHeader('content-type', response.headers.get('content-type') || 'application/json; charset=utf-8');
+    res.setHeader('x-ad88-data-path', 'frontend-api-proxy');
+    res.end(await response.text());
+    return true;
+  } catch (error) {
+    sendJson(res, 502, { error: error instanceof Error ? error.message : 'remote API unavailable' });
+    return true;
+  }
 }
 
 function validateCredentials(input) {
@@ -311,7 +339,8 @@ async function handleAuth(req, res, requestUrl) {
     }
     const account = await findAccount(identifier);
     if (appSurface === 'admin' && (!account || account.role !== 'admin')) return sendJson(res, 403, { error: '后台仅允许管理员账号登录' });
-    if (appSurface === 'frontend' && account?.role === 'admin') return sendJson(res, 403, { error: '管理员请使用独立后台地址登录' });
+    const adminBridge = req.headers['x-ad88-admin-bridge'] === authSecret;
+    if (appSurface === 'frontend' && account?.role === 'admin' && !adminBridge) return sendJson(res, 403, { error: '管理员请使用独立后台地址登录' });
     if (!account || !verifyPassword(password, account.password_hash)) return sendJson(res, 401, { error: 'email, phone or password is incorrect' });
     if (account.status !== 'active' && account.status !== 'approved') return sendJson(res, 403, { error: 'account is not active' });
     return sendJson(res, 200, sessionResponse(account));
@@ -629,6 +658,17 @@ const server = http.createServer(async (req, res) => {
   try {
     await databaseReady;
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+    if (appSurface === 'admin' && remoteApiOrigin && requestUrl.pathname === '/api/auth/login') {
+      const input = await readBody(req);
+      if (adminEmail && String(input.identifier || '').trim().toLowerCase() === adminEmail && adminPassword && String(input.password || '') === adminPassword) {
+        const account = { id: 'env-admin', name: 'AD88 Administrator', email: adminEmail, phone: '', country: 'Global', role: 'admin', status: 'active', tier: 'Enterprise', tradingScore: 100, joinedAt: new Date().toISOString() };
+        return sendJson(res, 200, sessionResponse(account));
+      }
+      return forwardToRemoteApi(req, res, requestUrl, input, true);
+    }
+    if (appSurface === 'admin' && remoteApiOrigin && (requestUrl.pathname.startsWith('/api/admin/') || requestUrl.pathname.startsWith('/api/support/') || requestUrl.pathname.startsWith('/api/sync') || requestUrl.pathname.startsWith('/api/trades'))) {
+      return forwardToRemoteApi(req, res, requestUrl);
+    }
     if (requestUrl.pathname.startsWith('/api/auth/')) {
       const handled = await handleAuth(req, res, requestUrl);
       if (handled !== false) return;

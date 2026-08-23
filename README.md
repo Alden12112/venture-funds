@@ -21,12 +21,12 @@ The production output is generated in `dist/`.
 
 ## Render
 
-`render.yaml` provisions two Render Node web services and one shared PostgreSQL database:
+`render.yaml` provisions two Render Node web services:
 
 - `ad88-platform`: public user-facing frontend
 - `ad88-admin`: private administrator console
 
-Both services use the same database and `AUTH_SECRET`, so accounts, support messages, trading records and workspace state stay synchronized across devices. The two bundles are built with different `VITE_APP_SURFACE` values and the server also enforces `APP_SURFACE` at runtime.
+Both services share `AUTH_SECRET`; the admin service forwards account, support, trade and workspace API calls to the frontend service, so the two addresses see the same live data. The two bundles are built with different `VITE_APP_SURFACE` values and the server also enforces `APP_SURFACE` at runtime.
 
 When the blueprint is first applied, set the two private admin values on `ad88-platform`:
 
@@ -35,7 +35,7 @@ When the blueprint is first applied, set the two private admin values on `ad88-p
 
 The admin service reads those values from the frontend service through Render's private `fromService` environment references. Do not put the password in GitHub, source files, or client-side environment variables.
 
-The blueprint generates `AUTH_SECRET` and links `DATABASE_URL` to the database. Account records, password hashes, admin actions and user workspace state are then shared across browsers and devices. Do not use a demo password in production.
+The blueprint generates `AUTH_SECRET`. This no-card deployment uses the frontend service as the central live API. Render free instances are ephemeral, so add a managed PostgreSQL later when durable persistence across service restarts is required. Do not use a demo password in production.
 
 - Build command: `npm ci && npm run build`
 - Start command: `npm run start`
