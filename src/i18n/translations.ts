@@ -3,6 +3,8 @@ import type { LanguageCode } from '@/types';
 type TranslationKey = string;
 
 const commonZh = {
+  'app.language': '语言',
+  'nav.more': '更多',
   'market.description': '统一交易工作台：选择品种、查看图表并进行模拟风控测算。',
   'market.price': '价格',
   'market.change24h': '24h 涨跌',
@@ -48,9 +50,13 @@ const commonZh = {
   'market.bids': '买盘',
   'market.source': '来源',
   'market.cache': '缓存',
+  'market.pnlPerMove': '每 1.00 价格变动盈亏',
+  'market.pnlPerMoveHint': '按当前手数与合约规格计算',
 };
 
 const commonMs = {
+  'app.language': 'Bahasa',
+  'nav.more': 'Lagi',
   'market.description': 'Ruang kerja dagangan bersepadu untuk carta, aset dan anggaran risiko.',
   'market.price': 'Harga',
   'market.change24h': 'Perubahan 24j',
@@ -96,9 +102,13 @@ const commonMs = {
   'market.bids': 'Bida',
   'market.source': 'Sumber',
   'market.cache': 'Cache',
+  'market.pnlPerMove': 'Untung rugi bagi perubahan harga 1.00',
+  'market.pnlPerMoveHint': 'Berdasarkan lot dan saiz kontrak semasa',
 };
 
 const commonEn = {
+  'app.language': 'Language',
+  'nav.more': 'More',
   'market.description': 'A unified trading workspace for charts, instruments and paper-risk estimates.',
   'market.price': 'Price',
   'market.change24h': '24h change',
@@ -144,6 +154,8 @@ const commonEn = {
   'market.bids': 'Bids',
   'market.source': 'Source',
   'market.cache': 'Cache',
+  'market.pnlPerMove': 'PnL per 1.00 price move',
+  'market.pnlPerMoveHint': 'Based on current lots and contract size',
 };
 
 export const translations: Record<LanguageCode, Record<string, string>> = {

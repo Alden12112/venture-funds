@@ -120,7 +120,7 @@ type QuotePulseItem = {
 
 /**
  * Checks one server-side snapshot every two seconds. The server owns the
- * provider fan-out and keeps an eight-second cache, so every non-crypto row
+ * provider fan-out and keeps a two-second cache, so every non-crypto row
  * advances from the same snapshot instead of only the selected instrument.
  */
 export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: PriceMap = {}) {

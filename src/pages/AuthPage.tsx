@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, CheckCircle2, ShieldCheck, Smartphone, Mail } from 'lucide-react';
+import { ArrowRight, CheckCircle2, ShieldCheck, Smartphone, Mail, Languages } from 'lucide-react';
 import { authModes } from '@/data/navigation';
 import { brand } from '@/data/brand';
 import { useAuth } from '@/context/auth-context';
@@ -14,7 +14,7 @@ export function AuthPage() {
   const { mode } = useParams();
   const navigate = useNavigate();
   const { session, signIn } = useAuth();
-  const { t } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
   const [delivery, setDelivery] = useState<'email' | 'phone'>('email');
   const [status, setStatus] = useState<string>('');
   const [statusKind, setStatusKind] = useState<'success' | 'error'>('success');
@@ -163,12 +163,23 @@ export function AuthPage() {
       </aside>
 
       <main className="auth-card">
-        <div className="segmented-nav">
-          {authModes.map((item) => (
-            <Link key={item.key} to={`/auth/${item.key}`} className={`segmented-nav__item ${currentMode === item.key ? 'is-active' : ''}`}>
-              {item.key === 'login' ? t('auth.login') : item.key === 'register' ? t('auth.register') : t('auth.recover')}
-            </Link>
-          ))}
+        <div className="auth-toolbar">
+          <div className="segmented-nav">
+            {authModes.map((item) => (
+              <Link key={item.key} to={`/auth/${item.key}`} className={`segmented-nav__item ${currentMode === item.key ? 'is-active' : ''}`}>
+                {item.key === 'login' ? t('auth.login') : item.key === 'register' ? t('auth.register') : t('auth.recover')}
+              </Link>
+            ))}
+          </div>
+          <label className="locale-picker locale-picker--auth">
+            <Languages size={15} aria-hidden="true" />
+            <span className="sr-only">{t('app.language')}</span>
+            <select value={language} onChange={(event) => setLanguage(event.target.value as typeof language)} aria-label={t('app.language')}>
+              <option value="en">EN</option>
+              <option value="zh">中文</option>
+              <option value="ms">BM</option>
+            </select>
+          </label>
         </div>
 
         {currentMode === 'recover' ? (

@@ -13,7 +13,7 @@ import { useIndicativeQuotePulse, useLiveTickers } from '@/lib/useLiveTicker';
 import { readStorage, writeStorage } from '@/lib/storage';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
-import { getExecutionQuote, getMarketProduct, marketProducts } from '@/data/assets';
+import { getExecutionQuote, getMarketProduct, getTradeSpec, marketProducts } from '@/data/assets';
 import { marketFilters } from '@/data/navigation';
 import { apiFetch } from '@/lib/api';
 import { loadRemoteCreditAccount, readCreditAccounts, reserveRemoteMargin, settleRemoteMargin, writeCreditAccounts } from '@/lib/credits';
@@ -48,9 +48,10 @@ export function MarketPage() {
   const [assetClassFilter, setAssetClassFilter] = useState<(typeof marketFilters)[number]>('All');
   const [showAllInstruments, setShowAllInstruments] = useState(false);
   const [side, setSide] = useState<TradeSide>('long');
-  const [lots, setLots] = useState(0.01);
-  const [contractSize, setContractSize] = useState(0.01);
-  const [leverage, setLeverage] = useState(5);
+  const initialTradeSpec = getTradeSpec('XAU');
+  const [lots, setLots] = useState(initialTradeSpec.minimumLots);
+  const [contractSize, setContractSize] = useState(initialTradeSpec.contractSize);
+  const [leverage, setLeverage] = useState(initialTradeSpec.defaultLeverage);
   const [stopLoss, setStopLoss] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
   const [positions, setPositions] = useState<PaperPosition[]>(() => readStorage('paperPositions', []));
@@ -72,6 +73,16 @@ export function MarketPage() {
       setSymbol(requestedSymbol);
     }
   }, [requestedSymbol]);
+
+  useEffect(() => {
+    // Each instrument carries its own standard-lot definition. Resetting the
+    // paper ticket on symbol change prevents BTC's 1-unit contract or XAU's
+    // 100-ounce contract from inheriting the previous product's math.
+    const spec = getTradeSpec(symbol);
+    setContractSize(spec.contractSize);
+    setLeverage(spec.defaultLeverage);
+    setLots((current) => Math.max(spec.minimumLots, current));
+  }, [symbol]);
 
   const refreshMarkets = () => {
     setRefreshing(true);
@@ -185,14 +196,18 @@ export function MarketPage() {
   }, [assetClassFilter, rows]);
   const visibleRows = useMemo(() => showAllInstruments ? filteredRows : filteredRows.slice(0, 10), [filteredRows, showAllInstruments]);
 
+  const tradeSpec = getTradeSpec(symbol);
   const units = lots * contractSize;
   const orderPreviewPrice = side === 'long' ? executionQuote.ask : executionQuote.bid;
   const notional = units * orderPreviewPrice;
   const margin = leverage ? notional / leverage : notional;
+  // This is the honest paper PnL for a 1.00 move in the quoted instrument;
+  // it is not a promised return and excludes spread, funding and slippage.
+  const pnlForOneQuoteMove = units;
   const availableMargin = creditAccount?.available ?? 0;
   const hasAssetMargin = availableMargin >= margin;
   const maxLots = orderPreviewPrice && contractSize ? (availableMargin * leverage) / (orderPreviewPrice * contractSize) : 0;
-  const canOpen = Boolean(session) && hasAssetMargin && margin > 0 && lots >= 0.01 && contractSize > 0 && leverage > 0;
+  const canOpen = Boolean(session) && hasAssetMargin && margin > 0 && lots >= tradeSpec.minimumLots && contractSize > 0 && leverage > 0;
   const livePositions = userPositions.map((position) => {
     const referencePrice = priceFor(position.symbol, position.markPrice);
     const indicative = getExecutionQuote(position.symbol, referencePrice);
@@ -401,7 +416,7 @@ export function MarketPage() {
       <MarketTicker assets={rows} />
 
       <section className="market-integrity-rail">
-        <DataMeta source={{ ...market.data.source, dataState: selectedFeedState }} />
+        <DataMeta source={{ ...market.data.source, dataState: selectedFeedState, updatedAt: selectedUpdatedAt }} />
         <span className={`market-integrity-rail__stream market-integrity-rail__stream--${quotePulse.streamStatus === 'open' ? 'healthy' : 'monitoring'}`}>Price stream {quotePulse.streamStatus === 'open' ? 'connected' : 'monitoring'}</span>
       </section>
 
@@ -525,7 +540,7 @@ export function MarketPage() {
             <div className="execution-bar__middle">
               <span className="execution-bar__label">Reference midpoint</span>
               <strong>{formatNumber(livePrice)}</strong>
-              <label><span>Order lots</span><input type="number" min="0.01" step="0.01" value={lots} onChange={(event) => setLots(Math.max(0.01, Number(event.target.value) || 0.01))} /></label>
+              <label><span>Order lots</span><input type="number" min={tradeSpec.minimumLots} step="0.01" value={lots} onChange={(event) => setLots(Math.max(tradeSpec.minimumLots, Number(event.target.value) || tradeSpec.minimumLots))} /></label>
             </div>
             <button type="button" className="execution-quote execution-quote--buy" onClick={() => openPosition('long', buyPrice)} disabled={!canOpen}>
               <span>BUY · ASK</span><strong>{formatNumber(buyPrice)}</strong><small>Open long</small>
@@ -558,11 +573,11 @@ export function MarketPage() {
           <div className="form-grid">
             <label className="field">
               <span>{t('market.lots')}</span>
-              <input type="number" min="0.01" step="0.01" value={lots} onChange={(event) => setLots(Math.max(0.01, Number(event.target.value) || 0.01))} />
+              <input type="number" min={tradeSpec.minimumLots} step="0.01" value={lots} onChange={(event) => setLots(Math.max(tradeSpec.minimumLots, Number(event.target.value) || tradeSpec.minimumLots))} />
             </label>
             <label className="field">
               <span>{t('market.contractSize')}</span>
-              <input type="number" min="0.0001" step="0.001" value={contractSize} onChange={(event) => setContractSize(Number(event.target.value))} />
+              <input type="number" value={contractSize} readOnly aria-readonly="true" title="Automatically calculated from the selected instrument" />
             </label>
             <label className="field">
               <span>{t('market.leverage')}</span>
@@ -586,6 +601,7 @@ export function MarketPage() {
             <div><span>{t('market.notional')}</span><strong>{formatCurrency(notional)}</strong></div>
             <div><span>Required margin</span><strong>{formatCurrency(margin)}</strong></div>
             <div><span>{t('market.units')}</span><strong>{formatNumber(units)}</strong></div>
+            <div><span>{t('market.pnlPerMove')}</span><strong>{formatCurrency(pnlForOneQuoteMove)}</strong><small>{t('market.pnlPerMoveHint')}</small></div>
           </div>
 
           <button type="button" className="btn btn--primary btn--block" onClick={() => openPosition()} disabled={!canOpen}>

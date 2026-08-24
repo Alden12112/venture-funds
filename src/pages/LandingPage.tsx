@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, LogIn } from 'lucide-react';
+import { ArrowRight, Languages, LogIn } from 'lucide-react';
 import { brand, brandMarkers } from '@/data/brand';
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadMarketBundle } from '@/adapters/market-adapter';
@@ -9,7 +9,7 @@ import { Sparkline } from '@/components/Charts';
 import { useLanguage } from '@/context/language-context';
 
 export function LandingPage() {
-  const { t } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
   const market = useAsyncResource(() => loadMarketBundle('BTC'), []);
 
   const selected = market.status === 'success' ? market.data.selected : null;
@@ -24,6 +24,15 @@ export function LandingPage() {
           <span className="brand-lockup__name">{brand.english}</span>
         </Link>
         <div className="landing-topbar__actions">
+          <label className="locale-picker">
+            <Languages size={15} aria-hidden="true" />
+            <span className="sr-only">{t('app.language')}</span>
+            <select value={language} onChange={(event) => setLanguage(event.target.value as typeof language)} aria-label={t('app.language')}>
+              <option value="en">EN</option>
+              <option value="zh">中文</option>
+              <option value="ms">BM</option>
+            </select>
+          </label>
           <Link to="/auth/login" className="link-action">
             {t('action.login')}
           </Link>

@@ -38,6 +38,50 @@ type ExecutionSpec = {
   decimals: number;
 };
 
+export type TradeSpec = {
+  /** Number of quote units represented by one standard lot. */
+  contractSize: number;
+  /** A sensible paper-account default; users may still adjust leverage. */
+  defaultLeverage: number;
+  minimumLots: number;
+};
+
+// One global contract size makes a 0.01 lot BTC order look like 0.0001 BTC
+// and makes every other product's PnL equally misleading. Keep the paper
+// ticket tied to the instrument catalogue so every existing or newly added
+// symbol has a deterministic notional, margin and PnL calculation.
+const tradeSpecs: Record<string, TradeSpec> = {
+  XAU: { contractSize: 100, defaultLeverage: 20, minimumLots: 0.01 },
+  XAG: { contractSize: 5_000, defaultLeverage: 20, minimumLots: 0.01 },
+  CL: { contractSize: 1_000, defaultLeverage: 20, minimumLots: 0.01 },
+  NG: { contractSize: 10_000, defaultLeverage: 20, minimumLots: 0.01 },
+  HG: { contractSize: 25_000, defaultLeverage: 20, minimumLots: 0.01 },
+  SCCO: { contractSize: 1, defaultLeverage: 10, minimumLots: 0.01 },
+  BRN: { contractSize: 1_000, defaultLeverage: 20, minimumLots: 0.01 },
+  HO: { contractSize: 42_000, defaultLeverage: 20, minimumLots: 0.01 },
+  RB: { contractSize: 42_000, defaultLeverage: 20, minimumLots: 0.01 },
+  LGO: { contractSize: 100, defaultLeverage: 20, minimumLots: 0.01 },
+  PL: { contractSize: 50, defaultLeverage: 20, minimumLots: 0.01 },
+  PA: { contractSize: 100, defaultLeverage: 20, minimumLots: 0.01 },
+  CORN: { contractSize: 5_000, defaultLeverage: 10, minimumLots: 0.01 },
+  WHEAT: { contractSize: 5_000, defaultLeverage: 10, minimumLots: 0.01 },
+  COFFEE: { contractSize: 37_500, defaultLeverage: 10, minimumLots: 0.01 },
+  BTC: { contractSize: 1, defaultLeverage: 5, minimumLots: 0.01 },
+  ETH: { contractSize: 1, defaultLeverage: 5, minimumLots: 0.01 },
+  SOL: { contractSize: 1, defaultLeverage: 5, minimumLots: 0.01 },
+  XRP: { contractSize: 1, defaultLeverage: 5, minimumLots: 0.01 },
+  LINK: { contractSize: 1, defaultLeverage: 5, minimumLots: 0.01 },
+  AVAX: { contractSize: 1, defaultLeverage: 5, minimumLots: 0.01 },
+  EURUSD: { contractSize: 100_000, defaultLeverage: 30, minimumLots: 0.01 },
+  GBPUSD: { contractSize: 100_000, defaultLeverage: 30, minimumLots: 0.01 },
+  USDJPY: { contractSize: 100_000, defaultLeverage: 30, minimumLots: 0.01 },
+  AUDUSD: { contractSize: 100_000, defaultLeverage: 30, minimumLots: 0.01 },
+  USDCAD: { contractSize: 100_000, defaultLeverage: 30, minimumLots: 0.01 },
+  SPX: { contractSize: 1, defaultLeverage: 10, minimumLots: 0.01 },
+  NAS100: { contractSize: 1, defaultLeverage: 10, minimumLots: 0.01 },
+  DAX: { contractSize: 1, defaultLeverage: 10, minimumLots: 0.01 },
+};
+
 // These are deliberately visible paper-trading execution spreads, rather than
 // a claim about an exchange's order book. The two-sided quote is recalculated
 // from the latest reference price on every price update.
@@ -79,4 +123,8 @@ export function getExecutionQuote(symbol: string, referencePrice: number) {
 
 export function getMarketProduct(symbol: string) {
   return marketProducts.find((product) => product.symbol === symbol.toUpperCase()) ?? marketProducts[0];
+}
+
+export function getTradeSpec(symbol: string): TradeSpec {
+  return tradeSpecs[symbol.toUpperCase()] ?? { contractSize: 1, defaultLeverage: 10, minimumLots: 0.01 };
 }

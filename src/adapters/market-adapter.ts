@@ -50,7 +50,7 @@ type LoadedAsset = MarketAsset & {
   lineage?: string;
 };
 
-const marketCacheTtlMs = 8_000;
+const marketCacheTtlMs = 2_000;
 const detailCache = new Map<string, { expiresAt: number; value: { selected: MarketQuote; orderBook: { asks: OrderLevel[]; bids: OrderLevel[] }; candles: Candle[] } }>();
 let snapshotCache: { expiresAt: number; value: Record<string, MarketSnapshotQuote> } | null = null;
 let snapshotRequest: Promise<Record<string, MarketSnapshotQuote>> | null = null;

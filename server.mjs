@@ -36,7 +36,10 @@ const memoryCreditRequests = new Map();
 const memoryBlacklist = new Map();
 const memoryNotifications = [];
 const marketProxyCache = new Map();
-const marketProxyTtlMs = 8_000;
+// Keep the server snapshot inside the requested 0–10 second display window.
+// The browser polls every two seconds; this cache prevents duplicate fan-out
+// requests while still allowing a fresh public quote cycle at that cadence.
+const marketProxyTtlMs = 2_000;
 const mt5QuoteCache = new Map();
 const mt5QuoteTtlMs = 20_000;
 const marketStreamClients = new Set();
@@ -51,7 +54,7 @@ const twelveQuoteWindowMs = 60_000;
 const twelveQuoteWindowLimit = 6;
 let twelveQuoteWindow = { startedAt: 0, used: 0 };
 const spotMetalCache = new Map();
-const spotMetalTtlMs = 8_000;
+const spotMetalTtlMs = 2_000;
 let marketQuoteSnapshotCache = { expiresAt: 0, value: null, builtAt: 0, snapshotId: '' };
 let marketQuoteSnapshotRequest = null;
 const newsProxyCache = new Map();
@@ -1463,7 +1466,7 @@ async function buildMarketQuoteSnapshot() {
       try { quote = await loadSpotMetalQuote(symbol); } catch { quote = null; }
     }
     // Twelve Data is only a rate-bounded fallback. The free tier cannot safely
-    // serve thirty real-time instruments every eight seconds, while the batch
+    // serve thirty real-time instruments every two seconds, while the batch
     // snapshot above can keep the whole catalogue aligned.
     if (!quote && twelveDataApiKey) {
       try { quote = await loadTwelveQuote(providerSymbol); } catch { quote = null; }
@@ -1692,10 +1695,10 @@ async function proxyMarket(res, requestUrl) {
   upstream.searchParams.set('interval', interval);
   const cacheKey = `${symbol}:${interval}:${upstream.searchParams.get('range')}:${providerPreference}`;
   // The browser may check frequently, but this server-side cache limits a
-  // free-provider quote to one upstream request about every eight seconds.
+  // free-provider quote to one upstream request about every two seconds.
   // That keeps normal commodities and FX within the requested 0–10 second
   // display window without burning through free API quotas.
-  const cacheTtlMs = requestUrl.searchParams.get('fast') === '1' ? 8_000 : marketProxyTtlMs;
+  const cacheTtlMs = marketProxyTtlMs;
   const cached = marketProxyCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     res.statusCode = 200;
