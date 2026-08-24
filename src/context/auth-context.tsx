@@ -32,6 +32,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     const token = getAuthToken();
     if (!session || !token) {
+      // Do not let an orphaned local profile pass a route guard when its
+      // matching bearer token was already cleared by a deploy or a 401.
+      if (session || token) {
+        setSession(null);
+        setProfile(null);
+        setAuthToken(null);
+      }
       setReady(true);
       return () => { cancelled = true; };
     }
