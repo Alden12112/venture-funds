@@ -1615,8 +1615,12 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         status: 'ok',
         surface: appSurface,
-        storage: pool ? 'postgres' : 'memory',
+        // The admin deployment intentionally has no independent database. It
+        // proxies privileged requests to the frontend API, which owns the
+        // shared PostgreSQL connection, so it cannot drift into a second store.
+        storage: appSurface === 'admin' && remoteApiOrigin ? 'shared-api-proxy' : pool ? 'postgres' : 'memory',
         adminProxy: Boolean(appSurface === 'admin' && remoteApiOrigin),
+        adminCredentialsConfigured: appSurface === 'admin' ? Boolean(adminEmail && adminPassword) : undefined,
         marketData: {
           twelveDataConfigured: Boolean(twelveDataApiKey),
           quoteCacheSeconds: Math.round(marketProxyTtlMs / 1000),
