@@ -1075,6 +1075,14 @@ const cryptoQuoteSymbols = new Set(['BTC', 'ETH', 'SOL', 'XRP', 'LINK', 'AVAX'])
 const internalFallbackPrices = {
   BTC: [76000, 0.4], ETH: [2400, 0.2], SOL: [93, 0.1], XRP: [1.47, 0.1], LINK: [11.3, 0.1], AVAX: [7.4, 0.1],
 };
+const tradingViewSymbols = {
+  CL: ['futures', 'NYMEX:CL1!'], NG: ['futures', 'NYMEX:NG1!'], HG: ['futures', 'COMEX:HG1!'], BRN: ['futures', 'ICEEUR:BRN1!'],
+  HO: ['futures', 'NYMEX:HO1!'], RB: ['futures', 'NYMEX:RB1!'], LGO: ['futures', 'NYMEX:HO1!'], PL: ['futures', 'NYMEX:PL1!'], PA: ['futures', 'NYMEX:PA1!'],
+  CORN: ['futures', 'CBOT:ZC1!'], WHEAT: ['futures', 'CBOT:ZW1!'], COFFEE: ['futures', 'ICEUS:KC1!'], DAX: ['futures', 'EUREX:FDAX1!'],
+  SCCO: ['america', 'NYSE:SCCO'], SPX: ['america', 'SP:SPX'], NAS100: ['america', 'NASDAQ:NDX'],
+  EURUSD: ['forex', 'OANDA:EURUSD'], GBPUSD: ['forex', 'OANDA:GBPUSD'], USDJPY: ['forex', 'OANDA:USDJPY'],
+  AUDUSD: ['forex', 'OANDA:AUDUSD'], USDCAD: ['forex', 'OANDA:USDCAD'],
+};
 
 function twelveInterval(interval) {
   const intervals = { '1m': '1min', '5m': '5min', '15m': '15min', '30m': '30min', '60m': '1h', '1h': '1h', '4h': '4h', '1d': '1day', '1wk': '1week', '1mo': '1month' };
@@ -1196,6 +1204,45 @@ async function loadCoinbaseQuote(providerSymbol) {
   };
 }
 
+async function loadTradingViewSnapshot() {
+  const groups = new Map();
+  Object.entries(tradingViewSymbols).forEach(([symbol, [market, ticker]]) => {
+    const group = groups.get(market) || [];
+    group.push({ symbol, ticker });
+    groups.set(market, group);
+  });
+  const output = {};
+  await Promise.all([...groups.entries()].map(async ([market, entries]) => {
+    try {
+      const response = await fetch(`https://scanner.tradingview.com/${market}/scan`, {
+        method: 'POST',
+        headers: { accept: 'application/json', 'content-type': 'application/json' },
+        body: JSON.stringify({ symbols: { tickers: entries.map((entry) => entry.ticker), query: { types: [] } }, columns: ['close', 'change', 'volume'] }),
+        signal: AbortSignal.timeout(6500),
+      });
+      if (!response.ok) return;
+      const payload = await response.json();
+      const byTicker = new Map((Array.isArray(payload?.data) ? payload.data : []).map((row) => [row.s, row.d]));
+      entries.forEach(({ symbol, ticker }) => {
+        const values = byTicker.get(ticker);
+        const price = Number(values?.[0]);
+        if (!Number.isFinite(price) || price <= 0) return;
+        output[symbol] = {
+          price,
+          change24h: Number(values?.[1]) || 0,
+          volume24h: Number(values?.[2]) || 0,
+          quoteUpdatedAt: new Date().toISOString(),
+          provider: 'public market stream',
+          fallback: false,
+        };
+      });
+    } catch {
+      // The quote snapshot continues with Twelve Data, Yahoo or local fallback.
+    }
+  }));
+  return output;
+}
+
 function buildSpotMetalChart(symbol, quote) {
   const now = Math.floor(Date.now() / 1000);
   const base = quote.price;
@@ -1241,6 +1288,7 @@ async function loadYahooQuote(providerSymbol) {
 
 async function buildMarketQuoteSnapshot() {
   const entries = Object.entries(marketQuoteCatalogue);
+  const tradingViewQuotes = await loadTradingViewSnapshot();
   const values = await Promise.all(entries.map(async ([symbol, providerSymbol]) => {
     let quote = null;
     if (cryptoQuoteSymbols.has(symbol)) {
@@ -1252,6 +1300,7 @@ async function buildMarketQuoteSnapshot() {
     if (!quote) {
       try { quote = await loadTwelveQuote(providerSymbol); } catch { quote = null; }
     }
+    if (!quote) quote = tradingViewQuotes[symbol] || null;
     if (!quote) {
       try { quote = await loadYahooQuote(providerSymbol); } catch { quote = null; }
     }
