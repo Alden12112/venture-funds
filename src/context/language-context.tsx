@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { LanguageCode } from '@/types';
-import { writeStorage } from '@/lib/storage';
+import { readStorage, writeStorage } from '@/lib/storage';
 import { translations, type TranslationKey } from '@/i18n/translations';
 
 interface LanguageContextValue {
@@ -11,20 +11,29 @@ interface LanguageContextValue {
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
+function isLanguageCode(value: unknown): value is LanguageCode {
+  return value === 'en' || value === 'zh' || value === 'ms';
+}
+
+function initialLanguage() {
+  const stored = readStorage<unknown>('language', 'en');
+  return isLanguageCode(stored) ? stored : 'en';
+}
+
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  // AD88 is intentionally English-first. Existing local language preferences
-  // are not allowed to fragment the platform into mixed-language screens.
-  const [language, setLanguageState] = useState<LanguageCode>('en');
+  const [language, setLanguageState] = useState<LanguageCode>(initialLanguage);
 
   useEffect(() => {
-    document.documentElement.lang = 'en';
-    writeStorage('language', 'en');
+    document.documentElement.lang = language === 'zh' ? 'zh-CN' : language;
+    // A display preference belongs to this browser. Do not push it into the
+    // shared account state or create a cross-device refresh loop.
+    writeStorage('language', language, { sync: false });
   }, [language]);
 
   const value = useMemo<LanguageContextValue>(
     () => ({
       language,
-      setLanguage: () => setLanguageState('en'),
+      setLanguage: setLanguageState,
       t: (key) => translations[language][key] ?? key,
     }),
     [language],

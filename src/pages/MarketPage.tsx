@@ -218,8 +218,11 @@ export function MarketPage() {
   }, [selectedPosition?.id]);
 
   useEffect(() => {
-    if (market.status === 'success') setRefreshing(false);
-  }, [market.status, market.status === 'success' ? market.data.source.updatedAt : '']);
+    // A retained background fetch keeps `status` at success. Clear the manual
+    // refresh affordance only after that fetch has actually settled, otherwise
+    // the Trade workspace can appear to lose its controls mid-refresh.
+    if (market.status === 'success' && !market.refreshing) setRefreshing(false);
+  }, [market.status, market.status === 'success' ? market.refreshing : false, market.status === 'success' ? market.data.source.updatedAt : '']);
 
   const sellPrice = executionQuote.bid;
   const buyPrice = executionQuote.ask;

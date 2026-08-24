@@ -1560,6 +1560,34 @@ table {
   padding: 0 10px;
 }
 
+.locale-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--muted);
+}
+
+.locale-picker:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.locale-picker select {
+  min-height: 30px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
 .theme-switch select {
   min-height: 30px;
   border: 0;
@@ -2846,6 +2874,7 @@ table {
 .admin-auth-card__brand > div {
   display: grid;
   gap: 2px;
+  min-width: 0;
 }
 
 .admin-auth-card__brand span:not(.brand-lockup__mark),
@@ -2885,6 +2914,12 @@ table {
 .admin-auth-card__back {
   justify-self: start;
   color: var(--accent-strong);
+}
+
+.locale-picker--auth {
+  margin-left: auto;
+  min-height: 34px;
+  padding: 0 7px;
 }
 
 .support-console {
@@ -3155,6 +3190,13 @@ table {
   min-height: 64px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 14px;
+}
+
+.admin-topbar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
 }
 
 .admin-lock {

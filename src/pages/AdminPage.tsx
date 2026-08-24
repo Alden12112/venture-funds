@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, HandCoins, PlusCircle, Trash2, UserPlus } from 'lucide-react';
+import { ArrowRight, HandCoins, Languages, PlusCircle, Trash2, UserPlus } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, LoadingState, StatCard, StatusPill, EmptyState } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
@@ -16,14 +16,46 @@ import { apiFetch } from '@/lib/api';
 import { SupportCenter } from '@/components/SupportCenter';
 
 const tabs = ['Accounts', 'Registration Review', 'U Management', 'Monthly Report', 'Trade Audit', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
+type AdminTab = (typeof tabs)[number];
+
+const tabTranslationKey: Record<AdminTab, string> = {
+  Accounts: 'admin.tab.accounts',
+  'Registration Review': 'admin.tab.registrationReview',
+  'U Management': 'admin.tab.uManagement',
+  'Monthly Report': 'admin.tab.monthlyReport',
+  'Trade Audit': 'admin.tab.tradeAudit',
+  'Activity & Alerts': 'admin.tab.activityAlerts',
+  'Support Inbox': 'admin.tab.supportInbox',
+  Content: 'admin.tab.content',
+  'Approval Flow': 'admin.tab.approvalFlow',
+  Blacklist: 'admin.tab.blacklist',
+};
+
+function isAdminTab(value: string | null): value is AdminTab {
+  return value !== null && tabs.includes(value as AdminTab);
+}
+
+function initialAdminTab(search: string): AdminTab {
+  const requested = new URLSearchParams(search).get('tab');
+  if (isAdminTab(requested)) return requested;
+  if (typeof window !== 'undefined') {
+    const saved = window.sessionStorage.getItem('ad88.admin.active-tab');
+    if (isAdminTab(saved)) return saved;
+  }
+  return 'Accounts';
+}
+
+function saveAdminTab(tab: AdminTab) {
+  if (typeof window !== 'undefined') window.sessionStorage.setItem('ad88.admin.active-tab', tab);
+}
 
 export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const { session, signOut } = useAuth();
-  const { t } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
   const initialQuery = new URLSearchParams(location.search).get('query') ?? '';
-  const [tab, setTab] = useState<(typeof tabs)[number]>('Accounts');
+  const [tab, setTab] = useState<AdminTab>(() => initialAdminTab(location.search));
   const [query, setQuery] = useState(initialQuery);
   const [refreshKey, setRefreshKey] = useState(0);
   const [grantTarget, setGrantTarget] = useState(initialQuery);
@@ -32,6 +64,21 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [accountMessage, setAccountMessage] = useState('');
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
+
+  const selectTab = (nextTab: AdminTab) => {
+    setTab(nextTab);
+    saveAdminTab(nextTab);
+    const params = new URLSearchParams(location.search);
+    params.set('tab', nextTab);
+    navigate({ pathname: location.pathname, search: `?${params.toString()}` }, { replace: true });
+  };
+
+  useEffect(() => {
+    const requested = new URLSearchParams(location.search).get('tab');
+    if (!isAdminTab(requested) || requested === tab) return;
+    saveAdminTab(requested);
+    setTab(requested);
+  }, [location.search, tab]);
 
   useEffect(() => {
     const refresh = (event: Event) => {
@@ -222,7 +269,18 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <span className="brand-lockup__mark">AD88</span>
             <span className="brand-lockup__name">{t('admin.console')}</span>
           </Link>
-          <button type="button" className="btn btn--ghost" onClick={() => { signOut(); navigate('/admin/login'); }}>Sign out</button>
+          <div className="admin-topbar__actions">
+            <label className="locale-picker">
+              <Languages size={16} aria-hidden="true" />
+              <span className="sr-only">{t('admin.language')}</span>
+              <select value={language} onChange={(event) => setLanguage(event.target.value as typeof language)} aria-label={t('admin.language')}>
+                <option value="en">EN</option>
+                <option value="zh">中文</option>
+                <option value="ms">BM</option>
+              </select>
+            </label>
+            <button type="button" className="btn btn--ghost" onClick={() => { signOut(); navigate('/admin/login'); }}>{t('admin.signOut')}</button>
+          </div>
         </div>
       ) : null}
       <PageHeader
@@ -250,8 +308,8 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         </label>
         <div className="chip-row">
           {tabs.map((item) => (
-            <button key={item} type="button" className={`chip ${tab === item ? 'is-active' : ''}`} onClick={() => setTab(item)}>
-              {item}
+            <button key={item} type="button" className={`chip ${tab === item ? 'is-active' : ''}`} onClick={() => selectTab(item)}>
+              {t(tabTranslationKey[item])}
             </button>
           ))}
         </div>
