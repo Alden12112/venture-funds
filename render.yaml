@@ -43,15 +43,9 @@ services:
           name: ad88-platform
           envVarKey: AUTH_SECRET
       - key: AD88_ADMIN_EMAIL
-        fromService:
-          type: web
-          name: ad88-platform
-          envVarKey: AD88_ADMIN_EMAIL
+        sync: false
       - key: AD88_ADMIN_PASSWORD
-        fromService:
-          type: web
-          name: ad88-platform
-          envVarKey: AD88_ADMIN_PASSWORD
+        sync: false
 
 databases:
   - name: ad88-postgres

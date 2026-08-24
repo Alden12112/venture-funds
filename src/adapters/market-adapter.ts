@@ -21,6 +21,19 @@ interface YahooChartResponse {
   chart?: { result?: YahooChartResult[] };
 }
 
+interface MarketSnapshotQuote {
+  symbol?: string;
+  price?: number;
+  change24h?: number;
+  volume24h?: number;
+  quoteUpdatedAt?: string;
+}
+
+interface MarketSnapshotResponse {
+  quotes?: Record<string, MarketSnapshotQuote>;
+  updatedAt?: string;
+}
+
 type LoadedAsset = MarketAsset & {
   open24h: number;
   high24h: number;
@@ -35,9 +48,9 @@ type LoadedAsset = MarketAsset & {
 };
 
 const marketCacheTtlMs = 8_000;
-const assetCache = new Map<string, { expiresAt: number; value: LoadedAsset }>();
-const assetRequests = new Map<string, Promise<LoadedAsset>>();
 const detailCache = new Map<string, { expiresAt: number; value: { selected: MarketQuote; orderBook: { asks: OrderLevel[]; bids: OrderLevel[] }; candles: Candle[] } }>();
+let snapshotCache: { expiresAt: number; value: Record<string, MarketSnapshotQuote> } | null = null;
+let snapshotRequest: Promise<Record<string, MarketSnapshotQuote>> | null = null;
 
 const timeframeMap: Record<TimeframeCode, { baseGranularity: number; aggregate: number }> = {
   M1: { baseGranularity: 60, aggregate: 1 }, M5: { baseGranularity: 300, aggregate: 1 }, M15: { baseGranularity: 900, aggregate: 1 },
@@ -82,6 +95,22 @@ async function getJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+// Load every market row from one normalized server-side snapshot. This avoids
+// sending a browser fan-out of nearly thirty third-party requests, and keeps
+// the table, ticker and trade ticket on the exact same quote cycle.
+async function loadQuoteSnapshot() {
+  if (snapshotCache && snapshotCache.expiresAt > Date.now()) return snapshotCache.value;
+  if (!snapshotRequest) {
+    const symbols = marketProducts.map((product) => product.symbol).join(',');
+    snapshotRequest = getJson<MarketSnapshotResponse>(`/api/market/quotes?symbols=${encodeURIComponent(symbols)}`)
+      .then((payload) => payload.quotes ?? {})
+      .finally(() => { snapshotRequest = null; });
+  }
+  const value = await snapshotRequest;
+  snapshotCache = { expiresAt: Date.now() + marketCacheTtlMs, value };
+  return value;
+}
+
 function buildOrderLevels(levels: Array<[string, string, number]>, side: 'bid' | 'ask'): OrderLevel[] {
   let cumulative = 0;
   return levels.slice(0, 12).map(([price, size]) => {
@@ -89,11 +118,6 @@ function buildOrderLevels(levels: Array<[string, string, number]>, side: 'bid' |
     cumulative += parsedSize;
     return { price: toNumber(price), size: parsedSize, depth: cumulative, side };
   });
-}
-
-function spreadFor(product: typeof marketProducts[number]) {
-  const fallbackPrice = fallbackPriceForSpread(product.symbol);
-  return getExecutionQuote(product.symbol, fallbackPrice).spreadBps;
 }
 
 function buildSyntheticBook(price: number, product: typeof marketProducts[number]) {
@@ -131,7 +155,7 @@ function fallbackPrice(symbol: string) {
     XAU: { price: 4680.6, change: 0.42, volume: 8.4e9 }, XAG: { price: 54.18, change: -0.18, volume: 1.6e9 },
     CL: { price: 79.22, change: 1.1, volume: 4.2e9 }, NG: { price: 2.86, change: -1.42, volume: 1.3e9 },
     HG: { price: 4.31, change: 0.68, volume: 1.1e9 }, SCCO: { price: 94.3, change: 0.36, volume: 2.8e8 }, BRN: { price: 82.14, change: 0.62, volume: 3.3e9 },
-    HO: { price: 2.36, change: 0.48, volume: 8.8e8 }, RB: { price: 2.19, change: -0.37, volume: 7.4e8 }, LGO: { price: 680.2, change: 0.22, volume: 6.5e8 },
+    HO: { price: 2.36, change: 0.48, volume: 8.8e8 }, RB: { price: 2.19, change: -0.37, volume: 7.4e8 }, LGO: { price: 1281.25, change: -2.33, volume: 6.5e8 },
     PL: { price: 982.4, change: 0.21, volume: 1.4e9 }, PA: { price: 1028.5, change: -0.38, volume: 5.7e8 }, CORN: { price: 432.25, change: 0.15, volume: 1.2e9 },
     WHEAT: { price: 548.5, change: -0.27, volume: 1.1e9 }, COFFEE: { price: 312.8, change: 0.74, volume: 8.1e8 },
     EURUSD: { price: 1.0912, change: -0.12, volume: 3.2e10 }, GBPUSD: { price: 1.2748, change: 0.21, volume: 2.1e10 },
@@ -143,10 +167,6 @@ function fallbackPrice(symbol: string) {
   return values[symbol] ?? { price: 100, change: 0, volume: 1000000 };
 }
 
-function fallbackPriceForSpread(symbol: string) {
-  return fallbackPrice(symbol).price;
-}
-
 function fallbackAsset(product: typeof marketProducts[number]): LoadedAsset {
   const snapshot = fallbackPrice(product.symbol);
   return {
@@ -156,34 +176,28 @@ function fallbackAsset(product: typeof marketProducts[number]): LoadedAsset {
   };
 }
 
-async function loadCoinbaseAsset(product: typeof marketProducts[number]): Promise<LoadedAsset> {
-  const [ticker, stats] = await Promise.all([getJson<CoinbaseTicker>(`${coinbaseBase}/products/${product.productId}/ticker`), getJson<CoinbaseStats>(`${coinbaseBase}/products/${product.productId}/stats`)]);
-  const price = toNumber(ticker.price, toNumber(stats.last));
-  const open = toNumber(stats.open, price);
-  return { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h: open ? ((price - open) / open) * 100 : 0, volume24h: toNumber(stats.volume, toNumber(ticker.volume)) * price, spreadBps: getExecutionQuote(product.symbol, price).spreadBps, updatedAt: ticker.time, open24h: open, high24h: toNumber(stats.high, price), low24h: toNumber(stats.low, price) };
-}
-
-async function loadCachedAsset(product: typeof marketProducts[number]) {
-  const key = product.symbol;
-  const cached = assetCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) return { ...cached.value, cached: true };
-  const pending = assetRequests.get(key);
-  if (pending) return { ...(await pending), cached: true };
-  const request = (async () => {
-    try {
-      return product.assetClass === 'crypto' ? await loadCoinbaseAsset(product) : await loadYahooAsset(product, 'yahoo');
-    } catch {
-      return fallbackAsset(product);
-    }
-  })();
-  assetRequests.set(key, request);
-  try {
-    const value = await request;
-    assetCache.set(key, { expiresAt: Date.now() + marketCacheTtlMs, value });
-    return value;
-  } finally {
-    assetRequests.delete(key);
-  }
+function snapshotAsset(product: typeof marketProducts[number], quote: MarketSnapshotQuote | undefined): LoadedAsset {
+  const price = toNumber(quote?.price);
+  if (!price) return fallbackAsset(product);
+  const change24h = toNumber(quote?.change24h);
+  const open24h = change24h ? price / (1 + change24h / 100) : price;
+  return {
+    symbol: product.symbol,
+    name: product.name,
+    assetClass: product.assetClass,
+    price,
+    change24h,
+    volume24h: toNumber(quote?.volume24h),
+    spreadBps: getExecutionQuote(product.symbol, price).spreadBps,
+    updatedAt: quote?.quoteUpdatedAt ?? new Date().toISOString(),
+    open24h,
+    high24h: Math.max(price, open24h),
+    low24h: Math.min(price, open24h),
+    orderBook: buildSyntheticBook(price, product),
+    fallback: false,
+    provider: 'AD88 market proxy',
+    providerCacheState: 'fresh',
+  };
 }
 
 async function loadYahooAsset(product: typeof marketProducts[number], provider: 'primary' | 'yahoo' = 'yahoo', interval = '15m', range = '1d'): Promise<LoadedAsset> {
@@ -231,12 +245,31 @@ async function loadSelectedCoinbaseDetails(product: typeof marketProducts[number
 export async function loadMarketBundle(symbol = 'BTC', timeframe: TimeframeCode = 'M15'): Promise<MarketBundle> {
   const requestStartedAt = Date.now();
   const selectedProduct = getMarketProduct(symbol);
-  const loaded = await Promise.all(marketProducts.map((product) => loadCachedAsset(product)));
+  let snapshots: Record<string, MarketSnapshotQuote> = {};
+  try {
+    snapshots = await loadQuoteSnapshot();
+  } catch {
+    // The existing local fallback retains a usable workbench if a public data
+    // provider is temporarily unavailable.
+  }
+  const loaded = marketProducts.map((product) => snapshotAsset(product, snapshots[product.symbol]));
   let selectedLoaded = loaded.find((asset) => asset.symbol === selectedProduct.symbol) ?? fallbackAsset(selectedProduct);
   if (selectedProduct.assetClass !== 'crypto') {
     try {
       const request = marketTimeframeRequest[timeframe] ?? marketTimeframeRequest.M15;
-      selectedLoaded = await loadYahooAsset(selectedProduct, 'primary', request.interval, request.range);
+      const chartLoaded = await loadYahooAsset(selectedProduct, 'primary', request.interval, request.range);
+      // Candles can be supplied by a different public endpoint than the quote
+      // snapshot. Retain the normalized current price so the selected ticket
+      // never drifts away from the ticker and asset table.
+      selectedLoaded = {
+        ...chartLoaded,
+        price: selectedLoaded.price,
+        change24h: selectedLoaded.change24h,
+        volume24h: selectedLoaded.volume24h,
+        updatedAt: selectedLoaded.updatedAt,
+        spreadBps: selectedLoaded.spreadBps,
+        orderBook: selectedLoaded.orderBook,
+      };
     } catch {
       // The catalogue price remains available from the resilient public-source path.
     }

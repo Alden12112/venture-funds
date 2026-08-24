@@ -12,13 +12,13 @@ const adminEmail = (process.env.AD88_ADMIN_EMAIL || '').trim().toLowerCase();
 const adminPassword = process.env.AD88_ADMIN_PASSWORD || '';
 const appSurface = process.env.APP_SURFACE === 'admin' ? 'admin' : 'frontend';
 const remoteApiOrigin = (process.env.REMOTE_API_ORIGIN || '').trim().replace(/\/$/, '');
-// A short-lived service-to-service bridge is derived from the administrator
-// secret. It lets the separate admin service proxy into the shared frontend
-// API even when an old browser token was signed before AUTH_SECRET was aligned.
-// The derived value is never sent to the browser or written to the repository.
-const adminBridgeToken = adminPassword
-  ? createHmac('sha256', adminPassword).update('AD88 internal admin bridge v1').digest('base64url')
-  : '';
+// The two independently deployed services use a server-to-server bridge that
+// is derived only from their shared AUTH_SECRET. Administrator credentials stay
+// in the admin service and are never required by, or copied into, the public
+// application service. The derived value never reaches browsers or Git.
+const adminBridgeToken = createHmac('sha256', authSecret)
+  .update('AD88 internal admin bridge v2')
+  .digest('base64url');
 // Keep the market key server-side. The browser only ever talks to /api/market.
 const twelveDataApiKey = (process.env.TWELVE_DATA_API_KEY || '').trim();
 const memoryAccounts = new Map();
@@ -39,11 +39,13 @@ const newsProxyCache = new Map();
 const newsProxyTtlMs = 5 * 60_000;
 const marketFallbackPrices = {
   'GC=F': [4680.6, 0.42], 'SI=F': [54.18, -0.18], 'CL=F': [79.22, 1.1], 'NG=F': [2.86, -1.42], 'HG=F': [4.31, 0.68],
-  SCCO: [94.3, 0.36], 'BZ=F': [82.14, 0.62], 'HO=F': [2.36, 0.48], 'RB=F': [2.19, -0.37], 'LGO=F': [680.2, 0.22], 'PL=F': [982.4, 0.21], 'PA=F': [1028.5, -0.38], 'ZC=F': [432.25, 0.15],
+  SCCO: [94.3, 0.36], 'BZ=F': [82.14, 0.62], 'HO=F': [2.36, 0.48], 'RB=F': [2.19, -0.37], 'LGO=F': [1281.25, -2.33], 'PL=F': [982.4, 0.21], 'PA=F': [1028.5, -0.38], 'ZC=F': [432.25, 0.15],
   'ZW=F': [548.5, -0.27], 'KC=F': [312.8, 0.74], 'EURUSD=X': [1.0912, -0.12], 'GBPUSD=X': [1.2748, 0.21],
   'JPY=X': [156.42, 0.09], 'AUDUSD=X': [0.6543, -0.08], 'CAD=X': [1.3714, 0.04], '^GSPC': [5615.2, 0.34], '^NDX': [19842.1, 0.48], '^GDAXI': [18422.6, 0.26],
 };
 let pool = null;
+let databaseAttemptAt = 0;
+let databaseReconnectRequest = null;
 // Keep the server-side rule set aligned with the international catalogue used by the UI.
 // These are national-number lengths after the country calling code.
 const countryPhoneRules = {
@@ -220,13 +222,14 @@ function validateCredentials(input) {
 }
 
 async function initDatabase() {
-  if (!process.env.DATABASE_URL) return;
+  if (!process.env.DATABASE_URL || pool) return;
   const { Pool } = await import('pg');
-  pool = new Pool({
+  const candidate = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
   });
-  await pool.query(`
+  try {
+    await candidate.query(`
     CREATE TABLE IF NOT EXISTS ad88_accounts (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -332,13 +335,31 @@ async function initDatabase() {
     );
     ALTER TABLE ad88_support_messages ADD COLUMN IF NOT EXISTS user_phone TEXT NOT NULL DEFAULT '';
     ALTER TABLE ad88_trade_events ADD COLUMN IF NOT EXISTS pnl NUMERIC;
-  `);
+    `);
+    pool = candidate;
+  } catch (error) {
+    await candidate.end().catch(() => undefined);
+    throw error;
+  }
 }
 
-const databaseReady = initDatabase().catch((error) => {
-  console.error('Database unavailable; using in-memory development store.', error instanceof Error ? error.message : error);
-  pool = null;
-});
+async function ensureDatabase() {
+  if (pool || !process.env.DATABASE_URL) return;
+  if (databaseReconnectRequest) return databaseReconnectRequest;
+  // Render may start a web service before a new database is reachable. Retry
+  // safely so a transient connection failure cannot leave data in memory.
+  if (Date.now() - databaseAttemptAt < 10_000) return;
+  databaseAttemptAt = Date.now();
+  databaseReconnectRequest = initDatabase()
+    .catch((error) => {
+      console.error('Database unavailable; retrying persistent storage shortly.', error instanceof Error ? error.message : error);
+      pool = null;
+    })
+    .finally(() => { databaseReconnectRequest = null; });
+  return databaseReconnectRequest;
+}
+
+const databaseReady = ensureDatabase();
 
 async function findAccount(identifier) {
   const normalizedEmail = String(identifier || '').trim().toLowerCase();
@@ -1077,7 +1098,7 @@ const internalFallbackPrices = {
 };
 const tradingViewSymbols = {
   CL: ['futures', 'NYMEX:CL1!'], NG: ['futures', 'NYMEX:NG1!'], HG: ['futures', 'COMEX:HG1!'], BRN: ['futures', 'ICEEUR:BRN1!'],
-  HO: ['futures', 'NYMEX:HO1!'], RB: ['futures', 'NYMEX:RB1!'], LGO: ['futures', 'NYMEX:HO1!'], PL: ['futures', 'NYMEX:PL1!'], PA: ['futures', 'NYMEX:PA1!'],
+  HO: ['futures', 'NYMEX:HO1!'], RB: ['futures', 'NYMEX:RB1!'], LGO: ['futures', 'ICEEUR:ULS1!'], PL: ['futures', 'NYMEX:PL1!'], PA: ['futures', 'NYMEX:PA1!'],
   CORN: ['futures', 'CBOT:ZC1!'], WHEAT: ['futures', 'CBOT:ZW1!'], COFFEE: ['futures', 'ICEUS:KC1!'], DAX: ['futures', 'EUREX:FDAX1!'],
   SCCO: ['america', 'NYSE:SCCO'], SPX: ['america', 'SP:SPX'], NAS100: ['america', 'NASDAQ:NDX'],
   EURUSD: ['forex', 'OANDA:EURUSD'], GBPUSD: ['forex', 'OANDA:GBPUSD'], USDJPY: ['forex', 'OANDA:USDJPY'],
@@ -1588,6 +1609,7 @@ const server = http.createServer(async (req, res) => {
   }
   try {
     await databaseReady;
+    await ensureDatabase();
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
     if (req.method === 'GET' && requestUrl.pathname === '/health') {
       return sendJson(res, 200, {
