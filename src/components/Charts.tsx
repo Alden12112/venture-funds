@@ -41,11 +41,14 @@ export type ChartDrawing = {
 
 export function CandleChart({
   candles,
+  latestPrice,
   drawTool = 'cursor',
   drawings = [],
   onAddDrawing,
 }: {
   candles: Candle[];
+  /** Current normalized quote; it updates the in-progress final candle. */
+  latestPrice?: number;
   drawTool?: 'cursor' | 'trendline' | 'horizontal' | 'vertical';
   drawings?: ChartDrawing[];
   onAddDrawing?: (drawing: ChartDrawing) => void;
@@ -56,13 +59,26 @@ export function CandleChart({
   const [offset, setOffset] = useState(0);
   const width = Math.max(size.width, 320);
   const height = Math.max(size.height, 320);
-  const visibleCandleCount = Math.max(18, Math.min(candles.length, Math.round(candles.length / zoom)));
-  const maxOffset = Math.max(0, candles.length - visibleCandleCount);
+  const displayCandles = useMemo(() => {
+    if (!candles.length || !Number.isFinite(latestPrice) || !latestPrice || candles.at(-1)?.close === latestPrice) return candles;
+    const last = candles.at(-1)!;
+    // The final candle is intentionally the active bar. Historical bars stay
+    // untouched while the current reference quote moves it between regular
+    // upstream chart refreshes.
+    return [...candles.slice(0, -1), {
+      ...last,
+      close: latestPrice,
+      high: Math.max(last.high, latestPrice),
+      low: Math.min(last.low, latestPrice),
+    }];
+  }, [candles, latestPrice]);
+  const visibleCandleCount = Math.max(18, Math.min(displayCandles.length, Math.round(displayCandles.length / zoom)));
+  const maxOffset = Math.max(0, displayCandles.length - visibleCandleCount);
   const chart = useMemo(() => {
-    if (!candles.length) return null;
+    if (!displayCandles.length) return null;
     const normalizedOffset = Math.min(offset, maxOffset);
-    const end = Math.max(visibleCandleCount, candles.length - normalizedOffset);
-    const visibleCandles = candles.slice(Math.max(0, end - visibleCandleCount), end);
+    const end = Math.max(visibleCandleCount, displayCandles.length - normalizedOffset);
+    const visibleCandles = displayCandles.slice(Math.max(0, end - visibleCandleCount), end);
     const min = Math.min(...visibleCandles.map((item) => item.low));
     const max = Math.max(...visibleCandles.map((item) => item.high));
     const pad = (max - min || 1) * 0.12;
@@ -90,7 +106,7 @@ export function CandleChart({
       .filter((value, index, all) => all.indexOf(value) === index)
       .map((index) => ({ index, label: new Intl.DateTimeFormat('en-GB', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(visibleCandles[index].time)) }));
     return { points, candles: visibleCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY: latest?.close ?? height / 2, timeTicks };
-  }, [candles, height, maxOffset, offset, visibleCandleCount, width]);
+  }, [displayCandles, height, maxOffset, offset, visibleCandleCount, width]);
 
   if (!chart) {
     return <div className="chart-empty">没有足够的K线数据</div>;

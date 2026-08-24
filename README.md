@@ -6,6 +6,8 @@ AD88 is a React/Vite finance workspace with a polished market dashboard, sandbox
 
 ```bash
 npm ci
+npm run start
+# In a second terminal:
 npm run dev
 ```
 
@@ -26,7 +28,7 @@ The production output is generated in `dist/`.
 - `ad88-platform`: public user-facing frontend
 - `ad88-admin`: private administrator console
 
-Both services share `AUTH_SECRET`; the admin service forwards account, support, trade and workspace API calls to the frontend service, so the two addresses see the same live data. The two bundles are built with different `VITE_APP_SURFACE` values and the server also enforces `APP_SURFACE` at runtime.
+Both services share `AUTH_SECRET`; the admin service forwards account, support, trade, workspace, market and news API calls to the frontend service, so the two addresses see the same live data and quote snapshot. The two bundles are built with different `VITE_APP_SURFACE` values and the server also enforces `APP_SURFACE` at runtime.
 
 When the blueprint is first applied, set the two private admin values on `ad88-platform`:
 
@@ -39,7 +41,7 @@ The blueprint generates `AUTH_SECRET` and provisions `ad88-postgres`; its connec
 
 - Build command: `npm ci && npm run build`
 - Start command: `npm run start`
-- Health check: `/`
+- Health check: `/health`
 - SPA fallback, same-origin market/news proxy, registration/login, admin account operations and workspace sync are handled by `server.mjs`.
 
 Trading and points actions remain sandbox/paper workflows. No real orders or funds are sent.

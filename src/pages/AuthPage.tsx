@@ -124,7 +124,7 @@ export function AuthPage() {
       return;
     }
     try {
-      const result = await apiFetch<{ token: string; session: { name: string; email: string; phone?: string; country?: string; role?: 'user' | 'admin'; tradingScore?: number } }>('/api/auth/login', {
+      const result = await apiFetch<{ token: string; session: { id: string; name: string; email: string; phone?: string; country?: string; role?: 'user' | 'admin'; tradingScore?: number } }>('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ identifier: form.identifier, password: form.password }),
       });

@@ -16,7 +16,7 @@ interface AuthContextValue {
   session: SessionState | null;
   profile: UserProfile | null;
   ready: boolean;
-  signIn: (input: { name: string; email: string; phone?: string; country?: string; role?: SessionRole; tradingScore?: number; token?: string }) => void;
+  signIn: (input: { id?: string; name: string; email: string; phone?: string; country?: string; role?: SessionRole; tradingScore?: number; token?: string }) => void;
   signOut: () => void;
   updateProfile: (patch: Partial<Pick<UserProfile, 'name' | 'email' | 'phone' | 'country' | 'tier'>>) => void;
 }
@@ -45,7 +45,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     void apiFetch<Record<string, unknown>>('/api/sync').then((remoteState) => {
       if (cancelled) return;
-      Object.entries(remoteState).forEach(([key, value]) => writeStorage(key, value, { sync: false }));
+      // Notify mounted pages after restoring the server snapshot. Without the
+      // event, a page opened on a second device could keep its initial empty
+      // local state until a full reload even though the API had returned the
+      // user's positions and preferences successfully.
+      Object.entries(remoteState).forEach(([key, value]) => writeStorage(key, value, { sync: false, notify: true }));
       const remoteProfile = readStorage<UserProfile | null>('profile', null);
       if (remoteProfile) setProfile(remoteProfile);
     }).catch(() => undefined);
@@ -62,7 +66,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ready,
       signIn(input) {
         const next: SessionState = {
-          id: input.email.toLowerCase(),
+          // Preserve the server-issued account id. Email was used by an older
+          // client build, which made cross-device workspace records look like
+          // they belonged to a different identity from credits and audit logs.
+          id: input.id ?? input.email.toLowerCase(),
           name: input.name,
           email: input.email,
           phone: input.phone ?? '',

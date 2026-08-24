@@ -39,13 +39,17 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
       health: 'offline',
     },
   };
-  const [remoteState, tradeEvents, ledger, remoteCredits, blacklist, notifications] = await Promise.all([
+  const emptyMarketStatus: AdminBundle['marketStatus'] = {
+    status: 'offline', quoteCount: 0, ageSeconds: null, cacheSeconds: 8,
+  };
+  const [remoteState, tradeEvents, ledger, remoteCredits, blacklist, notifications, marketStatus] = await Promise.all([
     safe('workspace', () => apiFetch<{ paperPositions?: PaperPosition[] }>('/api/sync?scope=all'), {}),
     safe('trades', () => apiFetch<TradeAuditEvent[]>('/api/admin/trades'), []),
     safe('ledger', () => loadLedgerBundle('all'), emptyLedger),
     safe('credits', () => loadRemoteAdminCredits(), { accounts: [], requests: [] }),
     safe('blacklist', () => apiFetch<BlacklistEntry[]>('/api/admin/blacklist'), []),
     safe('notifications', () => apiFetch<AdminBundle['notifications']>('/api/admin/notifications'), []),
+    safe('market', () => apiFetch<AdminBundle['marketStatus']>('/api/market/status'), emptyMarketStatus),
   ]);
   const registrations: RegisteredUser[] = remoteUsers.map((item) => ({
     id: item.id,
@@ -83,6 +87,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     creditRequests,
     ledgerEntries: ledger.entries,
     notifications,
+    marketStatus,
     blacklist,
     report: {
       monthLabel: new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long' }).format(now),

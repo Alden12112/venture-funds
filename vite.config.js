@@ -3,13 +3,39 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const localApiOrigin = process.env.AD88_LOCAL_API_ORIGIN || 'http://127.0.0.1:10000';
 function ad88ApiPlugin() {
     return {
         name: 'ad88-local-api',
         configureServer(server) {
             server.middlewares.use('/api/market', async (req, res) => {
                 try {
+                    // Use the same Node API server as the deployed services whenever it
+                    // is running. The previous dev-only Yahoo handler treated
+                    // /api/market/quotes as a chart request, which made the ticker and
+                    // selected chart consume different data shapes during local tests.
+                    const suffix = req.url ?? '';
+                    const localPath = suffix === '/' || suffix === '' ? '/api/market' : `/api/market${suffix}`;
+                    try {
+                        const localResponse = await fetch(`${localApiOrigin}${localPath}`, { signal: AbortSignal.timeout(1500), headers: { accept: 'application/json' } });
+                        const localType = localResponse.headers.get('content-type') || '';
+                        if (localResponse.ok && localType.includes('application/json')) {
+                            res.statusCode = localResponse.status;
+                            res.setHeader('content-type', localType);
+                            res.end(await localResponse.text());
+                            return;
+                        }
+                    }
+                    catch {
+                        // Fall through to the public chart endpoint for a Vite-only setup.
+                    }
                     const requestUrl = new URL(req.url ?? '', 'http://127.0.0.1');
+                    if (requestUrl.pathname === '/quotes') {
+                        res.statusCode = 502;
+                        res.setHeader('content-type', 'application/json; charset=utf-8');
+                        res.end(JSON.stringify({ error: 'local market API server is not running' }));
+                        return;
+                    }
                     const symbol = requestUrl.searchParams.get('symbol') || 'GC=F';
                     if (!/^[A-Z0-9=^.-]+$/.test(symbol)) {
                         res.statusCode = 400;
@@ -71,11 +97,16 @@ export default defineConfig({
         port: 5173,
         host: '0.0.0.0',
         proxy: {
-            '/api/auth': 'http://127.0.0.1:10000',
-            '/api/admin': 'http://127.0.0.1:10000',
-            '/api/support': 'http://127.0.0.1:10000',
-            '/api/trades': 'http://127.0.0.1:10000',
-            '/api/sync': 'http://127.0.0.1:10000',
+            '/api/auth': localApiOrigin,
+            '/api/admin': localApiOrigin,
+            '/api/support': localApiOrigin,
+            '/api/trades': localApiOrigin,
+            '/api/sync': localApiOrigin,
+            '/api/credits': localApiOrigin,
+            '/api/ledger': localApiOrigin,
+            '/api/notifications': localApiOrigin,
+            '/api/profile': localApiOrigin,
+            '/api/market/status': localApiOrigin,
         },
     },
 });

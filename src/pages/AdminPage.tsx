@@ -43,6 +43,15 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   }, []);
 
   useEffect(() => {
+    // Keep the independent admin console aligned with registrations, U
+    // balances, support state and trade audit events created from another
+    // device. The backend remains the source of truth; this only schedules a
+    // lightweight read of the shared bundle.
+    const timer = window.setInterval(() => setRefreshKey((value) => value + 1), 8_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     if (admin.status === 'error' && admin.error === 'unauthorized') {
       signOut();
       navigate('/admin/login', { replace: true });
@@ -206,7 +215,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <span className="brand-lockup__mark">AD88</span>
             <span className="brand-lockup__name">{t('admin.console')}</span>
           </Link>
-          <Link to="/app/dashboard" className="btn btn--ghost">{t('admin.backUser')}</Link>
+          <button type="button" className="btn btn--ghost" onClick={() => { signOut(); navigate('/admin/login'); }}>退出后台</button>
         </div>
       ) : null}
       <PageHeader
@@ -221,6 +230,11 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         <StatCard label={t('admin.metricNew')} value={String(report.monthlyRegistrations)} note={report.monthLabel} />
         <StatCard label={t('admin.metricLedger')} value={String(report.monthlyLedgerEntries)} note={`${t('admin.metricDeposit')} ${formatCurrency(report.monthlyInflow)}`} />
         <StatCard label="U 余额" value={String(totalCredits)} note={`待审 ${pendingCredits} U`} />
+        <StatCard
+          label="行情同步"
+          value={admin.data.marketStatus.status === 'healthy' ? '正常' : admin.data.marketStatus.status === 'degraded' ? '检查' : '离线'}
+          note={`${admin.data.marketStatus.quoteCount} 个品种 · ${admin.data.marketStatus.ageSeconds ?? '—'} 秒前`}
+        />
       </section>
 
       <section className="panel panel--controls">

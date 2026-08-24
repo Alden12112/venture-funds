@@ -211,6 +211,15 @@ export interface AdminBundle {
   ledgerEntries: LedgerEntry[];
   blacklist: BlacklistEntry[];
   notifications: NotificationItem[];
+  marketStatus: {
+    status: 'healthy' | 'degraded' | 'offline';
+    quoteCount: number;
+    ageSeconds: number | null;
+    cacheSeconds: number;
+    snapshotId?: string;
+    snapshotBuiltAt?: string | null;
+    twelveDataConfigured?: boolean;
+  };
   report: {
     monthLabel: string;
     totalAccounts: number;

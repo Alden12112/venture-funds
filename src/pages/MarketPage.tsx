@@ -59,6 +59,7 @@ export function MarketPage() {
   const [chartTool, setChartTool] = useState<'cursor' | 'trendline' | 'horizontal' | 'vertical'>('cursor');
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
   const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(null);
+  const [positionsHydratedFor, setPositionsHydratedFor] = useState<string | null>(null);
   const market = useAsyncResource(() => loadMarketBundle(symbol, timeframe), [symbol, timeframe, refreshKey]);
 
   const refreshMarkets = () => {
@@ -67,8 +68,28 @@ export function MarketPage() {
   };
 
   useEffect(() => {
-    writeStorage('paperPositions', positions);
-  }, [positions]);
+    if (!session?.id) {
+      setPositionsHydratedFor(null);
+      return;
+    }
+    let active = true;
+    setPositionsHydratedFor(null);
+    void apiFetch<{ paperPositions?: PaperPosition[] }>('/api/sync').then((remoteState) => {
+      if (!active) return;
+      setPositions(Array.isArray(remoteState.paperPositions) ? remoteState.paperPositions : []);
+      setPositionsHydratedFor(session.id);
+    }).catch(() => {
+      // Keep the local paper workspace usable if the API is temporarily
+      // unreachable, but never overwrite the server before the first sync
+      // attempt has completed.
+      if (active) setPositionsHydratedFor(session.id);
+    });
+    return () => { active = false; };
+  }, [session?.id]);
+
+  useEffect(() => {
+    if (session?.id && positionsHydratedFor === session.id) writeStorage('paperPositions', positions);
+  }, [positions, positionsHydratedFor, session?.id]);
 
   useEffect(() => {
     if (!session) {
@@ -99,7 +120,9 @@ export function MarketPage() {
     return Object.fromEntries(market.data.assets.map((asset) => [asset.symbol, asset.price]));
   }, [market]);
   const live = useLiveTickers(fallbackPrices);
-  const userPositions = positions.filter((position) => (position.userId === session?.id || (!position.userId && session?.id)) && position.status !== 'closed');
+  // Include the legacy email-shaped id only while old browser snapshots are
+  // being migrated. New positions always use the server-issued account id.
+  const userPositions = positions.filter((position) => (position.userId === session?.id || position.userId === session?.email) && position.status !== 'closed');
   const quotePulse = useIndicativeQuotePulse(marketProducts.map((product) => product.symbol), fallbackPrices);
   const priceFor = (assetSymbol: string, fallback: number) => {
     const product = getMarketProduct(assetSymbol);
@@ -458,7 +481,7 @@ export function MarketPage() {
               </button>
             ))}
           </div>
-          <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
+          <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={livePrice} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           <div className="execution-bar">
             <button type="button" className="execution-quote execution-quote--sell" onClick={() => openPosition('short', sellPrice)} disabled={!canOpen}>
               <span>SELL · BID</span><strong>{formatNumber(sellPrice)}</strong><small>做空</small>

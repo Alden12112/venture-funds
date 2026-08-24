@@ -33,7 +33,7 @@ const marketProxyCache = new Map();
 const marketProxyTtlMs = 8_000;
 const spotMetalCache = new Map();
 const spotMetalTtlMs = 8_000;
-let marketQuoteSnapshotCache = { expiresAt: 0, value: null };
+let marketQuoteSnapshotCache = { expiresAt: 0, value: null, builtAt: 0, snapshotId: '' };
 let marketQuoteSnapshotRequest = null;
 const newsProxyCache = new Map();
 const newsProxyTtlMs = 5 * 60_000;
@@ -1097,6 +1097,7 @@ const internalFallbackPrices = {
   BTC: [76000, 0.4], ETH: [2400, 0.2], SOL: [93, 0.1], XRP: [1.47, 0.1], LINK: [11.3, 0.1], AVAX: [7.4, 0.1],
 };
 const tradingViewSymbols = {
+  XAU: ['cfd', 'OANDA:XAUUSD'], XAG: ['cfd', 'OANDA:XAGUSD'],
   CL: ['futures', 'NYMEX:CL1!'], NG: ['futures', 'NYMEX:NG1!'], HG: ['futures', 'COMEX:HG1!'], BRN: ['futures', 'ICEEUR:BRN1!'],
   HO: ['futures', 'NYMEX:HO1!'], RB: ['futures', 'NYMEX:RB1!'], LGO: ['futures', 'ICEEUR:ULS1!'], PL: ['futures', 'NYMEX:PL1!'], PA: ['futures', 'NYMEX:PA1!'],
   CORN: ['futures', 'CBOT:ZC1!'], WHEAT: ['futures', 'CBOT:ZW1!'], COFFEE: ['futures', 'ICEUS:KC1!'], DAX: ['futures', 'EUREX:FDAX1!'],
@@ -1268,13 +1269,18 @@ function buildSpotMetalChart(symbol, quote) {
   const now = Math.floor(Date.now() / 1000);
   const base = quote.price;
   const timestamps = Array.from({ length: 48 }, (_, index) => now - (47 - index) * 900);
-  const closes = timestamps.map((_, index) => base * (1 - (47 - index) * 0.00008 + Math.sin(index * 0.65) * 0.00035));
+  const rawCloses = timestamps.map((_, index) => base * (1 - (47 - index) * 0.00008 + Math.sin(index * 0.65) * 0.00035));
+  const anchor = rawCloses.at(-1) || base;
+  // Keep the indicative candle shape while making the last close exactly the
+  // same reference price used by the quote snapshot and execution ticket.
+  const closes = rawCloses.map((value) => value + (base - anchor));
+  const previousClose = quote.change24h ? base / (1 + quote.change24h / 100) : closes[0];
   return {
     ad88Fallback: false,
     ad88Source: quote.provider,
     ad88Cache: 'fresh',
     ad88Lineage: 'spot metal quote → AD88 server proxy → market workspace',
-    chart: { result: [{ meta: { regularMarketPrice: base, regularMarketTime: Math.floor(new Date(quote.quoteUpdatedAt).getTime() / 1000), previousClose: base, chartPreviousClose: base, regularMarketDayHigh: Math.max(...closes), regularMarketDayLow: Math.min(...closes), regularMarketVolume: 0 }, timestamp: timestamps, indicators: { quote: [{ open: closes, high: closes.map((value) => value * 1.0005), low: closes.map((value) => value * 0.9995), close: closes, volume: closes.map(() => 0) }] } }] },
+    chart: { result: [{ meta: { regularMarketPrice: base, regularMarketTime: Math.floor(new Date(quote.quoteUpdatedAt).getTime() / 1000), previousClose, chartPreviousClose: previousClose, regularMarketDayHigh: Math.max(...closes), regularMarketDayLow: Math.min(...closes), regularMarketVolume: 0 }, timestamp: timestamps, indicators: { quote: [{ open: closes, high: closes.map((value) => value * 1.0005), low: closes.map((value) => value * 0.9995), close: closes, volume: closes.map(() => 0) }] } }] },
   };
 }
 
@@ -1315,13 +1321,22 @@ async function buildMarketQuoteSnapshot() {
     if (cryptoQuoteSymbols.has(symbol)) {
       try { quote = await loadCoinbaseQuote(providerSymbol); } catch { quote = null; }
     }
+    // If the operator has configured a server-side Twelve Data key, honor it
+    // first for symbols it supports. When it is absent, rate-limited or
+    // rejects a symbol, use the public multi-asset snapshot below.
+    if (!quote && twelveDataApiKey) {
+      try { quote = await loadTwelveQuote(providerSymbol); } catch { quote = null; }
+    }
+    // Prefer one public market snapshot for spot metals, futures, FX and
+    // indices. This keeps the table, ticker and trade ticket on the same
+    // reference price instead of mixing a stale futures quote with spot gold.
+    if (!quote) quote = tradingViewQuotes[symbol] || null;
     if (!quote && (symbol === 'XAU' || symbol === 'XAG')) {
       try { quote = await loadSpotMetalQuote(symbol); } catch { quote = null; }
     }
-    if (!quote) {
+    if (!quote && !twelveDataApiKey) {
       try { quote = await loadTwelveQuote(providerSymbol); } catch { quote = null; }
     }
-    if (!quote) quote = tradingViewQuotes[symbol] || null;
     if (!quote) {
       try { quote = await loadYahooQuote(providerSymbol); } catch { quote = null; }
     }
@@ -1334,18 +1349,29 @@ async function buildMarketQuoteSnapshot() {
   return Object.fromEntries(values);
 }
 
+async function getMarketQuoteSnapshot() {
+  const cached = marketQuoteSnapshotCache.value;
+  if (cached && marketQuoteSnapshotCache.expiresAt > Date.now()) return cached;
+  if (!marketQuoteSnapshotRequest) {
+    marketQuoteSnapshotRequest = buildMarketQuoteSnapshot()
+      .then((snapshot) => {
+        const builtAt = Date.now();
+        marketQuoteSnapshotCache = { expiresAt: builtAt + marketProxyTtlMs, value: snapshot, builtAt, snapshotId: `mkt-${builtAt}` };
+        return snapshot;
+      })
+      .finally(() => { marketQuoteSnapshotRequest = null; });
+  }
+  return marketQuoteSnapshotRequest;
+}
+
 async function proxyMarketQuotes(res, requestUrl) {
   const requested = (requestUrl.searchParams.get('symbols') || Object.keys(marketQuoteCatalogue).join(','))
     .split(',')
     .map((symbol) => symbol.trim().toUpperCase())
     .filter((symbol, index, all) => marketQuoteCatalogue[symbol] && all.indexOf(symbol) === index);
   if (!requested.length) return sendJson(res, 400, { error: 'no supported market symbols' });
-  let snapshot = marketQuoteSnapshotCache.value;
-  if (!snapshot || marketQuoteSnapshotCache.expiresAt <= Date.now()) {
-    if (!marketQuoteSnapshotRequest) marketQuoteSnapshotRequest = buildMarketQuoteSnapshot().finally(() => { marketQuoteSnapshotRequest = null; });
-    snapshot = await marketQuoteSnapshotRequest;
-    marketQuoteSnapshotCache = { expiresAt: Date.now() + marketProxyTtlMs, value: snapshot };
-  }
+  const servedFromCache = Boolean(marketQuoteSnapshotCache.value && marketQuoteSnapshotCache.expiresAt > Date.now());
+  const snapshot = await getMarketQuoteSnapshot();
   // Keep provider diagnostics server-side. The public workspace only needs a
   // normalized quote and its source timestamp for calculations; it does not
   // expose provider names, fallback labels, cache flags or API lineage.
@@ -1362,8 +1388,35 @@ async function proxyMarketQuotes(res, requestUrl) {
   res.statusCode = 200;
   res.setHeader('content-type', 'application/json; charset=utf-8');
   res.setHeader('cache-control', 'no-store');
-  res.setHeader('x-ad88-cache', marketQuoteSnapshotCache.expiresAt > Date.now() ? 'cached' : 'fresh');
-  res.end(JSON.stringify({ quotes, updatedAt: new Date().toISOString() }));
+  res.setHeader('x-ad88-cache', servedFromCache ? 'cached' : 'fresh');
+  res.end(JSON.stringify({
+    quotes,
+    updatedAt: new Date().toISOString(),
+    // These identifiers let the two independently deployed workspaces prove
+    // that they consumed the same server snapshot without exposing provider
+    // credentials or internal upstream URLs.
+    snapshotId: marketQuoteSnapshotCache.snapshotId,
+    snapshotBuiltAt: marketQuoteSnapshotCache.builtAt ? new Date(marketQuoteSnapshotCache.builtAt).toISOString() : undefined,
+  }));
+}
+
+async function proxyMarketStatus(res) {
+  try {
+    const snapshot = await getMarketQuoteSnapshot();
+    const ageSeconds = marketQuoteSnapshotCache.builtAt ? Math.max(0, Math.round((Date.now() - marketQuoteSnapshotCache.builtAt) / 1000)) : null;
+    return sendJson(res, 200, {
+      status: ageSeconds != null && ageSeconds <= 10 ? 'healthy' : 'degraded',
+      quoteCount: Object.keys(snapshot).length,
+      ageSeconds,
+      cacheSeconds: Math.round(marketProxyTtlMs / 1000),
+      snapshotId: marketQuoteSnapshotCache.snapshotId,
+      snapshotBuiltAt: marketQuoteSnapshotCache.builtAt ? new Date(marketQuoteSnapshotCache.builtAt).toISOString() : null,
+      twelveDataConfigured: Boolean(twelveDataApiKey),
+      checkedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    return sendJson(res, 503, { status: 'offline', quoteCount: 0, error: error instanceof Error ? error.message : 'market snapshot unavailable', checkedAt: new Date().toISOString() });
+  }
 }
 
 async function proxyMarket(res, requestUrl) {
@@ -1392,7 +1445,9 @@ async function proxyMarket(res, requestUrl) {
 
   if (symbol === 'GC=F' || symbol === 'SI=F') {
     try {
-      const spotQuote = await loadSpotMetalQuote(symbol === 'GC=F' ? 'XAU' : 'XAG');
+      const spotSymbol = symbol === 'GC=F' ? 'XAU' : 'XAG';
+      const tradingViewQuotes = await loadTradingViewSnapshot();
+      const spotQuote = tradingViewQuotes[spotSymbol] || await loadSpotMetalQuote(spotSymbol);
       const body = JSON.stringify(buildSpotMetalChart(symbol, spotQuote));
       marketProxyCache.set(cacheKey, { expiresAt: Date.now() + cacheTtlMs, body, provider: 'spot-metal' });
       res.statusCode = 200;
@@ -1624,6 +1679,8 @@ const server = http.createServer(async (req, res) => {
         marketData: {
           twelveDataConfigured: Boolean(twelveDataApiKey),
           quoteCacheSeconds: Math.round(marketProxyTtlMs / 1000),
+          snapshotAgeSeconds: marketQuoteSnapshotCache.builtAt ? Math.max(0, Math.round((Date.now() - marketQuoteSnapshotCache.builtAt) / 1000)) : null,
+          snapshotReady: Boolean(marketQuoteSnapshotCache.value),
         },
         checkedAt: new Date().toISOString(),
       });
@@ -1637,7 +1694,7 @@ const server = http.createServer(async (req, res) => {
       }
       return forwardToRemoteApi(req, res, requestUrl, input, true);
     }
-    if (appSurface === 'admin' && remoteApiOrigin && (requestUrl.pathname.startsWith('/api/admin/') || requestUrl.pathname.startsWith('/api/support/') || requestUrl.pathname.startsWith('/api/sync') || requestUrl.pathname.startsWith('/api/trades') || requestUrl.pathname.startsWith('/api/ledger'))) {
+    if (appSurface === 'admin' && remoteApiOrigin && (requestUrl.pathname.startsWith('/api/admin/') || requestUrl.pathname.startsWith('/api/support/') || requestUrl.pathname.startsWith('/api/sync') || requestUrl.pathname.startsWith('/api/trades') || requestUrl.pathname.startsWith('/api/ledger') || requestUrl.pathname === '/api/market' || requestUrl.pathname === '/api/market/quotes' || requestUrl.pathname === '/api/market/status' || requestUrl.pathname === '/api/news')) {
       return forwardToRemoteApi(req, res, requestUrl, undefined, true);
     }
     if (requestUrl.pathname.startsWith('/api/auth/')) {
@@ -1655,6 +1712,7 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname.startsWith('/api/support/')) return handleSupport(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/notifications')) return handleNotifications(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/sync')) return handleSync(req, res, requestUrl);
+    if (requestUrl.pathname === '/api/market/status') return proxyMarketStatus(res);
     if (requestUrl.pathname === '/api/market/quotes') return proxyMarketQuotes(res, requestUrl);
     if (requestUrl.pathname === '/api/market') return proxyMarket(res, requestUrl);
     if (requestUrl.pathname === '/api/news') return proxyNews(res, requestUrl);
