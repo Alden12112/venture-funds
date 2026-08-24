@@ -28,7 +28,7 @@ const newsProxyCache = new Map();
 const newsProxyTtlMs = 5 * 60_000;
 const marketFallbackPrices = {
   'GC=F': [4680.6, 0.42], 'SI=F': [54.18, -0.18], 'CL=F': [79.22, 1.1], 'NG=F': [2.86, -1.42], 'HG=F': [4.31, 0.68],
-  SCCO: [94.3, 0.36], 'BZ=F': [82.14, 0.62], 'PL=F': [982.4, 0.21], 'PA=F': [1028.5, -0.38], 'ZC=F': [432.25, 0.15],
+  SCCO: [94.3, 0.36], 'BZ=F': [82.14, 0.62], 'HO=F': [2.36, 0.48], 'RB=F': [2.19, -0.37], 'LGO=F': [680.2, 0.22], 'PL=F': [982.4, 0.21], 'PA=F': [1028.5, -0.38], 'ZC=F': [432.25, 0.15],
   'ZW=F': [548.5, -0.27], 'KC=F': [312.8, 0.74], 'EURUSD=X': [1.0912, -0.12], 'GBPUSD=X': [1.2748, 0.21],
   'JPY=X': [156.42, 0.09], 'AUDUSD=X': [0.6543, -0.08], 'CAD=X': [1.3714, 0.04], '^GSPC': [5615.2, 0.34], '^NDX': [19842.1, 0.48], '^GDAXI': [18422.6, 0.26],
 };
@@ -1038,7 +1038,7 @@ async function handleSupport(req, res, requestUrl) {
 
 const twelveDataSymbols = {
   'GC=F': 'XAU/USD', 'SI=F': 'XAG/USD', 'CL=F': 'WTI/USD', 'NG=F': 'NATGAS/USD', 'HG=F': 'COPPER/USD',
-  SCCO: 'SCCO', 'BZ=F': 'BRENT/USD', 'BTC-USD': 'BTC/USD', 'ETH-USD': 'ETH/USD', 'SOL-USD': 'SOL/USD',
+  SCCO: 'SCCO', 'BZ=F': 'BRENT/USD', 'HO=F': 'HO/USD', 'RB=F': 'RBOB/USD', 'LGO=F': 'GASOIL/USD', 'BTC-USD': 'BTC/USD', 'ETH-USD': 'ETH/USD', 'SOL-USD': 'SOL/USD',
   'XRP-USD': 'XRP/USD', 'LINK-USD': 'LINK/USD', 'AVAX-USD': 'AVAX/USD', 'EURUSD=X': 'EUR/USD',
   'GBPUSD=X': 'GBP/USD', 'JPY=X': 'USD/JPY', 'AUDUSD=X': 'AUD/USD', 'CAD=X': 'USD/CAD',
 };
@@ -1104,7 +1104,11 @@ async function proxyMarket(res, requestUrl) {
   upstream.searchParams.set('range', requestUrl.searchParams.get('range') || '1d');
   upstream.searchParams.set('interval', interval);
   const cacheKey = `${symbol}:${interval}:${upstream.searchParams.get('range')}:${providerPreference}`;
-  const cacheTtlMs = requestUrl.searchParams.get('fast') === '1' ? 5_000 : marketProxyTtlMs;
+  // The browser may check frequently, but this server-side cache limits a
+  // free-provider quote to one upstream request about every eight seconds.
+  // That keeps normal commodities and FX within the requested 0–10 second
+  // display window without burning through free API quotas.
+  const cacheTtlMs = requestUrl.searchParams.get('fast') === '1' ? 8_000 : marketProxyTtlMs;
   const cached = marketProxyCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     res.statusCode = 200;
@@ -1157,7 +1161,7 @@ async function proxyMarket(res, requestUrl) {
         continue;
       }
     }
-    if (lastStatus === 429 || !lastBody) {
+    if (lastStatus >= 400 || !lastBody) {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json; charset=utf-8');
       res.setHeader('x-ad88-cache', 'fallback');

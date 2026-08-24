@@ -8,7 +8,7 @@ function quote(value: number) {
 }
 
 export function MarketTicker({ assets }: { assets: MarketAsset[] }) {
-  const preferred = ['BTC', 'XAU', 'CL', 'NG', 'XAG', 'EURUSD', 'SPX'];
+  const preferred = ['BTC', 'XAU', 'CL', 'BRN', 'NG', 'RB', 'XAG', 'EURUSD', 'SPX'];
   const items = preferred.map((symbol) => assets.find((asset) => asset.symbol === symbol)).filter(Boolean) as MarketAsset[];
   return (
     <section className="ticker-strip" aria-label="今日市场涨跌">

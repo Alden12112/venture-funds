@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, CheckCircle2, ChevronDown, ChevronUp, Clock3, Crosshair, Database, Gauge, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2, Wifi } from 'lucide-react';
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, ChevronDown, ChevronUp, Crosshair, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2 } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { CandleChart, DepthChart } from '@/components/Charts';
 import type { ChartDrawing } from '@/components/Charts';
@@ -115,7 +115,6 @@ export function MarketPage() {
       : market.status === 'success' ? market.data.selected.updatedAt : new Date().toISOString();
   const selectedAsset = market.status === 'success' ? { ...market.data.selected, price: livePrice, updatedAt: selectedUpdatedAt } : null;
   const executionQuote = getExecutionQuote(symbol, livePrice);
-  const spread = executionQuote.spreadBps;
   const selectedChange = selectedAsset?.change24h ?? 0;
 
   const rows = useMemo(() => {
@@ -330,10 +329,7 @@ export function MarketPage() {
     ? live.status
     : quotePulse.status === 'fresh' ? 'http-fresh' : quotePulse.status === 'polling' ? 'polling' : quotePulse.status === 'stale' ? 'stale' : market.data.source.cacheState;
   const liveTone = selectedFeedState === 'live' || selectedFeedState === 'http-fresh' ? 'success' : selectedFeedState === 'stale' || selectedFeedState === 'offline' ? 'critical' : 'warning';
-  const liveLabel = selectedFeedState === 'live' ? '实时订阅' : selectedFeedState === 'http-fresh' ? '每秒检查' : selectedFeedState === 'polling' ? '更新中' : selectedFeedState === 'cached' ? '缓存' : selectedFeedState === 'stale' ? '延迟' : selectedFeedState === 'offline' ? '离线' : '连接中';
-  const endpointLabel = market.data.source.endpoint === '/api/market' ? '同源行情代理' : selectedIsCrypto ? 'Coinbase 公共订阅' : '公共行情 API';
-  const quoteCheckAt = selectedIsCrypto ? live.lastTickAt[symbol] : quotePulse.lastCheckedAt[symbol];
-
+  const liveLabel = selectedFeedState === 'live' ? '实时订阅' : selectedFeedState === 'http-fresh' ? '报价已更新' : selectedFeedState === 'polling' ? '更新中' : selectedFeedState === 'cached' ? '缓存' : selectedFeedState === 'stale' ? '延迟' : selectedFeedState === 'offline' ? '离线' : '连接中';
   return (
     <div className="page-stack">
       <PageHeader
@@ -350,23 +346,6 @@ export function MarketPage() {
       />
 
       <MarketTicker assets={rows} />
-
-      <section className="market-data-plane" aria-label="行情数据连接状态">
-        <div className="market-data-plane__identity">
-          <span className={`market-data-plane__signal market-data-plane__signal--${liveTone}`}><Activity size={18} /></span>
-          <div>
-            <span className="eyebrow">Data plane</span>
-            <h2>行情数据链路</h2>
-            <p>公开市场数据经统一报价层进入行情、图表、执行价格与持仓估值。</p>
-          </div>
-        </div>
-        <div className="market-data-plane__grid">
-          <div className="market-data-plane__metric"><span><Wifi size={13} />连接健康</span><strong><StatusPill tone={liveTone}>{liveLabel}</StatusPill></strong><small>{selectedIsCrypto ? 'Exchange WebSocket ticker' : '1 秒报价检查 · 公开数据源'}</small></div>
-          <div className="market-data-plane__metric"><span><Database size={13} />数据源</span><strong>{market.data.source.provider}</strong><small>{endpointLabel} · {market.data.source.mode === 'mock' ? '回退数据' : 'API adapter'}</small></div>
-          <div className="market-data-plane__metric"><span><Clock3 size={13} />报价时间</span><strong>{formatDateTime(selectedAsset?.updatedAt ?? market.data.source.updatedAt)}</strong><small>最近检查 {quoteCheckAt ? formatDateTime(new Date(quoteCheckAt).toISOString()) : '等待首笔'} · 缓存 {market.data.source.cacheState}</small></div>
-          <div className="market-data-plane__metric"><span><Gauge size={13} />执行模型</span><strong>{refreshing ? '同步中…' : '双边报价'} <CheckCircle2 size={14} /></strong><small>透明点差 {executionQuote.spread.toFixed(executionQuote.decimals)} · bid/ask → 仓位估值</small></div>
-        </div>
-      </section>
 
       <section className="metric-grid metric-grid--compact">
         <StatCard label={`${selectedAsset?.symbol ?? 'BTC'} ${t('market.price')}`} value={formatCurrency(livePrice)} delta={formatPercent(selectedChange)} />
@@ -407,7 +386,6 @@ export function MarketPage() {
                   <th className="text-end">{t('market.price')}</th>
                   <th className="text-end">{t('market.change')}</th>
                   <th className="text-end">{t('market.volume')}</th>
-                  <th className="text-end">{t('market.spread')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -427,7 +405,6 @@ export function MarketPage() {
                       <span className={asset.change24h >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(asset.change24h)}</span>
                     </td>
                     <td className="text-end">{formatCompact(asset.volume24h)}</td>
-                    <td className="text-end">{asset.spreadBps.toFixed(2)} bps</td>
                   </tr>
                 ))}
               </tbody>
@@ -482,7 +459,7 @@ export function MarketPage() {
               </button>
             ))}
           </div>
-          <CandleChart candles={market.data.candles} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
+          <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           <div className="execution-bar">
             <button type="button" className="execution-quote execution-quote--sell" onClick={() => openPosition('short', sellPrice)} disabled={!canOpen}>
               <span>SELL · BID</span><strong>{formatNumber(sellPrice)}</strong><small>做空</small>
@@ -728,7 +705,6 @@ export function MarketPage() {
             <span>{t('market.source')} {market.data.source.provider}</span>
             <span>{t('market.updated')} {formatDateTime(market.data.source.updatedAt)}</span>
             <span>{t('market.cache')} {market.data.source.cacheState}</span>
-            <span>点差 {executionQuote.spread.toFixed(executionQuote.decimals)} ({spread.toFixed(2)} bps)</span>
           </div>
         </article>
       </section>

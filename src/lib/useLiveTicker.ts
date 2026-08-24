@@ -108,7 +108,7 @@ export function useLiveTicker(symbol: string, fallbackPrice: number) {
 type QuotePulseStatus = 'idle' | 'polling' | 'fresh' | 'stale';
 
 /**
- * Checks the currently selected non-crypto instruments once per second. It is
+ * Checks the currently selected non-crypto instruments every two seconds. It is
  * intentionally separate from the Coinbase socket: public commodity/FX feeds
  * can be delayed by their provider, so the UI can show both the local check
  * time and the source quote timestamp without claiming a false live feed.
@@ -161,7 +161,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
       }
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 1_000);
+    const timer = window.setInterval(() => void refresh(), 2_000);
     return () => {
       active = false;
       window.clearInterval(timer);

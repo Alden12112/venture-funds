@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent } from 'react';
+import { useMemo, useState, type MouseEvent, type WheelEvent } from 'react';
 import type { Candle } from '@/types';
 import { useElementSize } from '@/lib/useElementSize';
 import { formatNumber } from '@/lib/format';
@@ -52,20 +52,27 @@ export function CandleChart({
 }) {
   const { ref, size } = useElementSize<HTMLDivElement>();
   const [pendingPoint, setPendingPoint] = useState<[number, number] | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState(0);
   const width = Math.max(size.width, 320);
   const height = Math.max(size.height, 320);
+  const visibleCandleCount = Math.max(18, Math.min(candles.length, Math.round(candles.length / zoom)));
+  const maxOffset = Math.max(0, candles.length - visibleCandleCount);
   const chart = useMemo(() => {
     if (!candles.length) return null;
-    const min = Math.min(...candles.map((item) => item.low));
-    const max = Math.max(...candles.map((item) => item.high));
+    const normalizedOffset = Math.min(offset, maxOffset);
+    const end = Math.max(visibleCandleCount, candles.length - normalizedOffset);
+    const visibleCandles = candles.slice(Math.max(0, end - visibleCandleCount), end);
+    const min = Math.min(...visibleCandles.map((item) => item.low));
+    const max = Math.max(...visibleCandles.map((item) => item.high));
     const pad = (max - min || 1) * 0.12;
     const domainMin = min - pad;
     const domainMax = max + pad;
     const plotHeight = height - 54;
     const plotWidth = width - 52;
-    const candleWidth = Math.max(4, plotWidth / candles.length * 0.48);
-    const points = candles.map((candle, index) => {
-      const x = 38 + (index / Math.max(candles.length - 1, 1)) * plotWidth;
+    const candleWidth = Math.max(4, Math.min(22, plotWidth / visibleCandles.length * 0.6));
+    const points = visibleCandles.map((candle, index) => {
+      const x = 38 + (index / Math.max(visibleCandles.length - 1, 1)) * plotWidth;
       const mapY = (value: number) => 18 + (1 - (value - domainMin) / (domainMax - domainMin)) * plotHeight;
       return {
         x,
@@ -79,14 +86,17 @@ export function CandleChart({
     const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => domainMin + (domainMax - domainMin) * ratio);
     const closeLine = pathFromPoints(points.map((point) => [point.x, point.close]));
     const latest = points.at(-1);
-    return { points, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY: latest?.close ?? height / 2 };
-  }, [candles, height, width]);
+    const timeTicks = [0, Math.floor((visibleCandles.length - 1) / 2), visibleCandles.length - 1]
+      .filter((value, index, all) => all.indexOf(value) === index)
+      .map((index) => ({ index, label: new Intl.DateTimeFormat('en-GB', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(visibleCandles[index].time)) }));
+    return { points, candles: visibleCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY: latest?.close ?? height / 2, timeTicks };
+  }, [candles, height, maxOffset, offset, visibleCandleCount, width]);
 
   if (!chart) {
     return <div className="chart-empty">没有足够的K线数据</div>;
   }
 
-  const { points, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY } = chart;
+  const { points, candles: chartCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY, timeTicks } = chart;
   const mapDrawingPoint = ([xRatio, yRatio]: [number, number]) => ({ x: 38 + xRatio * (width - 52), y: 18 + yRatio * (height - 54) });
   const handleChartClick = (event: MouseEvent<SVGSVGElement>) => {
     if (drawTool === 'cursor' || !onAddDrawing) return;
@@ -110,9 +120,29 @@ export function CandleChart({
     setPendingPoint(null);
   };
 
+  const changeZoom = (direction: 1 | -1) => {
+    setZoom((current) => Math.max(1, Math.min(6, Number((current + direction * 0.5).toFixed(1)))));
+  };
+
+  const handleWheel = (event: WheelEvent<SVGSVGElement>) => {
+    event.preventDefault();
+    changeZoom(event.deltaY < 0 ? 1 : -1);
+  };
+
+  const shiftWindow = (direction: 1 | -1) => {
+    setOffset((current) => Math.max(0, Math.min(maxOffset, current + direction * Math.max(1, Math.round(visibleCandleCount * 0.45)))));
+  };
+
   return (
     <div className="chart-frame" ref={ref}>
-      <svg viewBox={`0 0 ${width} ${height}`} className={`chart chart--candle chart--draw-${drawTool}`} role="img" aria-label="K线图" onClick={handleChartClick}>
+      <div className="chart-viewport__controls" aria-label="图表缩放控制">
+        <button type="button" onClick={() => shiftWindow(1)} disabled={!maxOffset} aria-label="查看较早K线">‹</button>
+        <button type="button" onClick={() => changeZoom(-1)} disabled={zoom <= 1} aria-label="缩小图表">−</button>
+        <span>{Math.round(zoom * 100)}%</span>
+        <button type="button" onClick={() => changeZoom(1)} disabled={zoom >= 6} aria-label="放大图表">＋</button>
+        <button type="button" onClick={() => { setOffset(0); setZoom(1); }} aria-label="回到最新K线">最新</button>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className={`chart chart--candle chart--draw-${drawTool}`} role="img" aria-label="可缩放K线图" onClick={handleChartClick} onWheel={handleWheel} onDoubleClick={() => { setOffset(0); setZoom(1); }}>
         <defs>
           <linearGradient id="candleGlow" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="currentColor" stopOpacity="0.16" />
@@ -134,6 +164,11 @@ export function CandleChart({
               </text>
             );
           })}
+          {timeTicks.map((tick) => (
+            <text key={`${tick.index}-${tick.label}`} x={points[tick.index]?.x ?? 38} y={height - 10} textAnchor="middle" className="chart-axis__label chart-axis__label--time">
+              {tick.label}
+            </text>
+          ))}
         </g>
         <path d={`${closeLine} L ${width - 16} ${height - 36} L 38 ${height - 36} Z`} className="chart-trend-area" fill="url(#candleGlow)" />
         <path d={closeLine} className="chart-trend-line" fill="none" />
@@ -147,7 +182,7 @@ export function CandleChart({
           {pendingPoint ? <circle cx={mapDrawingPoint(pendingPoint).x} cy={mapDrawingPoint(pendingPoint).y} r="5" className="chart-drawing__pending" /> : null}
         </g>
         {points.map((point, index) => {
-          const candle = candles[index];
+          const candle = chartCandles[index];
           return (
             <g key={candle.time}>
               <line x1={point.x} x2={point.x} y1={point.high} y2={point.low} className={point.bullish ? 'chart-candle chart-candle--up' : 'chart-candle chart-candle--down'} />

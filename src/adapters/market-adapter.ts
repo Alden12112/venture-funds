@@ -45,6 +45,16 @@ const timeframeMap: Record<TimeframeCode, { baseGranularity: number; aggregate: 
   D1: { baseGranularity: 86400, aggregate: 1 }, W1: { baseGranularity: 86400, aggregate: 7 }, MN: { baseGranularity: 86400, aggregate: 30 },
 };
 
+// The selected chart asks the server for the actual requested interval instead
+// of stretching a 15-minute payload. This keeps M1/M5 and higher timeframes
+// visually truthful when Twelve Data is available, while Yahoo remains a
+// resilient fallback for the instruments it supports.
+const marketTimeframeRequest: Record<TimeframeCode, { interval: string; range: string }> = {
+  M1: { interval: '1m', range: '1d' }, M5: { interval: '5m', range: '5d' }, M15: { interval: '15m', range: '5d' },
+  M30: { interval: '30m', range: '1mo' }, H1: { interval: '1h', range: '1mo' }, H4: { interval: '4h', range: '3mo' },
+  D1: { interval: '1d', range: '1y' }, W1: { interval: '1wk', range: '5y' }, MN: { interval: '1mo', range: '10y' },
+};
+
 function toNumber(value: string | number | null | undefined, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -121,6 +131,7 @@ function fallbackPrice(symbol: string) {
     XAU: { price: 4680.6, change: 0.42, volume: 8.4e9 }, XAG: { price: 54.18, change: -0.18, volume: 1.6e9 },
     CL: { price: 79.22, change: 1.1, volume: 4.2e9 }, NG: { price: 2.86, change: -1.42, volume: 1.3e9 },
     HG: { price: 4.31, change: 0.68, volume: 1.1e9 }, SCCO: { price: 94.3, change: 0.36, volume: 2.8e8 }, BRN: { price: 82.14, change: 0.62, volume: 3.3e9 },
+    HO: { price: 2.36, change: 0.48, volume: 8.8e8 }, RB: { price: 2.19, change: -0.37, volume: 7.4e8 }, LGO: { price: 680.2, change: 0.22, volume: 6.5e8 },
     PL: { price: 982.4, change: 0.21, volume: 1.4e9 }, PA: { price: 1028.5, change: -0.38, volume: 5.7e8 }, CORN: { price: 432.25, change: 0.15, volume: 1.2e9 },
     WHEAT: { price: 548.5, change: -0.27, volume: 1.1e9 }, COFFEE: { price: 312.8, change: 0.74, volume: 8.1e8 },
     EURUSD: { price: 1.0912, change: -0.12, volume: 3.2e10 }, GBPUSD: { price: 1.2748, change: 0.21, volume: 2.1e10 },
@@ -175,8 +186,8 @@ async function loadCachedAsset(product: typeof marketProducts[number]) {
   }
 }
 
-async function loadYahooAsset(product: typeof marketProducts[number], provider: 'primary' | 'yahoo' = 'yahoo'): Promise<LoadedAsset> {
-  const data = await getJson<YahooChartResponse>(`/api/market?symbol=${encodeURIComponent(product.providerSymbol)}&range=1d&interval=15m&provider=${provider}`);
+async function loadYahooAsset(product: typeof marketProducts[number], provider: 'primary' | 'yahoo' = 'yahoo', interval = '15m', range = '1d'): Promise<LoadedAsset> {
+  const data = await getJson<YahooChartResponse>(`/api/market?symbol=${encodeURIComponent(product.providerSymbol)}&range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}&provider=${provider}`);
   if (data.ad88Fallback) throw new Error(`Market provider fallback for ${product.symbol}`);
   const result = data.chart?.result?.[0];
   if (!result?.meta) throw new Error(`Market data unavailable for ${product.symbol}`);
@@ -224,7 +235,8 @@ export async function loadMarketBundle(symbol = 'BTC', timeframe: TimeframeCode 
   let selectedLoaded = loaded.find((asset) => asset.symbol === selectedProduct.symbol) ?? fallbackAsset(selectedProduct);
   if (selectedProduct.assetClass !== 'crypto') {
     try {
-      selectedLoaded = await loadYahooAsset(selectedProduct, 'primary');
+      const request = marketTimeframeRequest[timeframe] ?? marketTimeframeRequest.M15;
+      selectedLoaded = await loadYahooAsset(selectedProduct, 'primary', request.interval, request.range);
     } catch {
       // The catalogue price remains available from the resilient public-source path.
     }
@@ -244,9 +256,6 @@ export async function loadMarketBundle(symbol = 'BTC', timeframe: TimeframeCode 
   let candles = selectedLoaded.candles ?? makeFallbackCandles(selectedLoaded.price, selectedLoaded.change24h);
   if (selectedProduct.assetClass === 'crypto' && !selectedLoaded.fallback) {
     try { const detail = await loadSelectedCoinbaseDetails(selectedProduct, timeframe, source); selected = detail.selected; orderBook = detail.orderBook; candles = detail.candles; } catch { source.cacheState = 'cached'; }
-  } else {
-    const config = timeframeMap[timeframe] ?? timeframeMap.M15;
-    candles = aggregateCandles(candles, config.aggregate);
   }
   const assets = loaded.map(({ open24h: _open, high24h: _high, low24h: _low, candles: _candles, orderBook: _book, fallback: _fallback, ...asset }) => asset);
   return { assets: assets.map((asset) => asset.symbol === selected.symbol ? { ...asset, ...selected } : asset), selected, candles, orderBook, depth: { bids: orderBook.bids.slice().reverse().map((level) => ({ price: level.price, cumulative: level.depth })), asks: orderBook.asks.map((level) => ({ price: level.price, cumulative: level.depth })) }, source: { ...source, updatedAt: selected.updatedAt, latencyMs: Math.max(1, Date.now() - requestStartedAt), health: source.cacheState === 'fresh' ? 'healthy' : source.cacheState === 'cached' ? 'degraded' : 'offline' } };
