@@ -1329,6 +1329,10 @@ const server = http.createServer(async (req, res) => {
         surface: appSurface,
         storage: pool ? 'postgres' : 'memory',
         adminProxy: Boolean(appSurface === 'admin' && remoteApiOrigin),
+        marketData: {
+          twelveDataConfigured: Boolean(twelveDataApiKey),
+          quoteCacheSeconds: Math.round(marketProxyTtlMs / 1000),
+        },
         checkedAt: new Date().toISOString(),
       });
     }

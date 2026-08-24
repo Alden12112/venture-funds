@@ -17,6 +17,8 @@ services:
         sync: false
       - key: AD88_ADMIN_PASSWORD
         sync: false
+      - key: TWELVE_DATA_API_KEY
+        sync: false
   - type: web
     name: ad88-admin
     runtime: node
