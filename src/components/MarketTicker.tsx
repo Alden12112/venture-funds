@@ -11,7 +11,7 @@ export function MarketTicker({ assets }: { assets: MarketAsset[] }) {
   const preferred = ['BTC', 'XAU', 'CL', 'BRN', 'NG', 'RB', 'XAG', 'EURUSD', 'SPX'];
   const items = preferred.map((symbol) => assets.find((asset) => asset.symbol === symbol)).filter(Boolean) as MarketAsset[];
   return (
-    <section className="ticker-strip" aria-label="今日市场涨跌">
+    <section className="ticker-strip" aria-label="Today’s market movement">
       <div className="ticker-strip__intro">
         <span className="status-dot status-dot--live" />
         <strong>Today’s market</strong>

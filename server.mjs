@@ -22,6 +22,11 @@ const adminBridgeToken = createHmac('sha256', authSecret)
   .digest('base64url');
 // Keep the market key server-side. The browser only ever talks to /api/market.
 const twelveDataApiKey = (process.env.TWELVE_DATA_API_KEY || '').trim();
+// A one-way quote-ingest key for an optional user-hosted MT5 Expert Advisor.
+// It is deliberately separate from AUTH_SECRET and never reaches a browser,
+// the admin service, or source control. The bridge only accepts reference
+// prices; it has no trading-command or account-credential path.
+const mt5IngestSecret = (process.env.MT5_INGEST_SECRET || '').trim();
 const memoryAccounts = new Map();
 const memoryState = new Map();
 const memorySupportMessages = [];
@@ -32,6 +37,10 @@ const memoryBlacklist = new Map();
 const memoryNotifications = [];
 const marketProxyCache = new Map();
 const marketProxyTtlMs = 8_000;
+const mt5QuoteCache = new Map();
+const mt5QuoteTtlMs = 20_000;
+const marketStreamClients = new Set();
+let mt5QuoteRevision = 0;
 // Twelve Data remains an optional server-only fallback. Its free tier is not
 // suited to polling every instrument every few seconds, so the multi-asset
 // public snapshot remains primary and Twelve calls are rate-bounded.
@@ -127,6 +136,13 @@ function verifyPassword(password, stored) {
   const actual = scryptSync(password, salt, 64);
   const expected = Buffer.from(expectedHex, 'hex');
   return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function safeSecretEqual(value, expected) {
+  if (!value || !expected) return false;
+  const actualBuffer = Buffer.from(String(value));
+  const expectedBuffer = Buffer.from(String(expected));
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
 function encodePart(value) {
@@ -496,14 +512,14 @@ async function handleNotifications(req, res, requestUrl) {
 
 async function handleAuth(req, res, requestUrl) {
   if (req.method === 'POST' && requestUrl.pathname === '/api/auth/register') {
-    if (appSurface === 'admin') return sendJson(res, 403, { error: '管理员服务不开放前台注册' });
+    if (appSurface === 'admin') return sendJson(res, 403, { error: 'the administrator service does not accept public registration' });
     const input = validateCredentials(await readBody(req));
     if (input.error) return sendJson(res, 400, input);
     if (await isBlacklisted(input.email, input.phone)) return sendJson(res, 403, { error: 'registration is blocked' });
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
     const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Core', tradingScore: 0, joinedAt: new Date().toISOString() }, input.password);
     await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
-    await createNotification(account.id, 'system', '账号已自动通过', '你的账号已创建，并已同步至后台审核记录。', 'success', '/app/settings');
+    await createNotification(account.id, 'system', 'Account approved', 'Your account is active and has synchronized to the administrator review record.', 'success', '/app/settings');
     return sendJson(res, 201, sessionResponse(account));
   }
 
@@ -516,9 +532,9 @@ async function handleAuth(req, res, requestUrl) {
       return sendJson(res, 200, sessionResponse(account));
     }
     const account = await findAccount(identifier);
-    if (appSurface === 'admin' && (!account || account.role !== 'admin')) return sendJson(res, 403, { error: '后台仅允许管理员账号登录' });
+    if (appSurface === 'admin' && (!account || account.role !== 'admin')) return sendJson(res, 403, { error: 'only administrator accounts may access this service' });
     const adminBridge = req.headers['x-ad88-admin-bridge'] === authSecret || (adminBridgeToken && req.headers['x-ad88-admin-bridge'] === adminBridgeToken);
-    if (appSurface === 'frontend' && account?.role === 'admin' && !adminBridge) return sendJson(res, 403, { error: '管理员请使用独立后台地址登录' });
+    if (appSurface === 'frontend' && account?.role === 'admin' && !adminBridge) return sendJson(res, 403, { error: 'administrators must use the separate admin address' });
     if (!account || !verifyPassword(password, account.password_hash)) return sendJson(res, 401, { error: 'email, phone or password is incorrect' });
     if (account.status !== 'active' && account.status !== 'approved') return sendJson(res, 403, { error: 'account is not active' });
     return sendJson(res, 200, sessionResponse(account));
@@ -578,7 +594,7 @@ async function blacklistAccount(accountId, session, reason) {
     email: account.email,
     phone: account.phone,
     country: account.country,
-    reason: String(reason || '注册审核不通过').trim().slice(0, 240),
+    reason: String(reason || 'Registration review was not approved').trim().slice(0, 240),
     blacklistedAt: new Date().toISOString(),
     blacklistedBy: session.email || session.name || 'AD88 Admin',
   };
@@ -634,7 +650,7 @@ async function handleAdmin(req, res, requestUrl) {
     const requestedRole = body.role === 'admin' ? 'admin' : 'user';
     const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: requestedRole, status: 'active', tier: requestedRole === 'admin' ? 'Enterprise' : 'Core', tradingScore: requestedRole === 'admin' ? 100 : 0, joinedAt: new Date().toISOString() }, input.password);
     await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
-    await createNotification(account.id, 'system', '后台已创建账号', '账号已由后台创建，并已自动通过审核。', 'success', '/app/settings');
+    await createNotification(account.id, 'system', 'Account created by administrator', 'This account was created in the administrator workspace and is active.', 'success', '/app/settings');
     return sendJson(res, 201, normalizeAccount(account));
   }
 
@@ -750,7 +766,7 @@ async function handleCredits(req, res, requestUrl) {
   if (req.method === 'POST' && requestUrl.pathname === '/api/credits/requests') {
     const input = await readBody(req);
     const amount = Math.round(Number(input.amount));
-    const reason = String(input.reason || '').trim().slice(0, 240) || '交易额度补充';
+    const reason = String(input.reason || '').trim().slice(0, 240) || 'Paper margin allocation request';
     if (!Number.isFinite(amount) || amount < 1 || amount > 1_000_000) return sendJson(res, 400, { error: 'invalid credit request' });
     const account = await getOrCreateCreditAccount(session);
     const request = { id: randomUUID(), userId: session.sub, userName: session.name, email: session.email, amount, reason, status: 'pending', requestedAt: new Date().toISOString() };
@@ -794,7 +810,7 @@ async function handleAdminCredits(req, res, requestUrl) {
     if (!target) return sendJson(res, 404, { error: 'account not found' });
     const account = await getOrCreateCreditAccount({ sub: target.id, name: target.name, email: target.email });
     const updated = await updateCreditAccount({ ...account, userName: target.name, email: target.email, balance: account.balance + amount, available: account.available + amount, grantedTotal: account.grantedTotal + amount, updatedAt: new Date().toISOString() });
-    await createNotification(target.id, 'fund', 'U 余额已更新', `后台已发放 ${amount} U 到你的账户。`, 'success', '/app/dashboard');
+    await createNotification(target.id, 'fund', 'U balance updated', `${amount} U has been allocated to your paper account.`, 'success', '/app/dashboard');
     return sendJson(res, 200, updated);
   }
   if (req.method === 'POST' && requestUrl.pathname === '/api/admin/credits/approve') {
@@ -816,7 +832,7 @@ async function handleAdminCredits(req, res, requestUrl) {
     } else {
       memoryCreditRequests.set(id, { ...target, status: 'approved', reviewedAt, reviewer: session.name });
     }
-    await createNotification(target.userId, 'fund', 'U 申请已通过', `你的 ${target.amount} U 申请已由后台通过。`, 'success', '/app/dashboard');
+    await createNotification(target.userId, 'fund', 'U request approved', `Your ${target.amount} U paper-margin request has been approved.`, 'success', '/app/dashboard');
     return sendJson(res, 200, { ...target, status: 'approved', reviewedAt, reviewer: session.name });
   }
   return sendJson(res, 404, { error: 'admin credits route not found' });
@@ -1099,7 +1115,7 @@ async function handleSupport(req, res, requestUrl) {
     } else {
       memorySupportMessages.push(message);
     }
-    if (session.role === 'admin') await createNotification(userId, 'task', '客服有新回复', '后台客服已回复你的消息。', 'info', '/app/support');
+    if (session.role === 'admin') await createNotification(userId, 'task', 'New support reply', 'Client Support has replied to your conversation.', 'info', '/app/support');
     return sendJson(res, 201, message);
   }
   return sendJson(res, 404, { error: 'support route not found' });
@@ -1124,6 +1140,65 @@ const marketQuoteCatalogue = {
   SOL: 'SOL-USD', XRP: 'XRP-USD', LINK: 'LINK-USD', AVAX: 'AVAX-USD', EURUSD: 'EURUSD=X', GBPUSD: 'GBPUSD=X',
   USDJPY: 'JPY=X', AUDUSD: 'AUDUSD=X', USDCAD: 'CAD=X', SPX: '^GSPC', NAS100: '^NDX', DAX: '^GDAXI',
 };
+
+// Common MT5 broker symbols differ by suffix (for example XAUUSD.a). The
+// bridge normalizes only instruments that AD88 already supports. Unknown
+// symbols are rejected rather than silently stored or exposed.
+const mt5SymbolAliases = {
+  XAUUSD: 'XAU', GOLD: 'XAU', XAGUSD: 'XAG', SILVER: 'XAG',
+  BTCUSD: 'BTC', BTCUSDT: 'BTC', ETHUSD: 'ETH', ETHUSDT: 'ETH',
+  USOIL: 'CL', WTI: 'CL', WTIUSD: 'CL', XTIUSD: 'CL',
+  UKOIL: 'BRN', BRENT: 'BRN', BRENTUSD: 'BRN', XBRUSD: 'BRN',
+  NATGAS: 'NG', NATURALGAS: 'NG', NGAS: 'NG',
+  COPPER: 'HG', XCUUSD: 'HG',
+  EURUSD: 'EURUSD', GBPUSD: 'GBPUSD', USDJPY: 'USDJPY', AUDUSD: 'AUDUSD', USDCAD: 'USDCAD',
+};
+
+function normalizeMt5Symbol(value) {
+  const compact = String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!compact) return null;
+  if (mt5SymbolAliases[compact]) return mt5SymbolAliases[compact];
+  // A conservative suffix rule supports brokers using symbols such as
+  // XAUUSDm, XAUUSD.a or EURUSDpro without allowing arbitrary names.
+  const alias = Object.keys(mt5SymbolAliases)
+    .sort((left, right) => right.length - left.length)
+    .find((candidate) => compact.startsWith(candidate) && compact.length - candidate.length <= 8);
+  return alias ? mt5SymbolAliases[alias] : (marketQuoteCatalogue[compact] ? compact : null);
+}
+
+function getActiveMt5Quote(symbol) {
+  const quote = mt5QuoteCache.get(symbol);
+  return quote && quote.receivedAt + mt5QuoteTtlMs >= Date.now() ? quote : null;
+}
+
+function getActiveMt5Quotes() {
+  const active = [];
+  for (const [symbol, quote] of mt5QuoteCache) {
+    if (quote.receivedAt + mt5QuoteTtlMs >= Date.now()) active.push([symbol, quote]);
+    else mt5QuoteCache.delete(symbol);
+  }
+  return active;
+}
+
+function overlayMt5Quotes(snapshot) {
+  const active = getActiveMt5Quotes();
+  if (!active.length) return snapshot;
+  const result = { ...snapshot };
+  for (const [symbol, quote] of active) {
+    const prior = result[symbol] || {};
+    result[symbol] = {
+      ...prior,
+      ...quote,
+      // An EA may not provide a daily change or volume. Preserve the public
+      // market context in that case while using its current Bid/Ask/Last.
+      change24h: Number.isFinite(quote.change24h) ? quote.change24h : prior.change24h || 0,
+      volume24h: Number.isFinite(quote.volume24h) ? quote.volume24h : prior.volume24h || 0,
+      fallback: false,
+      dataState: 'broker',
+    };
+  }
+  return result;
+}
 const cryptoQuoteSymbols = new Set(['BTC', 'ETH', 'SOL', 'XRP', 'LINK', 'AVAX']);
 const internalFallbackPrices = {
   BTC: [76000, 0.4], ETH: [2400, 0.2], SOL: [93, 0.1], XRP: [1.47, 0.1], LINK: [11.3, 0.1], AVAX: [7.4, 0.1],
@@ -1420,6 +1495,142 @@ async function getMarketQuoteSnapshot() {
   return marketQuoteSnapshotRequest;
 }
 
+function publicMarketQuote(symbol, quote) {
+  return {
+    symbol,
+    price: quote.price,
+    bid: Number.isFinite(quote.bid) ? quote.bid : undefined,
+    ask: Number.isFinite(quote.ask) ? quote.ask : undefined,
+    change24h: quote.change24h,
+    volume24h: quote.volume24h,
+    quoteUpdatedAt: quote.quoteUpdatedAt,
+    // This is intentionally a short, product-level signal rather than a
+    // provider URL, broker account label, cache implementation or lineage.
+    dataState: quote.dataState || (quote.fallback ? 'fallback' : 'live'),
+  };
+}
+
+function writeMarketEvent(res, event, body) {
+  if (res.writableEnded || res.destroyed) return;
+  res.write(`event: ${event}\ndata: ${JSON.stringify(body)}\n\n`);
+}
+
+function broadcastMt5Quotes(updates) {
+  if (!updates.length) return;
+  for (const client of marketStreamClients) {
+    const quotes = Object.fromEntries(updates
+      .filter(([symbol]) => !client.symbols.size || client.symbols.has(symbol))
+      .map(([symbol, quote]) => [symbol, publicMarketQuote(symbol, quote)]));
+    if (Object.keys(quotes).length) {
+      writeMarketEvent(client.res, 'quotes', { quotes, updatedAt: new Date().toISOString(), state: 'broker' });
+    }
+  }
+}
+
+function parseMt5Timestamp(value) {
+  if (value === undefined || value === null || value === '') return Date.now();
+  let timestamp = typeof value === 'number' ? value : Date.parse(String(value));
+  if (typeof value === 'number' && timestamp < 1_000_000_000_000) timestamp *= 1000;
+  if (!Number.isFinite(timestamp) || Math.abs(Date.now() - timestamp) > 5 * 60_000) return null;
+  return timestamp;
+}
+
+async function handleMt5TickIngest(req, res) {
+  if (appSurface !== 'frontend') return sendJson(res, 404, { error: 'not found' });
+  if (req.method !== 'POST') return sendJson(res, 405, { error: 'method not allowed' });
+  if (!mt5IngestSecret) return sendJson(res, 503, { error: 'MT5 bridge is not configured' });
+  if (!safeSecretEqual(req.headers['x-ad88-mt5-key'], mt5IngestSecret)) return sendJson(res, 401, { error: 'invalid MT5 bridge key' });
+
+  let input;
+  try {
+    input = await readBody(req);
+  } catch {
+    return sendJson(res, 400, { error: 'invalid JSON payload' });
+  }
+  const ticks = Array.isArray(input?.ticks) ? input.ticks : [];
+  if (!ticks.length || ticks.length > 64) return sendJson(res, 400, { error: 'ticks must contain 1 to 64 items' });
+
+  const broker = String(input.broker || 'MT5 reference feed').trim().slice(0, 80);
+  const environment = input.environment === 'demo' ? 'demo' : 'reference';
+  const accepted = [];
+  for (const tick of ticks) {
+    const symbol = normalizeMt5Symbol(tick?.symbol);
+    const bid = Number(tick?.bid);
+    const ask = Number(tick?.ask);
+    const suppliedLast = Number(tick?.last);
+    const hasBid = Number.isFinite(bid) && bid > 0;
+    const hasAsk = Number.isFinite(ask) && ask > 0;
+    const hasLast = Number.isFinite(suppliedLast) && suppliedLast > 0;
+    const price = hasLast ? suppliedLast : hasBid && hasAsk ? (bid + ask) / 2 : hasBid ? bid : ask;
+    const timestamp = parseMt5Timestamp(tick?.time);
+    if (!symbol || !Number.isFinite(price) || price <= 0 || price > 1_000_000_000 || !timestamp || (hasBid && hasAsk && ask < bid)) continue;
+    const prior = getActiveMt5Quote(symbol);
+    const change24h = Number(tick?.change24h);
+    const volume24h = Number(tick?.volume24h);
+    const quote = {
+      price,
+      bid: hasBid ? bid : undefined,
+      ask: hasAsk ? ask : undefined,
+      last: hasLast ? suppliedLast : price,
+      change24h: Number.isFinite(change24h) ? change24h : prior?.change24h,
+      volume24h: Number.isFinite(volume24h) ? volume24h : prior?.volume24h,
+      quoteUpdatedAt: new Date(timestamp).toISOString(),
+      receivedAt: Date.now(),
+      broker,
+      environment,
+      dataState: 'broker',
+      fallback: false,
+    };
+    mt5QuoteCache.set(symbol, quote);
+    accepted.push([symbol, quote]);
+  }
+  if (!accepted.length) return sendJson(res, 400, { error: 'no valid supported MT5 ticks' });
+  mt5QuoteRevision += 1;
+  broadcastMt5Quotes(accepted);
+  return sendJson(res, 202, {
+    accepted: accepted.map(([symbol]) => symbol),
+    receivedAt: new Date().toISOString(),
+    // The response intentionally never reflects the secret, broker account,
+    // terminal identity, or any trading instruction.
+    mode: 'read-only market reference',
+  });
+}
+
+async function handleMarketStream(req, res, requestUrl) {
+  if (req.method !== 'GET') return sendJson(res, 405, { error: 'method not allowed' });
+  const symbols = new Set((requestUrl.searchParams.get('symbols') || '')
+    .split(',')
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter((symbol) => marketQuoteCatalogue[symbol]));
+  res.writeHead(200, {
+    'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-cache, no-transform',
+    connection: 'keep-alive',
+    'x-accel-buffering': 'no',
+  });
+  res.write('retry: 2500\n\n');
+  const client = { res, symbols };
+  const close = () => {
+    marketStreamClients.delete(client);
+    clearInterval(heartbeat);
+  };
+  const heartbeat = setInterval(() => writeMarketEvent(res, 'ping', { at: new Date().toISOString() }), 15_000);
+  marketStreamClients.add(client);
+  writeMarketEvent(res, 'state', { connection: 'open', bridgeConfigured: Boolean(mt5IngestSecret), execution: 'paper' });
+  try {
+    const rawSnapshot = await getMarketQuoteSnapshot();
+    const snapshot = overlayMt5Quotes(rawSnapshot);
+    const quotes = Object.fromEntries(Object.entries(snapshot)
+      .filter(([symbol]) => !symbols.size || symbols.has(symbol))
+      .map(([symbol, quote]) => [symbol, publicMarketQuote(symbol, quote)]));
+    writeMarketEvent(res, 'snapshot', { quotes, updatedAt: new Date().toISOString() });
+  } catch {
+    writeMarketEvent(res, 'state', { connection: 'degraded', bridgeConfigured: Boolean(mt5IngestSecret), execution: 'paper' });
+  }
+  req.once('close', close);
+  res.once('close', close);
+}
+
 async function proxyMarketQuotes(res, requestUrl) {
   const requested = (requestUrl.searchParams.get('symbols') || Object.keys(marketQuoteCatalogue).join(','))
     .split(',')
@@ -1427,20 +1638,11 @@ async function proxyMarketQuotes(res, requestUrl) {
     .filter((symbol, index, all) => marketQuoteCatalogue[symbol] && all.indexOf(symbol) === index);
   if (!requested.length) return sendJson(res, 400, { error: 'no supported market symbols' });
   const servedFromCache = Boolean(marketQuoteSnapshotCache.value && marketQuoteSnapshotCache.expiresAt > Date.now());
-  const snapshot = await getMarketQuoteSnapshot();
-  // Keep provider diagnostics server-side. The public workspace only needs a
-  // normalized quote and its source timestamp for calculations; it does not
-  // expose provider names, fallback labels, cache flags or API lineage.
+  const snapshot = overlayMt5Quotes(await getMarketQuoteSnapshot());
   const quotes = Object.fromEntries(requested
     .map((symbol) => [symbol, snapshot[symbol]])
     .filter(([, quote]) => quote)
-    .map(([symbol, quote]) => [symbol, {
-      symbol,
-      price: quote.price,
-      change24h: quote.change24h,
-      volume24h: quote.volume24h,
-      quoteUpdatedAt: quote.quoteUpdatedAt,
-    }]));
+    .map(([symbol, quote]) => [symbol, publicMarketQuote(symbol, quote)]));
   res.statusCode = 200;
   res.setHeader('content-type', 'application/json; charset=utf-8');
   res.setHeader('cache-control', 'no-store');
@@ -1451,23 +1653,28 @@ async function proxyMarketQuotes(res, requestUrl) {
     // These identifiers let the two independently deployed workspaces prove
     // that they consumed the same server snapshot without exposing provider
     // credentials or internal upstream URLs.
-    snapshotId: marketQuoteSnapshotCache.snapshotId,
+    snapshotId: `${marketQuoteSnapshotCache.snapshotId || 'mkt'}-${mt5QuoteRevision}`,
     snapshotBuiltAt: marketQuoteSnapshotCache.builtAt ? new Date(marketQuoteSnapshotCache.builtAt).toISOString() : undefined,
   }));
 }
 
 async function proxyMarketStatus(res) {
   try {
-    const snapshot = await getMarketQuoteSnapshot();
+    const snapshot = overlayMt5Quotes(await getMarketQuoteSnapshot());
     const ageSeconds = marketQuoteSnapshotCache.builtAt ? Math.max(0, Math.round((Date.now() - marketQuoteSnapshotCache.builtAt) / 1000)) : null;
     return sendJson(res, 200, {
       status: ageSeconds != null && ageSeconds <= 10 ? 'healthy' : 'degraded',
       quoteCount: Object.keys(snapshot).length,
       ageSeconds,
       cacheSeconds: Math.round(marketProxyTtlMs / 1000),
-      snapshotId: marketQuoteSnapshotCache.snapshotId,
+      snapshotId: `${marketQuoteSnapshotCache.snapshotId || 'mkt'}-${mt5QuoteRevision}`,
       snapshotBuiltAt: marketQuoteSnapshotCache.builtAt ? new Date(marketQuoteSnapshotCache.builtAt).toISOString() : null,
       twelveDataConfigured: Boolean(twelveDataApiKey),
+      brokerFeed: {
+        configured: Boolean(mt5IngestSecret),
+        activeSymbols: getActiveMt5Quotes().map(([symbol]) => symbol),
+        maxAgeSeconds: getActiveMt5Quotes().length ? Math.max(...getActiveMt5Quotes().map(([, quote]) => Math.max(0, Math.round((Date.now() - quote.receivedAt) / 1000)))) : null,
+      },
       checkedAt: new Date().toISOString(),
     });
   } catch (error) {
@@ -1769,6 +1976,8 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname.startsWith('/api/support/')) return handleSupport(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/notifications')) return handleNotifications(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/sync')) return handleSync(req, res, requestUrl);
+    if (requestUrl.pathname === '/api/mt5/ticks') return handleMt5TickIngest(req, res);
+    if (requestUrl.pathname === '/api/market/stream') return handleMarketStream(req, res, requestUrl);
     if (requestUrl.pathname === '/api/market/status') return proxyMarketStatus(res);
     if (requestUrl.pathname === '/api/market/quotes') return proxyMarketQuotes(res, requestUrl);
     if (requestUrl.pathname === '/api/market') return proxyMarket(res, requestUrl);

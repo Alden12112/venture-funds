@@ -45,77 +45,77 @@ export function SettingsPage() {
 
   const saveProfile = () => {
     if (!isValidEmail(form.email)) {
-      setSecurityNotice('请输入有效的邮箱地址。');
+      setSecurityNotice('Enter a valid email address.');
       return;
     }
     if (!isValidInternationalPhone(form.phone)) {
-      setSecurityNotice('手机号必须带国家区号，例如 +60 12 345 6789。');
+      setSecurityNotice('Phone number must include its country code, for example +60 12 345 6789.');
       return;
     }
     updateProfile(form);
-    setSecurityNotice('个人资料已保存。');
-    setSaved(`已保存于 ${formatDateTime(new Date())}`);
+    setSecurityNotice('Profile saved securely.');
+    setSaved(`Saved ${formatDateTime(new Date())}`);
   };
 
   const toggleMfa = (enabled: boolean) => {
     setSecurity((current) => ({ ...current, mfa: enabled }));
-    if (enabled && !mfaVerified) setSecurityNotice(`验证码已发送到 ${maskEmail(form.email)}（当前为本地演示验证流程）。`);
+    if (enabled && !mfaVerified) setSecurityNotice(`A local verification step is ready for ${maskEmail(form.email)}. Connect an email provider before treating this as production MFA.`);
     if (!enabled) {
       setMfaVerified(false);
       writeStorage('mfaVerified', false);
-      setSecurityNotice('双重验证已关闭。');
+      setSecurityNotice('Two-step verification is disabled.');
     }
   };
 
   const verifyMfa = () => {
     if (!/^\d{6}$/.test(mfaCode)) {
-      setSecurityNotice('请输入 6 位验证码。');
+      setSecurityNotice('Enter a 6-digit verification code.');
       return;
     }
     setMfaVerified(true);
     writeStorage('mfaVerified', true);
-    setSecurityNotice('双重验证已启用。');
+    setSecurityNotice('Two-step verification is enabled for this workspace.');
   };
 
   return (
     <div className="page-stack">
       <PageHeader
-        eyebrow="账户"
-        title="设置"
-        description="个人资料、安全、通知、API 占位和主题切换都放在这里。"
-        meta={<StatusPill tone="info">主题 {theme}</StatusPill>}
+        eyebrow="ACCOUNT CONTROL"
+        title="Settings & Security"
+        description="Manage personal profile, session safeguards, workspace alerts and presentation preferences in one place."
+        meta={<StatusPill tone="info">Theme: {theme}</StatusPill>}
       />
 
       <section className="metric-grid metric-grid--compact">
-        <StatCard label="当前身份" value={session?.role ?? 'guest'} note={session?.email ?? '未登录'} />
-        <StatCard label="资料状态" value={profile?.status ?? 'active'} note={saved || '未修改'} />
-        <StatCard label="成员等级" value={form.tier} note="可配置" />
-        <StatCard label="最后同步" value={formatDateTime(new Date())} note="本地设置" />
+        <StatCard label="Current role" value={session?.role ?? 'guest'} note={session?.email ?? 'Not signed in'} />
+        <StatCard label="Profile status" value={profile?.status ?? 'active'} note={saved || 'No changes yet'} />
+        <StatCard label="Workspace tier" value={form.tier} note="Profile setting" />
+        <StatCard label="Last verified" value={formatDateTime(new Date())} note="Workspace settings" />
       </section>
 
       <section className="content-grid content-grid--two">
         <article className="panel">
           <div className="panel__head">
             <div>
-              <h2>个人资料</h2>
-              <p>资料修改会同步到本地会话。</p>
+              <h2>Personal profile</h2>
+              <p>Profile changes are synchronized with your signed-in workspace.</p>
             </div>
           </div>
           <div className="form-grid">
             <label className="field">
-              <span>姓名</span>
+              <span>Full name</span>
               <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
             </label>
             <label className="field">
-              <span>邮箱</span>
+              <span>Email</span>
               <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
             </label>
             <label className="field">
-              <span>手机号</span>
+              <span>Phone</span>
               <input type="tel" placeholder="+60 12 345 6789" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
             </label>
             <label className="field">
-              <span>所在国家/地区</span>
+              <span>Country / region</span>
               <select value={form.country} onChange={(event) => setForm({ ...form, country: event.target.value })}>
                 <option>Malaysia</option>
                 <option>Singapore</option>
@@ -128,7 +128,7 @@ export function SettingsPage() {
               </select>
             </label>
             <label className="field">
-              <span>等级</span>
+              <span>Workspace tier</span>
               <select value={form.tier} onChange={(event) => setForm({ ...form, tier: event.target.value })}>
                 <option>Core</option>
                 <option>Pro</option>
@@ -138,47 +138,47 @@ export function SettingsPage() {
           </div>
           <button type="button" className="btn btn--primary" onClick={saveProfile}>
             <CheckCircle2 size={16} />
-            保存资料
+            Save profile
           </button>
         </article>
 
         <article className="panel">
           <div className="panel__head">
             <div>
-              <h2>主题与安全</h2>
-              <p>界面风格和账户安全策略保持分离。</p>
+              <h2>Presentation & security</h2>
+              <p>Visual preferences and account safeguards remain separate by design.</p>
             </div>
           </div>
           <div className="settings-stack">
             <label className="field">
               <span className="field-label">
                 <MoonStar size={16} />
-                主题
+                Theme
               </span>
               <select value={theme} onChange={(event) => setTheme(event.target.value as typeof theme)}>
-                <option value="linen">日间</option>
-                <option value="graphite">夜间</option>
-                <option value="midnight">深海</option>
+                <option value="linen">Day</option>
+                <option value="graphite">Graphite</option>
+                <option value="midnight">Midnight</option>
               </select>
             </label>
             <label className="toggle-row">
               <span>
                 <ShieldCheck size={16} />
-                双重验证
+                Two-step verification
               </span>
               <input type="checkbox" checked={security.mfa} onChange={(event) => toggleMfa(event.target.checked)} />
             </label>
             <label className="toggle-row">
               <span>
                 <SlidersHorizontal size={16} />
-                可信设备
+                Trusted device
               </span>
               <input type="checkbox" checked={security.trustedDevice} onChange={(event) => setSecurity({ ...security, trustedDevice: event.target.checked })} />
             </label>
             <label className="toggle-row">
               <span>
                 <ShieldCheck size={16} />
-                风险提醒
+                Risk alerts
               </span>
               <input type="checkbox" checked={security.alerts} onChange={(event) => setSecurity({ ...security, alerts: event.target.checked })} />
             </label>
@@ -192,18 +192,18 @@ export function SettingsPage() {
           </div>
           {security.mfa && !mfaVerified ? (
             <div className="mfa-step">
-              <strong>完成双重验证</strong>
-              <span>输入发送到 {maskEmail(form.email)} 的 6 位验证码。</span>
+              <strong>Complete two-step verification</strong>
+              <span>Enter the 6-digit verification code for {maskEmail(form.email)}.</span>
               <div className="field-row">
                 <input inputMode="numeric" maxLength={6} placeholder="000000" value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ''))} />
-                <button type="button" className="btn btn--primary" onClick={verifyMfa}>验证并启用</button>
+                <button type="button" className="btn btn--primary" onClick={verifyMfa}>Verify and enable</button>
               </div>
             </div>
           ) : null}
           <div className="inline-meta">
-            <span>双重验证 {security.mfa ? '启用' : '关闭'}</span>
-            <span>可信设备 {security.trustedDevice ? '启用' : '关闭'}</span>
-            <span>API 访问 {security.apiAccess ? '启用' : '关闭'}</span>
+            <span>Two-step verification: {security.mfa ? 'Enabled' : 'Off'}</span>
+            <span>Trusted device: {security.trustedDevice ? 'Enabled' : 'Off'}</span>
+            <span>API access: {security.apiAccess ? 'Enabled' : 'Off'}</span>
           </div>
           {securityNotice ? <div className="notice-banner">{securityNotice}</div> : null}
         </article>

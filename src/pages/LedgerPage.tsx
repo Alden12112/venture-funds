@@ -7,27 +7,27 @@ import { formatDateTime } from '@/lib/format';
 import { apiFetch } from '@/lib/api';
 import type { TradeAuditEvent } from '@/types';
 
-const filters = ['全部', 'deposit', 'withdraw', 'transfer', 'review'] as const;
+const filters = ['All', 'deposit', 'withdraw', 'transfer', 'review'] as const;
 
 export function LedgerPage() {
   const bundle = useAsyncResource(() => loadLedgerBundle(), []);
   const trades = useAsyncResource(() => apiFetch<TradeAuditEvent[]>('/api/trades'), []);
-  const [filter, setFilter] = useState<(typeof filters)[number]>('全部');
+  const [filter, setFilter] = useState<(typeof filters)[number]>('All');
 
   const filtered = useMemo(() => {
     if (bundle.status !== 'success') return [];
-    return bundle.data.entries.filter((entry) => filter === '全部' || entry.type === filter);
+    return bundle.data.entries.filter((entry) => filter === 'All' || entry.type === filter);
   }, [bundle, filter]);
 
   if (bundle.status === 'loading' || trades.status === 'loading') {
-    return <LoadingState label="正在载入资金流水" />;
+    return <LoadingState label="Loading account activity" />;
   }
 
   if (bundle.status === 'error' || trades.status === 'error') {
-    return <div className="state-block state-block--error"><strong>流水页暂时不可用</strong><p>{bundle.error}</p></div>;
+    return <div className="state-block state-block--error"><strong>Account activity is temporarily unavailable</strong><p>{bundle.error}</p></div>;
   }
 
-  if (bundle.status !== 'success' || trades.status !== 'success') return <LoadingState label="正在载入账户记录" />;
+  if (bundle.status !== 'success' || trades.status !== 'success') return <LoadingState label="Loading account records" />;
 
   const approved = bundle.data.entries.filter((entry) => entry.status === 'approved' || entry.status === 'settled');
   const pending = bundle.data.entries.filter((entry) => entry.status === 'pending');
@@ -37,23 +37,23 @@ export function LedgerPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        eyebrow="账本"
-        title="资金流水"
-        description="只显示该账户实际产生的入金、出金与处理状态。"
+        eyebrow="ACCOUNT ACTIVITY"
+        title="Funding & Trade Audit"
+        description="A clean account-level record of paper funding requests, withdrawals and trade events."
       />
 
       <section className="metric-grid metric-grid--compact">
-        <StatCard label="入金合计" value={`${inflow.toFixed(2)} U`} note="已记录资金变动" />
-        <StatCard label="出金合计" value={`${outflow.toFixed(2)} U`} note="已记录资金变动" />
-        <StatCard label="已通过/已结清" value={String(approved.length)} note="审核结果" />
-        <StatCard label="待审核" value={String(pending.length)} note="人工复核" />
+        <StatCard label="Total funding" value={`${inflow.toFixed(2)} U`} note="Recorded account inflows" />
+        <StatCard label="Total withdrawals" value={`${outflow.toFixed(2)} U`} note="Recorded account outflows" />
+        <StatCard label="Approved / settled" value={String(approved.length)} note="Completed review outcomes" />
+        <StatCard label="In review" value={String(pending.length)} note="Awaiting administrator review" />
       </section>
 
       <section className="panel panel--controls">
         <div className="chip-row">
           {filters.map((item) => (
             <button key={item} type="button" className={`chip ${filter === item ? 'is-active' : ''}`} onClick={() => setFilter(item)}>
-              {item}
+              {item === 'All' ? 'All activity' : item}
             </button>
           ))}
         </div>
@@ -65,12 +65,12 @@ export function LedgerPage() {
             <table className="table table--interactive">
               <thead>
                 <tr>
-                  <th>时间</th>
-                  <th>类型</th>
-                  <th className="text-end">金额</th>
-                  <th>状态</th>
-                  <th>备注</th>
-                  <th>引用 ID</th>
+                  <th>Time</th>
+                  <th>Type</th>
+                  <th className="text-end">Amount</th>
+                  <th>Status</th>
+                  <th>Note</th>
+                  <th>Reference ID</th>
                 </tr>
               </thead>
               <tbody>
@@ -87,7 +87,7 @@ export function LedgerPage() {
                     <td>{entry.note}</td>
                     <td>{entry.refId}</td>
                   </tr>
-                )) : <tr><td colSpan={6}><div className="empty-inline"><span>暂无资金流水。发生入金或出金后会在这里显示。</span></div></td></tr>}
+                )) : <tr><td colSpan={6}><div className="empty-inline"><span>No funding activity yet. Events appear here only after they are initiated.</span></div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -96,25 +96,25 @@ export function LedgerPage() {
         <article className="panel">
           <div className="panel__head">
             <div>
-              <h2>交易记录</h2>
-              <p>开仓、部分平仓和完整平仓会同步显示在这里。</p>
+              <h2>Trade audit</h2>
+              <p>Open, partial-close and close events remain synchronized here.</p>
             </div>
           </div>
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>时间</th><th>品种</th><th>操作</th><th>手数</th><th className="text-end">成交价</th><th className="text-end">盈亏 U</th></tr></thead>
+              <thead><tr><th>Time</th><th>Instrument</th><th>Action</th><th>Lots</th><th className="text-end">Reference price</th><th className="text-end">PnL (U)</th></tr></thead>
               <tbody>
                 {trades.data.length ? trades.data.map((trade) => {
                   const closed = trade.action === 'close' || trade.action === 'partial-close';
                   return <tr key={trade.id}>
                     <td>{formatDateTime(trade.createdAt)}</td>
-                    <td><strong>{trade.symbol}</strong><div className="text-small text-muted">{trade.side === 'long' ? '做多' : '做空'}</div></td>
-                    <td><StatusPill tone={closed ? 'info' : 'success'}>{trade.action === 'open' ? '开仓' : trade.action === 'partial-close' ? '部分平仓' : trade.action === 'close' ? '平仓' : '风控更新'}</StatusPill></td>
+                    <td><strong>{trade.symbol}</strong><div className="text-small text-muted">{trade.side === 'long' ? 'Long' : 'Short'}</div></td>
+                    <td><StatusPill tone={closed ? 'info' : 'success'}>{trade.action === 'open' ? 'Open' : trade.action === 'partial-close' ? 'Partial close' : trade.action === 'close' ? 'Close' : 'Risk update'}</StatusPill></td>
                     <td>{trade.lots.toFixed(2)}</td>
                     <td className="text-end">{trade.price.toFixed(4)}</td>
                     <td className={`text-end ${trade.pnl == null ? 'text-muted' : trade.pnl >= 0 ? 'trend trend--up' : 'trend trend--down'}`}>{trade.pnl == null ? '—' : `${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)} U`}</td>
                   </tr>;
-                }) : <tr><td colSpan={6}><div className="empty-inline"><span>暂无交易记录。开仓或平仓后会在这里显示。</span></div></td></tr>}
+                }) : <tr><td colSpan={6}><div className="empty-inline"><span>No trade audit events yet. Opening or closing a paper position records an event here.</span></div></td></tr>}
               </tbody>
             </table>
           </div>

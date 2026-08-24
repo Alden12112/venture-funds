@@ -6,11 +6,15 @@ export type LanguageCode = 'zh' | 'ms' | 'en';
 
 export type DataCacheState = 'fresh' | 'cached' | 'stale' | 'offline';
 
+/** A concise, user-facing market-data state. Provider details remain server-side. */
+export type MarketDataState = 'broker' | 'live' | 'cached' | 'fallback' | 'paper';
+
 export interface SourceMeta {
   provider: string;
-  mode: 'mock' | 'http' | 'rss' | 'api';
+  mode: 'mock' | 'http' | 'rss' | 'api' | 'broker';
   updatedAt: string;
   cacheState: DataCacheState;
+  dataState?: MarketDataState;
   endpoint?: string;
   latencyMs?: number;
   health?: 'healthy' | 'degraded' | 'offline';
@@ -26,6 +30,9 @@ export interface MarketAsset {
   volume24h: number;
   spreadBps: number;
   updatedAt: string;
+  bid?: number;
+  ask?: number;
+  dataState?: MarketDataState;
 }
 
 export interface MarketQuote extends MarketAsset {

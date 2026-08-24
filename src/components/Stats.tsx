@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react';
-import { Activity, Clock3, Database, GitBranch, Gauge } from 'lucide-react';
+import { Activity, Clock3, ShieldCheck, Wifi } from 'lucide-react';
 import type { SourceMeta } from '@/types';
 import { formatDateTime } from '@/lib/format';
-import { useLanguage } from '@/context/language-context';
 
 export function StatCard({
   label,
@@ -26,19 +25,22 @@ export function StatCard({
 }
 
 export function DataMeta({ source }: { source: SourceMeta }) {
-  const { t } = useLanguage();
-  const cacheTone = source.cacheState === 'fresh' ? 'success' : source.cacheState === 'cached' ? 'warning' : 'critical';
-  const healthTone = source.health === 'healthy' || (!source.health && source.cacheState === 'fresh') ? 'success' : source.health === 'offline' || source.cacheState === 'offline' ? 'critical' : 'warning';
-  const modeLabel = source.mode === 'api' ? 'API' : source.mode === 'mock' ? 'Fallback' : source.mode.toUpperCase();
+  const state = source.dataState ?? (source.mode === 'broker' ? 'broker' : source.mode === 'mock' ? 'fallback' : source.cacheState === 'cached' ? 'cached' : 'live');
+  const stateMeta = {
+    broker: { label: 'Broker Feed', tone: 'success' as const, description: 'Read-only reference prices are arriving from the connected terminal.' },
+    live: { label: 'Live API', tone: 'success' as const, description: 'Normalized market data is available for this workspace.' },
+    cached: { label: 'Cached', tone: 'warning' as const, description: 'The most recent verified market snapshot is being retained.' },
+    fallback: { label: 'Fallback', tone: 'warning' as const, description: 'A resilient reference is in use while an upstream source recovers.' },
+    paper: { label: 'Paper Environment', tone: 'info' as const, description: 'Orders, margin and PnL remain simulated.' },
+  }[state];
+  const healthTone = source.health === 'offline' ? 'critical' : stateMeta.tone;
   return (
-    <div className="data-meta">
-      <span className="data-meta__item data-meta__item--source"><Database size={13} /><span><small>{t('meta.source')}</small><strong>{source.provider}</strong></span></span>
-      <span className="data-meta__item"><Clock3 size={13} /><span><small>{t('meta.updated')}</small><strong>{formatDateTime(source.updatedAt)}</strong></span></span>
-      <span className="data-meta__item"><Activity size={13} /><span><small>连接</small><strong><span className={`data-meta__status data-meta__status--${healthTone}`}>{source.health ?? (source.cacheState === 'fresh' ? 'healthy' : 'degraded')}</span></strong></span></span>
-      <span className="data-meta__item"><Gauge size={13} /><span><small>{t('meta.cache')} / 模式</small><strong><span className={`data-meta__status data-meta__status--${cacheTone}`}>{source.cacheState} · {modeLabel}</span></strong></span></span>
-      {source.latencyMs != null ? <span className="data-meta__item"><span><small>延迟</small><strong>{source.latencyMs} ms</strong></span></span> : null}
-      {source.lineage ? <span className="data-meta__item data-meta__item--lineage"><GitBranch size={13} /><span><small>数据血缘</small><strong>{source.lineage}</strong></span></span> : null}
-    </div>
+    <section className="data-integrity" aria-label="Market data integrity">
+      <span className={`data-integrity__state data-integrity__state--${stateMeta.tone}`} title={stateMeta.description}><Activity size={14} /> {stateMeta.label}</span>
+      <span className="data-integrity__item"><Clock3 size={14} /><span><small>Last verified</small><strong>{formatDateTime(source.updatedAt)}</strong></span></span>
+      <span className="data-integrity__item"><Wifi size={14} /><span><small>Connection</small><strong className={`data-meta__status data-meta__status--${healthTone}`}>{source.health === 'offline' ? 'Review needed' : source.health === 'degraded' ? 'Monitoring' : 'Stable'}</strong></span></span>
+      <span className="data-integrity__item"><ShieldCheck size={14} /><span><small>Execution</small><strong>Paper safeguarded</strong></span></span>
+    </section>
   );
 }
 
@@ -71,7 +73,7 @@ export function EmptyState({
 }
 
 export function ErrorState({
-  title = '加载失败',
+  title = 'Unable to load this workspace',
   text,
   action,
 }: {
@@ -88,7 +90,7 @@ export function ErrorState({
   );
 }
 
-export function LoadingState({ label = '加载中' }: { label?: string }) {
+export function LoadingState({ label = 'Preparing your workspace' }: { label?: string }) {
   return (
     <div className="skeleton-stack" aria-live="polite">
       <div className="skeleton skeleton--title" />

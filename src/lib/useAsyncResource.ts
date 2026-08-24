@@ -21,7 +21,7 @@ export function useAsyncResource<T>(factory: () => Promise<T>, deps: readonly un
       })
       .catch((error: unknown) => {
         if (!active) return;
-        const message = error instanceof Error ? error.message : '加载失败';
+        const message = error instanceof Error ? error.message : 'Unable to load workspace data';
         setState({ status: 'error', data: null, error: message });
       });
 

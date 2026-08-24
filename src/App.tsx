@@ -22,7 +22,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, ready } = useAuth();
 
   if (!ready) {
-    return <div className="page-loading">正在准备会话...</div>;
+    return <div className="page-loading">Preparing secure session…</div>;
   }
 
   if (!session) {
@@ -35,7 +35,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { session, ready } = useAuth();
 
-  if (!ready) return <div className="page-loading">正在准备后台会话...</div>;
+  if (!ready) return <div className="page-loading">Preparing administrator session…</div>;
   if (!session || session.role !== 'admin') return <Navigate to="/admin/login" replace />;
   return <>{children}</>;
 }

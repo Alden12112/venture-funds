@@ -25,7 +25,7 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
       writeStorage(`supportMessages.${adminMode ? 'admin' : session.id}`, remote, { sync: false });
     } catch (error) {
       if (!(error instanceof ApiError) || !isApiUnavailable(error)) {
-        setStatus(error instanceof Error ? error.message : '客服消息暂时不可用');
+        setStatus(error instanceof Error ? error.message : 'Support messages are temporarily unavailable');
         return;
       }
       const local = readStorage<SupportMessage[]>(`supportMessages.${adminMode ? 'admin' : session.id}`, []);
@@ -62,10 +62,10 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
       setMessages((current) => [...current, created]);
       setActiveThreadId(created.threadId);
       setDraft('');
-      setStatus('已发送');
+      setStatus('Sent securely');
     } catch (error) {
       if (!(error instanceof ApiError) || !isApiUnavailable(error)) {
-        setStatus(error instanceof Error ? error.message : '发送失败');
+        setStatus(error instanceof Error ? error.message : 'Message delivery failed');
         return;
       }
       const created: SupportMessage = {
@@ -84,7 +84,7 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
       setActiveThreadId(created.threadId);
       writeStorage(`supportMessages.${adminMode ? 'admin' : session.id}`, next, { sync: false });
       setDraft('');
-      setStatus('已保存到本地工作区');
+      setStatus('Saved to this local workspace');
     }
   };
 
@@ -95,39 +95,39 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
           <span className="support-console__icon"><Headphones size={18} /></span>
           <div>
             <span className="eyebrow">{adminMode ? 'Operations desk' : 'Client care'}</span>
-            <h2>{adminMode ? '客服收件箱' : '联系 AD88 客服'}</h2>
-            <p>{adminMode ? '集中处理用户消息，回复会同步回前台账号。' : '你的消息会进入后台客服收件箱，回复后会在这里显示。'}</p>
-            <small className="support-console__retention">消息记录保留 1 年 · 联系渠道已置于右侧</small>
+            <h2>{adminMode ? 'Support inbox' : 'Contact AD88 Support'}</h2>
+            <p>{adminMode ? 'Respond to client messages from one synchronized operations inbox.' : 'Your message reaches the administrator inbox and replies appear in this thread.'}</p>
+            <small className="support-console__retention">Conversation retention: 1 year · Direct channels are available on the right</small>
           </div>
         </div>
         <div className="support-console__actions">
-          <a className="support-channel support-channel--whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer" aria-label="打开 WhatsApp">
+          <a className="support-channel support-channel--whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer" aria-label="Open WhatsApp">
             <MessageCircle size={16} /> WhatsApp
           </a>
-          <a className="support-channel support-channel--telegram" href={telegramUrl} target="_blank" rel="noreferrer" aria-label="打开 Telegram">
+          <a className="support-channel support-channel--telegram" href={telegramUrl} target="_blank" rel="noreferrer" aria-label="Open Telegram">
             <Send size={16} /> Telegram
           </a>
-          <button type="button" className="icon-button icon-button--small" onClick={() => void loadMessages()} aria-label="刷新客服消息"><RefreshCw size={15} /></button>
+          <button type="button" className="icon-button icon-button--small" onClick={() => void loadMessages()} aria-label="Refresh support messages"><RefreshCw size={15} /></button>
         </div>
       </div>
 
       <div className="support-console__body">
         {adminMode ? (
-          <aside className="support-threads" aria-label="客服会话列表">
+          <aside className="support-threads" aria-label="Support thread list">
             {threads.length ? threads.map((thread) => (
               <button type="button" key={thread.threadId} className={`support-thread ${selectedThread?.threadId === thread.threadId ? 'is-active' : ''}`} onClick={() => setActiveThreadId(thread.threadId)}>
                 <span className="support-thread__avatar">{thread.latest.userName.slice(0, 1).toUpperCase()}</span>
-                <span><strong>{thread.latest.userName}</strong><small>{thread.latest.userEmail} · {thread.latest.userPhone || '未留手机号'}</small><small>{thread.latest.body}</small></span>
+                <span><strong>{thread.latest.userName}</strong><small>{thread.latest.userEmail} · {thread.latest.userPhone || 'No phone recorded'}</small><small>{thread.latest.body}</small></span>
                 <time>{formatDateTime(thread.latest.createdAt)}</time>
-                {thread.unread ? <span className="support-thread__unread">{thread.unread} 条新消息</span> : null}
+                {thread.unread ? <span className="support-thread__unread">{thread.unread} new</span> : null}
               </button>
-            )) : <div className="support-empty">还没有新消息。</div>}
+            )) : <div className="support-empty">No new client messages.</div>}
           </aside>
         ) : null}
 
         <div className="support-chat">
           <div className="support-chat__meta">
-            <span><ShieldCheck size={14} /> {adminMode ? `${selectedThread?.latest.userEmail ?? '选择会话'} · ${selectedThread?.latest.userPhone || '未留手机号'}` : '加密客服通道'}</span>
+            <span><ShieldCheck size={14} /> {adminMode ? `${selectedThread?.latest.userEmail ?? 'Select a thread'} · ${selectedThread?.latest.userPhone || 'No phone recorded'}` : 'Protected support channel'}</span>
             {status ? <span className="support-chat__status">{status}</span> : null}
           </div>
           <div className="support-chat__messages">
@@ -139,11 +139,11 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
                   <time>{formatDateTime(message.createdAt)}</time>
                 </div>
               </div>
-            )) : <div className="support-empty support-empty--large"><MessageCircle size={24} /><strong>{adminMode ? '等待用户发来消息' : '需要帮助吗？'}</strong><span>{adminMode ? '新消息会自动出现在左侧收件箱。' : '发送一条消息，后台客服会在这里回复。'}</span></div>}
+            )) : <div className="support-empty support-empty--large"><MessageCircle size={24} /><strong>{adminMode ? 'Waiting for client messages' : 'Need assistance?'}</strong><span>{adminMode ? 'New messages will appear automatically in the inbox.' : 'Send a message and the operations team will reply here.'}</span></div>}
           </div>
           <div className="support-composer">
-            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={adminMode ? '回复当前会话…' : '输入你的问题…'} rows={2} />
-            <button type="button" className="btn btn--primary" onClick={() => void sendMessage()} disabled={!draft.trim() || (adminMode && !selectedThread)}><Send size={16} />发送</button>
+            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={adminMode ? 'Reply to this client…' : 'Describe your question…'} rows={2} />
+            <button type="button" className="btn btn--primary" onClick={() => void sendMessage()} disabled={!draft.trim() || (adminMode && !selectedThread)}><Send size={16} /> Send</button>
           </div>
         </div>
       </div>

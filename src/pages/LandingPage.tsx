@@ -9,7 +9,7 @@ import { Sparkline } from '@/components/Charts';
 import { useLanguage } from '@/context/language-context';
 
 export function LandingPage() {
-  const { language, setLanguage, t } = useLanguage();
+  const { t } = useLanguage();
   const market = useAsyncResource(() => loadMarketBundle('BTC'), []);
 
   const selected = market.status === 'success' ? market.data.selected : null;
@@ -24,14 +24,6 @@ export function LandingPage() {
           <span className="brand-lockup__name">{brand.english}</span>
         </Link>
         <div className="landing-topbar__actions">
-          <label className="theme-switch">
-            <span className="sr-only">Language</span>
-            <select value={language} onChange={(event) => setLanguage(event.target.value as typeof language)} aria-label="Language">
-              <option value="zh">中文</option>
-              <option value="ms">BM</option>
-              <option value="en">EN</option>
-            </select>
-          </label>
           <Link to="/auth/login" className="link-action">
             {t('action.login')}
           </Link>
@@ -43,7 +35,7 @@ export function LandingPage() {
 
       <main className="landing-grid">
         <section className="hero-copy">
-          <div className="eyebrow">金融信息平台</div>
+          <div className="eyebrow">MARKET OPERATING SYSTEM</div>
           <h1>{t('landing.title')}</h1>
           <p>{t('landing.claim')}</p>
 
@@ -81,24 +73,24 @@ export function LandingPage() {
             <div className="preview-shell__head">
               <div>
                 <span className="preview-shell__label">{t('landing.preview')}</span>
-                <strong>行情与账户同步视图</strong>
+                <strong>Market and account synchronization</strong>
               </div>
               {selected ? <StatusPill tone={selected.change24h >= 0 ? 'success' : 'critical'}>{formatPercent(selected.change24h)}</StatusPill> : null}
             </div>
 
             {market.status === 'loading' ? (
-              <LoadingState label="正在载入市场摘要" />
+              <LoadingState label="Loading market snapshot" />
             ) : market.status === 'error' ? (
               <div className="state-block state-block--error">
-                <strong>行情暂不可用</strong>
+                <strong>Market snapshot is unavailable</strong>
                 <p>{market.error}</p>
               </div>
             ) : (
               <>
                 <div className="preview-metrics">
-                  <StatCard label="BTC 价格" value={formatCurrency(btc?.price ?? 0)} delta={btc ? formatPercent(btc.change24h) : undefined} />
-                  <StatCard label="ETH 价格" value={formatCurrency(eth?.price ?? 0)} delta={eth ? formatPercent(eth.change24h) : undefined} />
-                  <StatCard label="活跃流动性" value={formatCompact(selected?.volume24h ?? 0)} note="24h 成交量" />
+                  <StatCard label="BTC price" value={formatCurrency(btc?.price ?? 0)} delta={btc ? formatPercent(btc.change24h) : undefined} />
+                  <StatCard label="ETH price" value={formatCurrency(eth?.price ?? 0)} delta={eth ? formatPercent(eth.change24h) : undefined} />
+                  <StatCard label="Active liquidity" value={formatCompact(selected?.volume24h ?? 0)} note="24h volume" />
                 </div>
 
                 <div className="preview-chart">
@@ -129,7 +121,7 @@ export function LandingPage() {
         <div>
           <span className="status-dot status-dot--live" />
           <strong>Public market data connected</strong>
-          <span>实时市场连接</span>
+          <span>Live status is surfaced in every workspace</span>
         </div>
         <div>
           <strong>Sandbox by design</strong>

@@ -1,16 +1,16 @@
 export const authModes = [
-  { key: 'login', label: '登录' },
-  { key: 'register', label: '注册' },
-  { key: 'recover', label: '找回密码' },
+  { key: 'login', label: 'Sign in' },
+  { key: 'register', label: 'Create account' },
+  { key: 'recover', label: 'Recover access' },
 ] as const;
 
 export const legalPages = [
-  { key: 'terms', label: '用户协议' },
-  { key: 'privacy', label: '隐私政策' },
+  { key: 'terms', label: 'Terms of use' },
+  { key: 'privacy', label: 'Privacy policy' },
 ] as const;
 
-export const marketFilters = ['全部', 'crypto', 'commodity', 'forex', 'equity', 'index'] as const;
+export const marketFilters = ['All', 'crypto', 'commodity', 'forex', 'equity', 'index'] as const;
 
-export const newsCategories = ['全部', '市场', '宏观', '监管', '加密市场', '能源', '金属', '外汇'] as const;
+export const newsCategories = ['All', 'Markets', 'Macro', 'Policy', 'Crypto', 'Energy', 'Metals', 'FX'] as const;
 
-export const notificationCategories = ['全部', '系统', '行情', '任务', '资金'] as const;
+export const notificationCategories = ['All', 'System', 'Market', 'Task', 'Funding'] as const;

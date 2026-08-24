@@ -103,7 +103,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     },
     approvals: registrations.map((item) => ({
       id: item.id,
-      subject: `注册账号 · ${item.fullName}`,
+      subject: `Registered account · ${item.fullName}`,
       owner: item.gmail,
       status: item.status,
       updatedAt: item.submittedAt,

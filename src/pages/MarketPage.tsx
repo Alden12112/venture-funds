@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, ChevronDown, ChevronUp, Crosshair, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2 } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { CandleChart, DepthChart } from '@/components/Charts';
 import type { ChartDrawing } from '@/components/Charts';
-import { LoadingState, StatCard, StatusPill } from '@/components/Stats';
+import { DataMeta, LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { MarketTicker } from '@/components/MarketTicker';
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadMarketBundle } from '@/adapters/market-adapter';
@@ -39,11 +40,12 @@ function AssetLogo({ symbol, size = 'md' }: { symbol: string; size?: 'sm' | 'md'
 export function MarketPage() {
   const { session } = useAuth();
   const { t } = useLanguage();
+  const [searchParams] = useSearchParams();
   const [symbol, setSymbol] = useState('XAU');
   const [timeframe, setTimeframe] = useState<TimeframeCode>('M15');
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const [assetClassFilter, setAssetClassFilter] = useState<(typeof marketFilters)[number]>('全部');
+  const [assetClassFilter, setAssetClassFilter] = useState<(typeof marketFilters)[number]>('All');
   const [showAllInstruments, setShowAllInstruments] = useState(false);
   const [side, setSide] = useState<TradeSide>('long');
   const [lots, setLots] = useState(0.01);
@@ -61,6 +63,15 @@ export function MarketPage() {
   const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(null);
   const [positionsHydratedFor, setPositionsHydratedFor] = useState<string | null>(null);
   const market = useAsyncResource(() => loadMarketBundle(symbol, timeframe), [symbol, timeframe, refreshKey]);
+
+  // Command Center market links carry a normalized symbol. Respect it once it
+  // reaches the trade workspace, while still rejecting arbitrary query input.
+  const requestedSymbol = searchParams.get('symbol')?.trim().toUpperCase();
+  useEffect(() => {
+    if (requestedSymbol && marketProducts.some((product) => product.symbol === requestedSymbol)) {
+      setSymbol(requestedSymbol);
+    }
+  }, [requestedSymbol]);
 
   const refreshMarkets = () => {
     setRefreshing(true);
@@ -135,8 +146,24 @@ export function MarketPage() {
     : quotePulse.quoteUpdatedAt[symbol]
       ? new Date(quotePulse.quoteUpdatedAt[symbol]).toISOString()
       : market.status === 'success' ? market.data.selected.updatedAt : new Date().toISOString();
-  const selectedAsset = market.status === 'success' ? { ...market.data.selected, price: livePrice, updatedAt: selectedUpdatedAt } : null;
-  const executionQuote = getExecutionQuote(symbol, livePrice);
+  const selectedAsset = market.status === 'success' ? {
+    ...market.data.selected,
+    price: livePrice,
+    bid: quotePulse.bids[symbol] ?? market.data.selected.bid,
+    ask: quotePulse.asks[symbol] ?? market.data.selected.ask,
+    dataState: quotePulse.dataStates[symbol] ?? market.data.selected.dataState,
+    updatedAt: selectedUpdatedAt,
+  } : null;
+  const calculatedExecutionQuote = getExecutionQuote(symbol, livePrice);
+  const executionQuote = selectedAsset?.bid && selectedAsset?.ask && selectedAsset.ask >= selectedAsset.bid
+    ? {
+        bid: selectedAsset.bid,
+        ask: selectedAsset.ask,
+        spread: selectedAsset.ask - selectedAsset.bid,
+        decimals: calculatedExecutionQuote.decimals,
+        spreadBps: livePrice ? ((selectedAsset.ask - selectedAsset.bid) / livePrice) * 10_000 : 0,
+      }
+    : calculatedExecutionQuote;
   const selectedChange = quotePulse.changes[symbol] ?? selectedAsset?.change24h ?? 0;
 
   const rows = useMemo(() => {
@@ -153,7 +180,7 @@ export function MarketPage() {
     }));
   }, [live.lastTickAt, live.prices, market, quotePulse.changes, quotePulse.prices, quotePulse.quoteUpdatedAt]);
   const filteredRows = useMemo(() => {
-    if (assetClassFilter === '全部') return rows;
+    if (assetClassFilter === 'All') return rows;
     return rows.filter((asset) => asset.assetClass === assetClassFilter);
   }, [assetClassFilter, rows]);
   const visibleRows = useMemo(() => showAllInstruments ? filteredRows : filteredRows.slice(0, 10), [filteredRows, showAllInstruments]);
@@ -168,7 +195,10 @@ export function MarketPage() {
   const canOpen = Boolean(session) && hasAssetMargin && margin > 0 && lots >= 0.01 && contractSize > 0 && leverage > 0;
   const livePositions = userPositions.map((position) => {
     const referencePrice = priceFor(position.symbol, position.markPrice);
-    const quote = getExecutionQuote(position.symbol, referencePrice);
+    const indicative = getExecutionQuote(position.symbol, referencePrice);
+    const bid = quotePulse.bids[position.symbol];
+    const ask = quotePulse.asks[position.symbol];
+    const quote = bid && ask && ask >= bid ? { ...indicative, bid, ask } : indicative;
     return { ...position, markPrice: position.side === 'long' ? quote.bid : quote.ask };
   });
   const totalPnl = livePositions.reduce((sum, position) => sum + computePnl(position, position.markPrice), 0);
@@ -340,40 +370,43 @@ export function MarketPage() {
   };
 
   if (market.status === 'loading') {
-    return <LoadingState label="正在载入行情" />;
+    return <LoadingState label="Loading the trading workspace" />;
   }
 
   if (market.status === 'error') {
-    return <div className="state-block state-block--error"><strong>行情读取失败</strong><p>{market.error}</p><button type="button" className="btn btn--ghost" onClick={refreshMarkets}><RefreshCw size={15} />重新连接数据源</button></div>;
+    return <div className="state-block state-block--error"><strong>Market workspace is unavailable</strong><p>{market.error}</p><button type="button" className="btn btn--ghost" onClick={refreshMarkets}><RefreshCw size={15} /> Reconnect market data</button></div>;
   }
 
   const selectedIsCrypto = selectedAsset?.assetClass === 'crypto';
-  const selectedFeedState = selectedIsCrypto && live.lastTickAt[symbol]
-    ? live.status
-    : quotePulse.status === 'fresh' ? 'http-fresh' : quotePulse.status === 'polling' ? 'polling' : quotePulse.status === 'stale' ? 'stale' : market.data.source.cacheState;
-  const liveTone = selectedFeedState === 'live' || selectedFeedState === 'http-fresh' ? 'success' : selectedFeedState === 'stale' || selectedFeedState === 'offline' ? 'critical' : 'warning';
-  const liveLabel = selectedFeedState === 'stale' || selectedFeedState === 'offline' ? '行情同步中' : selectedFeedState === 'polling' ? '正在同步' : '行情在线';
+  const selectedFeedState = selectedAsset?.dataState ?? (selectedIsCrypto && live.lastTickAt[symbol] ? 'live' : quotePulse.dataStates[symbol] ?? (quotePulse.status === 'stale' ? 'fallback' : 'live'));
+  const liveTone = selectedFeedState === 'broker' || selectedFeedState === 'live' ? 'success' : selectedFeedState === 'fallback' ? 'warning' : 'info';
+  const liveLabel = selectedFeedState === 'broker' ? 'Broker Feed' : selectedFeedState === 'cached' ? 'Verified cache' : selectedFeedState === 'fallback' ? 'Reference fallback' : 'Live API';
   return (
     <div className="page-stack">
       <PageHeader
         eyebrow="Markets"
         title={t('nav.market')}
-        description="统一交易工作台：选择品种、查看图表并进行模拟风控测算。"
+        description="A full-width paper trading workstation with transparent market-data state, margin controls and audited position risk."
         actions={
           <button type="button" className={`btn btn--ghost ${refreshing ? 'is-busy' : ''}`} onClick={refreshMarkets} disabled={refreshing}>
             <RefreshCw size={16} />
-            {refreshing ? '正在同步…' : t('action.refresh')}
+            {refreshing ? 'Synchronizing…' : 'Refresh workspace'}
           </button>
         }
       />
 
       <MarketTicker assets={rows} />
 
+      <section className="market-integrity-rail">
+        <DataMeta source={{ ...market.data.source, dataState: selectedFeedState }} />
+        <span className={`market-integrity-rail__stream market-integrity-rail__stream--${quotePulse.streamStatus === 'open' ? 'healthy' : 'monitoring'}`}>Price stream {quotePulse.streamStatus === 'open' ? 'connected' : 'monitoring'}</span>
+      </section>
+
       <section className="metric-grid metric-grid--compact">
         <StatCard label={`${selectedAsset?.symbol ?? 'BTC'} ${t('market.price')}`} value={formatCurrency(livePrice)} delta={formatPercent(selectedChange)} />
         <StatCard label={t('market.change24h')} value={formatPercent(selectedChange)} note={`${selectedAsset?.name ?? ''}`} />
         <StatCard label={t('market.volume24h')} value={formatCompact(selectedAsset?.volume24h ?? 0)} note="USD" />
-        <StatCard label="可用保证金" value={formatCurrency(availableMargin)} note="可用 U 额度" />
+        <StatCard label="Available margin" value={formatCurrency(availableMargin)} note="Paper U buying power" />
       </section>
 
       <section className="content-grid content-grid--two market-workbench">
@@ -389,7 +422,7 @@ export function MarketPage() {
             <div className="market-filter-row">
               {marketFilters.map((filter) => (
                 <button key={filter} type="button" className={`chip ${assetClassFilter === filter ? 'is-active' : ''}`} onClick={() => { setAssetClassFilter(filter); setShowAllInstruments(false); }}>
-                  {filter === '全部' ? '全部资产' : filter === 'crypto' ? '加密' : filter === 'commodity' ? '商品' : filter === 'forex' ? '外汇' : filter === 'equity' ? '股票' : '指数'}
+                  {filter === 'All' ? 'All instruments' : filter === 'crypto' ? 'Crypto' : filter === 'commodity' ? 'Commodities' : filter === 'forex' ? 'FX' : filter === 'equity' ? 'Equities' : 'Indices'}
                 </button>
               ))}
             </div>
@@ -435,12 +468,12 @@ export function MarketPage() {
           {filteredRows.length > 10 ? (
             <div className="instrument-disclosure">
               <div>
-                <strong>{showAllInstruments ? `已显示 ${filteredRows.length} 个品种` : '首屏保留 10 个重点品种'}</strong>
-                <span>{showAllInstruments ? '可从上方筛选缩小范围。' : `另有 ${filteredRows.length - 10} 个品种可交易或关注。`}</span>
+                <strong>{showAllInstruments ? `${filteredRows.length} instruments visible` : 'First view keeps 10 priority instruments'}</strong>
+                <span>{showAllInstruments ? 'Use the filters above to focus the view.' : `${filteredRows.length - 10} additional instruments are available below.`}</span>
               </div>
               <button type="button" className="btn btn--ghost btn--sm" onClick={() => setShowAllInstruments((value) => !value)}>
                 {showAllInstruments ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                {showAllInstruments ? '收起品种' : '显示更多品种'}
+                {showAllInstruments ? 'Show fewer instruments' : 'Show more instruments'}
               </button>
             </div>
           ) : null}
@@ -450,7 +483,7 @@ export function MarketPage() {
           <div className="panel__head">
             <div>
               <h2>{selectedAsset?.symbol} {t('market.chart')}</h2>
-              <p>{timeframe} 价格图表 · 可缩放、拖动与画线</p>
+              <p>{timeframe} chart · zoom, pan and draw with a focused market view</p>
             </div>
             <StatusPill tone={selectedChange >= 0 ? 'success' : 'critical'}>{formatPercent(selectedChange)}</StatusPill>
           </div>
@@ -459,20 +492,20 @@ export function MarketPage() {
             <div className="instrument-banner__copy">
               <span className="eyebrow">Selected instrument</span>
               <strong>{selectedAsset?.name ?? symbol}</strong>
-              <span>实时参考价 · {selectedAsset?.assetClass ?? 'market'}</span>
+              <span>{selectedFeedState === 'broker' ? 'Broker reference price' : 'Verified market reference'} · {selectedAsset?.assetClass ?? 'market'}</span>
             </div>
             <div className="instrument-banner__quote">
               <strong>{formatNumber(livePrice)}</strong>
               <span className={selectedChange >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(selectedChange)}</span>
             </div>
           </div>
-          <div className="trading-chart__toolbar" aria-label="图表工具">
-            <span className="chart-toolbar__label">图表工具</span>
-            <button type="button" className={`chart-tool ${chartTool === 'cursor' ? 'is-active' : ''}`} onClick={() => setChartTool('cursor')} title="选择"><Crosshair size={15} />选择</button>
-            <button type="button" className={`chart-tool ${chartTool === 'trendline' ? 'is-active' : ''}`} onClick={() => setChartTool('trendline')} title="趋势线"><Ruler size={15} />趋势线</button>
-            <button type="button" className={`chart-tool ${chartTool === 'horizontal' ? 'is-active' : ''}`} onClick={() => setChartTool('horizontal')} title="水平线"><Minus size={15} />水平线</button>
-            <button type="button" className={`chart-tool ${chartTool === 'vertical' ? 'is-active' : ''}`} onClick={() => setChartTool('vertical')} title="垂直线"><Plus size={15} />垂直线</button>
-            <button type="button" className="chart-tool" onClick={() => setDrawings([])} title="清除画线"><Undo2 size={15} />清除</button>
+          <div className="trading-chart__toolbar" aria-label="Chart tools">
+            <span className="chart-toolbar__label">CHART TOOLS</span>
+            <button type="button" className={`chart-tool ${chartTool === 'cursor' ? 'is-active' : ''}`} onClick={() => setChartTool('cursor')} title="Select"><Crosshair size={15} /> Select</button>
+            <button type="button" className={`chart-tool ${chartTool === 'trendline' ? 'is-active' : ''}`} onClick={() => setChartTool('trendline')} title="Trend line"><Ruler size={15} /> Trend line</button>
+            <button type="button" className={`chart-tool ${chartTool === 'horizontal' ? 'is-active' : ''}`} onClick={() => setChartTool('horizontal')} title="Horizontal line"><Minus size={15} /> Horizontal</button>
+            <button type="button" className={`chart-tool ${chartTool === 'vertical' ? 'is-active' : ''}`} onClick={() => setChartTool('vertical')} title="Vertical line"><Plus size={15} /> Vertical</button>
+            <button type="button" className="chart-tool" onClick={() => setDrawings([])} title="Clear drawings"><Undo2 size={15} /> Clear</button>
           </div>
           <div className="timeframe-row">
             {timeframes.map((item) => (
@@ -484,15 +517,15 @@ export function MarketPage() {
           <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={livePrice} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           <div className="execution-bar">
             <button type="button" className="execution-quote execution-quote--sell" onClick={() => openPosition('short', sellPrice)} disabled={!canOpen}>
-              <span>SELL · BID</span><strong>{formatNumber(sellPrice)}</strong><small>做空</small>
+              <span>SELL · BID</span><strong>{formatNumber(sellPrice)}</strong><small>Open short</small>
             </button>
             <div className="execution-bar__middle">
-              <span className="execution-bar__label">参考中间价</span>
+              <span className="execution-bar__label">Reference midpoint</span>
               <strong>{formatNumber(livePrice)}</strong>
-              <label><span>开仓手数</span><input type="number" min="0.01" step="0.01" value={lots} onChange={(event) => setLots(Math.max(0.01, Number(event.target.value) || 0.01))} /></label>
+              <label><span>Order lots</span><input type="number" min="0.01" step="0.01" value={lots} onChange={(event) => setLots(Math.max(0.01, Number(event.target.value) || 0.01))} /></label>
             </div>
             <button type="button" className="execution-quote execution-quote--buy" onClick={() => openPosition('long', buyPrice)} disabled={!canOpen}>
-              <span>BUY · ASK</span><strong>{formatNumber(buyPrice)}</strong><small>做多</small>
+              <span>BUY · ASK</span><strong>{formatNumber(buyPrice)}</strong><small>Open long</small>
             </button>
           </div>
         </article>
@@ -505,7 +538,7 @@ export function MarketPage() {
               <h2>{t('market.orderTicket')}</h2>
               <p>{t('market.orderHint')}</p>
             </div>
-            <StatusPill tone={canOpen ? 'success' : 'warning'}>{canOpen ? t('market.canOpen') : !session ? '请先登录' : !hasAssetMargin ? '该资产保证金不足' : t('market.marginWarning')}</StatusPill>
+            <StatusPill tone={canOpen ? 'success' : 'warning'}>{canOpen ? 'Ready for paper order' : !session ? 'Sign in required' : !hasAssetMargin ? 'Margin requirement not met' : 'Review required'}</StatusPill>
           </div>
 
           <div className="trade-side-control">
@@ -548,7 +581,7 @@ export function MarketPage() {
 
           <div className="risk-strip">
             <div><span>{t('market.notional')}</span><strong>{formatCurrency(notional)}</strong></div>
-            <div><span>此资产保证金</span><strong>{formatCurrency(margin)}</strong></div>
+            <div><span>Required margin</span><strong>{formatCurrency(margin)}</strong></div>
             <div><span>{t('market.units')}</span><strong>{formatNumber(units)}</strong></div>
           </div>
 
@@ -557,7 +590,7 @@ export function MarketPage() {
           </button>
           <div className="risk-note">
             <AlertTriangle size={16} />
-            {!session ? '登录后可按账户可用 U 额度开仓。' : !hasAssetMargin ? `当前账号可用保证金 ${formatCurrency(availableMargin)}，低于 ${symbol} 所需的 ${formatCurrency(margin)}。` : t('market.paperOnly')}
+            {!session ? 'Sign in to use your available paper U balance for an order estimate.' : !hasAssetMargin ? `Available margin ${formatCurrency(availableMargin)} is below the ${symbol} requirement of ${formatCurrency(margin)}.` : 'Paper execution only. No live order, fund movement or broker command is created.'}
           </div>
         </article>
 
@@ -565,14 +598,14 @@ export function MarketPage() {
           <div className="panel__head">
             <div>
               <h2>{t('market.positions')}</h2>
-              <p>每秒按最新可执行平仓价重估。做多按 bid，做空按 ask。</p>
+              <p>Positions are revalued with the latest executable reference: long positions use bid and short positions use ask.</p>
             </div>
             <div className="panel__actions">
               <StatusPill tone={totalPnl >= 0 ? 'success' : 'critical'}>{formatCurrency(totalPnl)}</StatusPill>
               {livePositions.length ? (
                 <button type="button" className="btn btn--ghost btn--sm" onClick={closeAllPositions}>
                   <Ban size={14} />
-                  一键关闭
+                  Close all
                 </button>
               ) : null}
             </div>
@@ -599,10 +632,10 @@ export function MarketPage() {
                         <strong>
                           <AssetLogo symbol={position.symbol} size="sm" />
                           {position.symbol}
-                          <span className={`side-badge side-badge--${position.side}`}>{position.side === 'long' ? '做多' : '做空'}</span>
+                          <span className={`side-badge side-badge--${position.side}`}>{position.side === 'long' ? 'Long' : 'Short'}</span>
                         </strong>
-                        <span>{t('market.entry')} {formatCurrency(position.entryPrice)} / 可平仓价 {formatCurrency(position.markPrice)}</span>
-                        <span>剩余 {remaining.toFixed(2)} / 已平 {Number(position.closedLots ?? 0).toFixed(2)} lots</span>
+                        <span>{t('market.entry')} {formatCurrency(position.entryPrice)} / Exit reference {formatCurrency(position.markPrice)}</span>
+                        <span>Open {remaining.toFixed(2)} / Closed {Number(position.closedLots ?? 0).toFixed(2)} lots</span>
                       </div>
                       <div className="position-row__meta">
                         <StatusPill tone={pnl >= 0 ? 'success' : 'critical'}>{formatCurrency(pnl)}</StatusPill>
@@ -615,7 +648,7 @@ export function MarketPage() {
                             closePosition(position.id);
                           }}
                         >
-                          关闭此单
+                          Close position
                         </button>
                       </div>
                     </div>
@@ -627,11 +660,11 @@ export function MarketPage() {
                 <div className="position-editor">
                   <div className="panel__head">
                     <div>
-                      <h2><Settings2 size={16} /> {selectedPosition.symbol} 仓位设置</h2>
-                      <p>可修改 SL/TP，也可以按 0.01 lots 分批关闭。</p>
+                      <h2><Settings2 size={16} /> {selectedPosition.symbol} position controls</h2>
+                      <p>Adjust SL/TP or close from 0.01 lots upward.</p>
                     </div>
                     <StatusPill tone={selectedPosition.side === 'long' ? 'success' : 'critical'}>
-                      {selectedPosition.side === 'long' ? '做多' : '做空'}
+                      {selectedPosition.side === 'long' ? 'Long' : 'Short'}
                     </StatusPill>
                   </div>
                   <div className="form-grid">
@@ -644,7 +677,7 @@ export function MarketPage() {
                       <input type="number" value={editTakeProfit} onChange={(event) => setEditTakeProfit(event.target.value)} />
                     </label>
                     <label className="field">
-                      <span>分批关闭 lots</span>
+                      <span>Partial close lots</span>
                       <input
                         type="number"
                         min="0.01"
@@ -655,20 +688,20 @@ export function MarketPage() {
                       />
                     </label>
                     <label className="field">
-                      <span>剩余手数</span>
+                      <span>Open lots</span>
                       <input value={Number(selectedPosition.remainingLots ?? selectedPosition.lots).toFixed(2)} readOnly />
                     </label>
                   </div>
                   <div className="position-editor__actions">
                     <button type="button" className="btn btn--ghost" onClick={() => saveRiskSettings(selectedPosition.id)}>
-                      保存 SL / TP
+                      Save SL / TP
                     </button>
                     <button type="button" className="btn btn--ghost" onClick={() => closePartialPosition(selectedPosition.id)}>
-                      关闭 {partialLots.toFixed(2)}
+                      Close {partialLots.toFixed(2)}
                     </button>
                     <button type="button" className="btn btn--primary" onClick={() => closePosition(selectedPosition.id)}>
                       <Trash2 size={16} />
-                      关闭整笔
+                      Close full position
                     </button>
                   </div>
                 </div>

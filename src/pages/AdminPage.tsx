@@ -15,7 +15,7 @@ import { isValidEmail } from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
 import { SupportCenter } from '@/components/SupportCenter';
 
-const tabs = ['全部账号', '注册审核', 'U 管理', '月报', '交易记录', '流水通知', '客服中心', '内容配置', '审核流', '黑名单记录'] as const;
+const tabs = ['Accounts', 'Registration Review', 'U Management', 'Monthly Report', 'Trade Audit', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
 
 export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const { session, signOut } = useAuth();
@@ -23,7 +23,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const location = useLocation();
   const navigate = useNavigate();
   const initialQuery = new URLSearchParams(location.search).get('query') ?? '';
-  const [tab, setTab] = useState<(typeof tabs)[number]>('全部账号');
+  const [tab, setTab] = useState<(typeof tabs)[number]>('Accounts');
   const [query, setQuery] = useState(initialQuery);
   const [refreshKey, setRefreshKey] = useState(0);
   const [grantTarget, setGrantTarget] = useState(initialQuery);
@@ -62,16 +62,16 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     return (
       <div className="page-stack">
         <PageHeader
-          eyebrow="权限"
-          title="后台管理"
-          description="当前会话没有管理员权限。请从独立的 /admin/login 入口进入后台。"
+          eyebrow="ACCESS CONTROL"
+          title="Administrator Console"
+          description="This session does not have administrator access. Use the independent /admin/login entry point."
         />
         <EmptyState
-          title="无权限访问"
-          text="后台页已和前台分离，需要管理员身份。"
+          title="Administrator access required"
+          text="The administrative workspace is separated from the client-facing platform."
           action={
             <Link to="/admin/login" className="btn btn--primary">
-              去登录 <ArrowRight size={16} />
+              Sign in <ArrowRight size={16} />
             </Link>
           }
         />
@@ -80,7 +80,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   }
 
   if (admin.status === 'loading') {
-    return <LoadingState label="正在载入后台" />;
+    return <LoadingState label="Loading administrator console" />;
   }
 
   if (admin.status === 'error' && admin.error === 'unauthorized') {
@@ -93,13 +93,13 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   if (admin.status === 'error') {
     return (
       <div className="page-stack">
-        <PageHeader eyebrow="后台状态" title="后台暂时无法载入" description="账号接口或管理员会话没有返回有效数据。" />
+        <PageHeader eyebrow="ADMINISTRATOR STATUS" title="Console is temporarily unavailable" description="The protected account API or admin session did not return valid data." />
         <div className="state-block state-block--error">
-          <strong>后台数据暂不可用</strong>
-          <p>{admin.error || '共享后台接口暂时不可用，请稍后重试。'}</p>
+          <strong>Administrator data is unavailable</strong>
+          <p>{admin.error || 'The shared administrator API is temporarily unavailable. Please retry shortly.'}</p>
           <div className="state-block__action">
-            <button type="button" className="btn btn--ghost" onClick={() => setRefreshKey((value) => value + 1)}>重新加载</button>
-            <button type="button" className="btn btn--primary" onClick={() => { signOut(); navigate('/admin/login'); }}>重新登录</button>
+            <button type="button" className="btn btn--ghost" onClick={() => setRefreshKey((value) => value + 1)}>Reload</button>
+            <button type="button" className="btn btn--primary" onClick={() => { signOut(); navigate('/admin/login'); }}>Sign in again</button>
           </div>
         </div>
       </div>
@@ -160,7 +160,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
 
   const createAccount = async () => {
     if (!accountForm.name.trim() || !isValidEmail(accountForm.email) || !isValidCountryPhone(accountCountry, accountForm.phone) || accountForm.password.length < 8) {
-      setAccountMessage(`请填写完整资料：有效邮箱、${phoneDigitsHint(accountCountry)} 位手机号，以及至少 8 位密码。`);
+      setAccountMessage(`Complete all fields: valid email, ${phoneDigitsHint(accountCountry)} phone digits and a password of at least 8 characters.`);
       return;
     }
     try {
@@ -169,11 +169,11 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         body: JSON.stringify({ name: accountForm.name.trim(), email: accountForm.email.trim(), phone: buildInternationalPhone(accountCountry, accountForm.phone), country: accountCountry.name, password: accountForm.password, role: accountForm.role }),
       });
       setAccountForm({ name: '', email: '', phone: '', country: accountCountry.name, password: '', role: 'user' });
-      setAccountMessage('账号已创建并自动通过审核，已同步到服务器。');
+      setAccountMessage('Account created, automatically approved and synchronized to the server.');
       setRefreshKey((value) => value + 1);
       return;
     } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : '创建账号失败。');
+      setAccountMessage(error instanceof Error ? error.message : 'Account creation failed.');
       return;
     }
   };
@@ -181,36 +181,36 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const deleteAccount = async (id: string) => {
     const target = admin.data.users.find((user) => user.id === id);
     if (!target || target.role === 'admin' || !admin.data.registrations.some((item) => item.id === id)) return;
-    if (!window.confirm(`确定要删除账号「${target.name}」吗？`)) return;
-    if (!window.confirm('请再次确认：删除后该账号的注册资料将从当前工作区移除。')) return;
+    if (!window.confirm(`Delete account “${target.name}”?`)) return;
+    if (!window.confirm('Confirm again: the registration record will be removed from this workspace.')) return;
     try {
       await apiFetch(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      setAccountMessage(`已删除账号：${target.name}`);
+      setAccountMessage(`Deleted account: ${target.name}`);
       setRefreshKey((value) => value + 1);
       return;
     } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : '删除账号失败。');
+      setAccountMessage(error instanceof Error ? error.message : 'Account deletion failed.');
       return;
     }
   };
 
   const blacklistAccount = async (id: string) => {
     try {
-      await apiFetch(`/api/admin/users/${encodeURIComponent(id)}/blacklist`, { method: 'POST', body: JSON.stringify({ reason: '注册审核不通过' }) });
-      setAccountMessage('账号已拉黑；同一邮箱或手机号不能再次注册。');
+      await apiFetch(`/api/admin/users/${encodeURIComponent(id)}/blacklist`, { method: 'POST', body: JSON.stringify({ reason: 'Registration review declined' }) });
+      setAccountMessage('Account is blacklisted; the same email or phone cannot register again.');
       setRefreshKey((value) => value + 1);
     } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : '拉黑账号失败。');
+      setAccountMessage(error instanceof Error ? error.message : 'Unable to blacklist this account.');
     }
   };
 
   const restoreBlacklist = async (id: string) => {
     try {
       await apiFetch(`/api/admin/blacklist/${encodeURIComponent(id)}/restore`, { method: 'POST' });
-      setAccountMessage('已解除拉黑，账号可再次登录或注册。');
+      setAccountMessage('Blacklist removed. This account can sign in or register again.');
       setRefreshKey((value) => value + 1);
     } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : '解除拉黑失败。');
+      setAccountMessage(error instanceof Error ? error.message : 'Unable to restore this account.');
     }
   };
 
@@ -222,7 +222,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <span className="brand-lockup__mark">AD88</span>
             <span className="brand-lockup__name">{t('admin.console')}</span>
           </Link>
-          <button type="button" className="btn btn--ghost" onClick={() => { signOut(); navigate('/admin/login'); }}>退出后台</button>
+          <button type="button" className="btn btn--ghost" onClick={() => { signOut(); navigate('/admin/login'); }}>Sign out</button>
         </div>
       ) : null}
       <PageHeader
@@ -236,11 +236,11 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         <StatCard label={t('admin.metricAccounts')} value={String(report.totalAccounts)} note={t('admin.metricAccountsNote')} />
         <StatCard label={t('admin.metricNew')} value={String(report.monthlyRegistrations)} note={report.monthLabel} />
         <StatCard label={t('admin.metricLedger')} value={String(report.monthlyLedgerEntries)} note={`${t('admin.metricDeposit')} ${formatCurrency(report.monthlyInflow)}`} />
-        <StatCard label="U 余额" value={String(totalCredits)} note={`待审 ${pendingCredits} U`} />
+        <StatCard label="U balance" value={String(totalCredits)} note={`${pendingCredits} U pending`} />
         <StatCard
-          label="行情同步"
-          value={admin.data.marketStatus.status === 'healthy' ? '正常' : admin.data.marketStatus.status === 'degraded' ? '检查' : '离线'}
-          note={`${admin.data.marketStatus.quoteCount} 个品种 · ${admin.data.marketStatus.ageSeconds ?? '—'} 秒前`}
+          label="Market synchronization"
+          value={admin.data.marketStatus.status === 'healthy' ? 'Healthy' : admin.data.marketStatus.status === 'degraded' ? 'Monitoring' : 'Offline'}
+          note={`${admin.data.marketStatus.quoteCount} instruments · ${admin.data.marketStatus.ageSeconds ?? '—'}s ago`}
         />
       </section>
 
@@ -257,7 +257,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         </div>
       </section>
 
-      {tab === '全部账号' ? (
+      {tab === 'Accounts' ? (
         <article className="panel">
           <div className="panel__head">
             <div>
@@ -270,33 +270,25 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <div className="admin-account-create__intro">
               <UserPlus size={20} />
               <div>
-                <strong>后台创建账号</strong>
-                <span>新账号自动通过审核；资料会和前台注册共用同一账号池。</span>
+                <strong>Create account from admin</strong>
+                <span>New accounts are approved automatically and share the same account pool as client registration.</span>
               </div>
             </div>
             <div className="form-grid">
-              <label className="field"><span>姓名</span><input value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} /></label>
-              <label className="field"><span>邮箱</span><input type="email" value={accountForm.email} onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })} /></label>
-              <label className="field"><span>国家 / 地区</span><select value={accountForm.country} onChange={(event) => setAccountForm({ ...accountForm, country: event.target.value, phone: '' })}>{countryDirectory.map((country) => <option key={`${country.code}-${country.name}`} value={country.name}>{country.name} (+{country.dialCode})</option>)}</select></label>
-              <label className="field"><span>手机号（{phoneDigitsHint(accountCountry)} 位）</span><div className="phone-input"><span className="phone-input__prefix">+{accountCountry.dialCode}</span><input type="tel" inputMode="numeric" maxLength={accountPhoneMaxLength} value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value.replace(/\D/g, '').slice(0, accountPhoneMaxLength) })} /></div></label>
-              <label className="field"><span>初始密码</span><input type="password" autoComplete="new-password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} /></label>
-              <label className="field"><span>账号角色</span><select value={accountForm.role} onChange={(event) => setAccountForm({ ...accountForm, role: event.target.value as 'user' | 'admin' })}><option value="user">普通用户</option><option value="admin">管理员</option></select></label>
+              <label className="field"><span>Full name</span><input value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} /></label>
+              <label className="field"><span>Email</span><input type="email" value={accountForm.email} onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })} /></label>
+              <label className="field"><span>Country / region</span><select value={accountForm.country} onChange={(event) => setAccountForm({ ...accountForm, country: event.target.value, phone: '' })}>{countryDirectory.map((country) => <option key={`${country.code}-${country.name}`} value={country.name}>{country.name} (+{country.dialCode})</option>)}</select></label>
+              <label className="field"><span>Phone ({phoneDigitsHint(accountCountry)} digits)</span><div className="phone-input"><span className="phone-input__prefix">+{accountCountry.dialCode}</span><input type="tel" inputMode="numeric" maxLength={accountPhoneMaxLength} value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value.replace(/\D/g, '').slice(0, accountPhoneMaxLength) })} /></div></label>
+              <label className="field"><span>Initial password</span><input type="password" autoComplete="new-password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} /></label>
+              <label className="field"><span>Account role</span><select value={accountForm.role} onChange={(event) => setAccountForm({ ...accountForm, role: event.target.value as 'user' | 'admin' })}><option value="user">Client</option><option value="admin">Administrator</option></select></label>
             </div>
-            <div className="admin-account-create__actions"><button type="button" className="btn btn--primary" onClick={createAccount}><UserPlus size={16} />创建并通过</button>{accountMessage ? <span className="field-hint">{accountMessage}</span> : null}</div>
+            <div className="admin-account-create__actions"><button type="button" className="btn btn--primary" onClick={createAccount}><UserPlus size={16} />Create and approve</button>{accountMessage ? <span className="field-hint">{accountMessage}</span> : null}</div>
           </div>
           <div className="table-wrap">
             <table className="table table--interactive">
               <thead>
                 <tr>
-                  <th>姓名</th>
-                  <th>邮箱</th>
-                  <th>角色</th>
-                  <th>状态</th>
-                  <th>地区</th>
-                  <th>等级</th>
-                  <th className="text-end">U 余额</th>
-                  <th>加入时间</th>
-                  <th>操作</th>
+                  <th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Region</th><th>Tier</th><th className="text-end">U balance</th><th>Joined</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -312,17 +304,17 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                       <td>{user.tier}</td>
                       <td className="text-end">{credit?.balance ?? 0} U</td>
                       <td>{formatDateTime(user.joinedAt)}</td>
-                      <td>{user.role !== 'admin' ? <button type="button" className="btn btn--danger btn--sm" onClick={() => deleteAccount(user.id)}><Trash2 size={14} />删除</button> : <span className="text-muted">管理员受保护</span>}</td>
+                      <td>{user.role !== 'admin' ? <button type="button" className="btn btn--danger btn--sm" onClick={() => deleteAccount(user.id)}><Trash2 size={14} />Delete</button> : <span className="text-muted">Administrator protected</span>}</td>
                     </tr>
                   );
-                }) : <tr><td colSpan={9}><div className="empty-inline"><span>还没有账号。前台注册或后台创建后会同步显示。</span></div></td></tr>}
+                }) : <tr><td colSpan={9}><div className="empty-inline"><span>No accounts yet. Client registration and admin-created accounts synchronize here.</span></div></td></tr>}
               </tbody>
             </table>
           </div>
         </article>
       ) : null}
 
-      {tab === '注册审核' ? (
+      {tab === 'Registration Review' ? (
         <article className="panel">
           <div className="panel__head">
             <div>
@@ -353,49 +345,44 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                     <td>{item.country}</td>
                     <td><StatusPill tone={item.status === 'approved' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{item.status}</StatusPill></td>
                     <td>{formatDateTime(item.submittedAt)}</td>
-                    <td>{item.status === 'rejected' ? <span className="text-muted">已拉黑</span> : <button type="button" className="btn btn--danger btn--sm" onClick={() => void blacklistAccount(item.id)}>不通过并拉黑</button>}</td>
+                    <td>{item.status === 'rejected' ? <span className="text-muted">Blacklisted</span> : <button type="button" className="btn btn--danger btn--sm" onClick={() => void blacklistAccount(item.id)}>Decline and blacklist</button>}</td>
                   </tr>
-                )) : <tr><td colSpan={7}><div className="empty-inline"><span>暂无注册记录。</span></div></td></tr>}
+                )) : <tr><td colSpan={7}><div className="empty-inline"><span>No registration records.</span></div></td></tr>}
               </tbody>
             </table>
           </div>
         </article>
       ) : null}
 
-      {tab === 'U 管理' ? (
+      {tab === 'U Management' ? (
         <section className="content-grid content-grid--two">
           <article className="panel credit-admin">
             <div className="panel__head">
               <div>
-                <h2>U 发放</h2>
-                <p>输入账号、邮箱或点击下面账户，再输入要发放的 U。</p>
+                <h2>U allocation</h2>
+                <p>Search by account or email, then assign a paper U amount.</p>
               </div>
-              <StatusPill tone={grantAccount || grantUser ? 'success' : 'warning'}>{grantAccount || grantUser ? '已选账号' : '等待选择'}</StatusPill>
+              <StatusPill tone={grantAccount || grantUser ? 'success' : 'warning'}>{grantAccount || grantUser ? 'Account selected' : 'Select an account'}</StatusPill>
             </div>
             <div className="form-grid">
               <label className="field">
-                <span>账号 / 邮箱 / 姓名</span>
-                <input value={grantTarget} onChange={(event) => setGrantTarget(event.target.value)} placeholder="输入账号或点击账户" />
+                <span>Account / email / name</span>
+                <input value={grantTarget} onChange={(event) => setGrantTarget(event.target.value)} placeholder="Search account or select below" />
               </label>
               <label className="field">
-                <span>发放 U</span>
+                <span>Allocate U</span>
                 <input type="number" min="1" step="1" value={grantAmount} onChange={(event) => setGrantAmount(Number(event.target.value))} />
               </label>
             </div>
             <button type="button" className="btn btn--primary" onClick={() => void grantToTarget()} disabled={!grantLookup || (!grantAccount && !grantUser) || grantAmount <= 0}>
               <PlusCircle size={16} />
-              发放 U
+              Allocate U
             </button>
             <div className="table-wrap">
               <table className="table table--interactive">
                 <thead>
                   <tr>
-                    <th>账号</th>
-                    <th>邮箱</th>
-                    <th className="text-end">余额</th>
-                    <th className="text-end">可用</th>
-                    <th className="text-end">待审</th>
-                    <th>操作</th>
+                    <th>Account</th><th>Email</th><th className="text-end">Balance</th><th className="text-end">Available</th><th className="text-end">Pending</th><th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -408,7 +395,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                       <td className="text-end">{account.pending}</td>
                       <td>
                         <button type="button" className="btn btn--ghost btn--sm" onClick={() => setGrantTarget(account.email)}>
-                          选择
+                          Select
                         </button>
                       </td>
                     </tr>
@@ -421,10 +408,10 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
           <article className="panel">
             <div className="panel__head">
               <div>
-                <h2>U 申请审核</h2>
-                <p>前台提交的申请会在这里等待批准。</p>
+                <h2>U allocation review</h2>
+                <p>Client-submitted requests wait here for administrator approval.</p>
               </div>
-              <StatusPill tone={pendingCreditRequests.length ? 'warning' : 'muted'}>{pendingCreditRequests.length} 待审</StatusPill>
+              <StatusPill tone={pendingCreditRequests.length ? 'warning' : 'muted'}>{pendingCreditRequests.length} pending</StatusPill>
             </div>
             {admin.data.creditRequests.length ? (
               <div className="stack-list">
@@ -440,7 +427,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                       {request.status === 'pending' ? (
                         <button type="button" className="btn btn--ghost btn--sm" onClick={() => void approveRequest(request.id)}>
                           <HandCoins size={14} />
-                          批准
+                          Approve
                         </button>
                       ) : (
                         <span>{request.reviewedAt ? formatDateTime(request.reviewedAt) : formatDateTime(request.requestedAt)}</span>
@@ -451,15 +438,15 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               </div>
             ) : (
               <div className="state-block">
-                <strong>暂无 U 申请</strong>
-                <p>用户在前台提交后，这里会出现审核动作。</p>
+                <strong>No U requests</strong>
+                <p>Client-submitted requests will appear here for review.</p>
               </div>
             )}
           </article>
         </section>
       ) : null}
 
-      {tab === '月报' ? (
+      {tab === 'Monthly Report' ? (
         <section className="content-grid content-grid--two">
           <article className="panel">
             <div className="panel__head">
@@ -472,7 +459,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <StatCard label={t('admin.reportApproved')} value={String(report.monthlyApproved)} note={t('admin.reportRegistrations')} />
               <StatCard label={t('admin.reportPositions')} value={String(report.monthlyPositions)} note={t('admin.reportMarket')} />
               <StatCard label={t('admin.reportUnread')} value={String(report.unreadNotifications)} note={t('admin.reportMonthScope')} />
-              <StatCard label="交易事件" value={String(visibleTradeEvents.length)} note="跨设备审计记录" />
+              <StatCard label="Trade events" value={String(visibleTradeEvents.length)} note="Cross-device audit records" />
             </section>
           </article>
           <article className="panel">
@@ -486,7 +473,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <div className="stack-list__row">
                 <div>
                   <strong>{t('admin.summaryRegistrations')}</strong>
-                  <span>{monthRegistrations.length} {t('admin.summaryCount')}，本月 {monthRegistrations.filter((item) => item.status === 'pending').length} {t('admin.summaryPending')}。</span>
+                  <span>{monthRegistrations.length} {t('admin.summaryCount')}; {monthRegistrations.filter((item) => item.status === 'pending').length} {t('admin.summaryPending')} this month.</span>
                 </div>
                 <div className="stack-list__meta">
                   <StatusPill tone={monthRegistrations.length ? 'info' : 'muted'}>{String(monthRegistrations.length)}</StatusPill>
@@ -496,7 +483,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <div className="stack-list__row">
                 <div>
                   <strong>{t('admin.summaryLedger')}</strong>
-                  <span>{monthLedger.length} {t('admin.summaryLedgerCount')}，{t('admin.summaryOutflow')} {formatCurrency(report.monthlyOutflow)}，{t('admin.summaryInflow')} {formatCurrency(report.monthlyInflow)}。</span>
+                  <span>{monthLedger.length} {t('admin.summaryLedgerCount')}; {t('admin.summaryOutflow')} {formatCurrency(report.monthlyOutflow)}; {t('admin.summaryInflow')} {formatCurrency(report.monthlyInflow)}.</span>
                 </div>
                 <div className="stack-list__meta">
                   <StatusPill tone={report.monthlyInflow >= report.monthlyOutflow ? 'success' : 'warning'}>{String(monthLedger.length)}</StatusPill>
@@ -506,7 +493,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <div className="stack-list__row">
                 <div>
                   <strong>{t('admin.summaryFlow')}</strong>
-                  <span>{monthPositions.length} {t('admin.summaryPositions')}，{monthNotifications.length} {t('admin.summaryNotifications')}。</span>
+                  <span>{monthPositions.length} {t('admin.summaryPositions')}; {monthNotifications.length} {t('admin.summaryNotifications')}.</span>
                 </div>
                 <div className="stack-list__meta">
                   <StatusPill tone="info">{String(monthPositions.length + monthNotifications.length)}</StatusPill>
@@ -518,12 +505,12 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         </section>
       ) : null}
 
-      {tab === '交易记录' ? (
+      {tab === 'Trade Audit' ? (
         <section className="content-grid content-grid--two">
           <article className="panel">
             <div className="panel__head">
-              <div><h2>交易审计记录</h2><p>前台沙盒开仓、平仓和风控更新会实时同步到这里。</p></div>
-              <StatusPill tone={visibleTradeEvents.length ? 'info' : 'muted'}>{visibleTradeEvents.length} 条</StatusPill>
+              <div><h2>Trade audit records</h2><p>Client paper opens, closes and risk updates synchronize here.</p></div>
+              <StatusPill tone={visibleTradeEvents.length ? 'info' : 'muted'}>{visibleTradeEvents.length} events</StatusPill>
             </div>
             <div className="stack-list">
               {visibleTradeEvents.length ? visibleTradeEvents.map((item) => (
@@ -534,11 +521,11 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                   </div>
                   <div className="stack-list__meta"><StatusPill tone={item.action === 'open' ? 'success' : item.action === 'risk-update' ? 'info' : 'warning'}>{item.action}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div>
                 </div>
-              )) : <div className="state-block"><strong>暂无跨设备交易事件</strong><p>用户完成一次沙盒操作后，记录会出现在这里。</p></div>}
+              )) : <div className="state-block"><strong>No cross-device trade events</strong><p>Events appear here after a client performs a paper action.</p></div>}
             </div>
           </article>
           <article className="panel">
-            <div className="panel__head"><div><h2>当前沙盒持仓</h2><p>同浏览器的持仓快照，用于辅助风险查看。</p></div></div>
+            <div className="panel__head"><div><h2>Current paper positions</h2><p>A shared position snapshot for risk oversight.</p></div></div>
             <div className="stack-list">
               {visiblePositions.map((item) => (
                 <div key={item.id} className="stack-list__row">
@@ -551,17 +538,17 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         </section>
       ) : null}
 
-      {tab === '流水通知' ? (
+      {tab === 'Activity & Alerts' ? (
         <section className="content-grid content-grid--two">
           <article className="panel">
-            <div className="panel__head"><div><h2>{t('admin.ledgerTitle')}</h2><p>全部账户的资金流水集中显示；搜索邮箱即可定位申请人。</p></div></div>
+            <div className="panel__head"><div><h2>{t('admin.ledgerTitle')}</h2><p>Funding activity across all accounts is centralized here; search by email to find an applicant.</p></div></div>
             <div className="stack-list">
               {visibleLedger.length ? visibleLedger.map((item) => (
                 <div key={item.id} className="stack-list__row">
-                  <div><strong>{item.userEmail ?? '已删除账号'}</strong><span>{item.userName ?? '—'} · {item.note || item.type}</span></div>
+                  <div><strong>{item.userEmail ?? 'Deleted account'}</strong><span>{item.userName ?? '—'} · {item.note || item.type}</span></div>
                   <div className="stack-list__meta"><StatusPill tone={item.status === 'approved' || item.status === 'settled' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{item.status}</StatusPill><span>{item.amount.toFixed(2)} {item.currency}</span></div>
                 </div>
-              )) : <div className="state-block"><strong>暂无资金流水</strong><p>发生入金或出金后，会按账户邮箱在这里显示。</p></div>}
+              )) : <div className="state-block"><strong>No funding activity</strong><p>Funding or withdrawal events appear here under the client email.</p></div>}
             </div>
           </article>
           <article className="panel">
@@ -578,9 +565,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         </section>
       ) : null}
 
-      {tab === '客服中心' ? <SupportCenter adminMode /> : null}
+      {tab === 'Support Inbox' ? <SupportCenter adminMode /> : null}
 
-      {tab === '内容配置' ? (
+      {tab === 'Content' ? (
         <article className="panel">
           <div className="panel__head">
             <div>
@@ -607,9 +594,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <table className="table">
               <thead>
                 <tr>
-                  <th>键</th>
-                  <th>值</th>
-                  <th>范围</th>
+                  <th>Key</th><th>Value</th><th>Scope</th>
                 </tr>
               </thead>
               <tbody>
@@ -626,37 +611,37 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         </article>
       ) : null}
 
-      {tab === '审核流' ? (
+      {tab === 'Approval Flow' ? (
         <section className="content-grid content-grid--two">
           <article className="panel">
-            <div className="panel__head"><div><h2>{t('admin.approvalTitle')}</h2><p>前台注册会自动通过；这里保留进入时间与后续审核状态。</p></div></div>
+            <div className="panel__head"><div><h2>{t('admin.approvalTitle')}</h2><p>Client registrations are auto-approved; admission time and follow-up review state remain visible here.</p></div></div>
             <div className="stack-list">
               {admin.data.approvals.length ? admin.data.approvals.map((approval) => (
                 <div key={approval.id} className="stack-list__row">
                   <div><strong>{approval.subject}</strong><span>{approval.owner}</span></div>
-                  <div className="stack-list__meta"><StatusPill tone={approval.status === 'approved' ? 'success' : approval.status === 'pending' ? 'warning' : 'critical'}>{approval.status === 'approved' ? '自动通过' : approval.status === 'rejected' ? '已拉黑' : '待处理'}</StatusPill><span>{formatDateTime(approval.updatedAt)}</span></div>
+                  <div className="stack-list__meta"><StatusPill tone={approval.status === 'approved' ? 'success' : approval.status === 'pending' ? 'warning' : 'critical'}>{approval.status === 'approved' ? 'Auto-approved' : approval.status === 'rejected' ? 'Blacklisted' : 'Pending'}</StatusPill><span>{formatDateTime(approval.updatedAt)}</span></div>
                 </div>
-              )) : <div className="state-block"><strong>暂无审核记录</strong><p>前台注册后会同步出现在这里。</p></div>}
+              )) : <div className="state-block"><strong>No approval records</strong><p>Client registration records synchronize here automatically.</p></div>}
             </div>
           </article>
           <article className="panel">
-            <div className="panel__head"><div><h2>黑名单记录</h2><p>可在右侧独立页查看完整名单与恢复操作。</p></div><StatusPill tone={admin.data.blacklist.length ? 'critical' : 'muted'}>{admin.data.blacklist.length} 人</StatusPill></div>
+            <div className="panel__head"><div><h2>Blacklist records</h2><p>Use the dedicated tab for the full list and restoration controls.</p></div><StatusPill tone={admin.data.blacklist.length ? 'critical' : 'muted'}>{admin.data.blacklist.length} records</StatusPill></div>
             <div className="stack-list">
-              {admin.data.blacklist.slice(0, 5).map((entry) => <div key={entry.id} className="stack-list__row"><div><strong>{entry.name}</strong><span>{entry.email}</span></div><div className="stack-list__meta"><StatusPill tone="critical">已拉黑</StatusPill><span>{formatDateTime(entry.blacklistedAt)}</span></div></div>)}
-              {!admin.data.blacklist.length ? <div className="state-block"><strong>暂无黑名单</strong><p>点击注册审核中的“不通过并拉黑”后会显示在这里。</p></div> : null}
+              {admin.data.blacklist.slice(0, 5).map((entry) => <div key={entry.id} className="stack-list__row"><div><strong>{entry.name}</strong><span>{entry.email}</span></div><div className="stack-list__meta"><StatusPill tone="critical">Blacklisted</StatusPill><span>{formatDateTime(entry.blacklistedAt)}</span></div></div>)}
+              {!admin.data.blacklist.length ? <div className="state-block"><strong>No blacklist records</strong><p>Records appear here after a registration is declined and blacklisted.</p></div> : null}
             </div>
           </article>
         </section>
       ) : null}
 
-      {tab === '黑名单记录' ? (
+      {tab === 'Blacklist' ? (
         <article className="panel">
-          <div className="panel__head"><div><h2>黑名单记录</h2><p>被拉黑后，同一邮箱或手机号不能再次注册；可在这里解除拉黑。</p></div><StatusPill tone={visibleBlacklist.length ? 'critical' : 'muted'}>{visibleBlacklist.length} 人</StatusPill></div>
+          <div className="panel__head"><div><h2>Blacklist records</h2><p>After blacklisting, the same email or phone cannot register again. Restore access here when appropriate.</p></div><StatusPill tone={visibleBlacklist.length ? 'critical' : 'muted'}>{visibleBlacklist.length} records</StatusPill></div>
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>姓名</th><th>邮箱</th><th>手机号</th><th>地区</th><th>原因</th><th>拉黑时间</th><th>操作</th></tr></thead>
+              <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Region</th><th>Reason</th><th>Blacklisted</th><th>Action</th></tr></thead>
               <tbody>
-                {visibleBlacklist.length ? visibleBlacklist.map((entry) => <tr key={entry.id}><td><strong>{entry.name}</strong></td><td>{entry.email}</td><td>{entry.phone}</td><td>{entry.country}</td><td>{entry.reason}</td><td>{formatDateTime(entry.blacklistedAt)}</td><td><button type="button" className="btn btn--ghost btn--sm" onClick={() => void restoreBlacklist(entry.id)}>解除拉黑</button></td></tr>) : <tr><td colSpan={7}><div className="empty-inline"><span>暂无黑名单记录。</span></div></td></tr>}
+                {visibleBlacklist.length ? visibleBlacklist.map((entry) => <tr key={entry.id}><td><strong>{entry.name}</strong></td><td>{entry.email}</td><td>{entry.phone}</td><td>{entry.country}</td><td>{entry.reason}</td><td>{formatDateTime(entry.blacklistedAt)}</td><td><button type="button" className="btn btn--ghost btn--sm" onClick={() => void restoreBlacklist(entry.id)}>Restore access</button></td></tr>) : <tr><td colSpan={7}><div className="empty-inline"><span>No blacklist records.</span></div></td></tr>}
               </tbody>
             </table>
           </div>

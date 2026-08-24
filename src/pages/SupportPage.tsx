@@ -6,8 +6,8 @@ export function SupportPage() {
     <div className="page-stack">
       <PageHeader
         eyebrow="Client care"
-        title="客服中心"
-        description="在这里直接联系后台客服；你的消息和回复会保存到当前账号的会话中。"
+        title="Client Support"
+        description="Message the AD88 operations desk directly. Your conversation and replies stay attached to this secure account thread."
       />
       <SupportCenter />
     </div>

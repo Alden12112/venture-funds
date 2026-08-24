@@ -25,7 +25,7 @@ export function Sparkline({ values, positive = true }: { values: number[]; posit
 
   return (
     <div className="sparkline" ref={ref}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="价格走势">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Price trend">
         <path d={d} fill="none" stroke="currentColor" strokeWidth="2" className={positive ? 'sparkline__line sparkline__line--up' : 'sparkline__line sparkline__line--down'} />
         <circle cx={points.at(-1)?.[0] ?? width - 8} cy={points.at(-1)?.[1] ?? height / 2} r="3.5" className={positive ? 'sparkline__dot sparkline__dot--up' : 'sparkline__dot sparkline__dot--down'} />
       </svg>
@@ -109,7 +109,7 @@ export function CandleChart({
   }, [displayCandles, height, maxOffset, offset, visibleCandleCount, width]);
 
   if (!chart) {
-    return <div className="chart-empty">没有足够的K线数据</div>;
+    return <div className="chart-empty">Insufficient candle history for this interval.</div>;
   }
 
   const { points, candles: chartCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY, timeTicks } = chart;
@@ -151,14 +151,14 @@ export function CandleChart({
 
   return (
     <div className="chart-frame" ref={ref}>
-      <div className="chart-viewport__controls" aria-label="图表缩放控制">
-        <button type="button" onClick={() => shiftWindow(1)} disabled={!maxOffset} aria-label="查看较早K线">‹</button>
-        <button type="button" onClick={() => changeZoom(-1)} disabled={zoom <= 1} aria-label="缩小图表">−</button>
+      <div className="chart-viewport__controls" aria-label="Chart zoom controls">
+        <button type="button" onClick={() => shiftWindow(1)} disabled={!maxOffset} aria-label="Show earlier candles">‹</button>
+        <button type="button" onClick={() => changeZoom(-1)} disabled={zoom <= 1} aria-label="Zoom out">−</button>
         <span>{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={() => changeZoom(1)} disabled={zoom >= 6} aria-label="放大图表">＋</button>
-        <button type="button" onClick={() => { setOffset(0); setZoom(1); }} aria-label="回到最新K线">最新</button>
+        <button type="button" onClick={() => changeZoom(1)} disabled={zoom >= 6} aria-label="Zoom in">＋</button>
+        <button type="button" onClick={() => { setOffset(0); setZoom(1); }} aria-label="Return to latest candles">Latest</button>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className={`chart chart--candle chart--draw-${drawTool}`} role="img" aria-label="可缩放K线图" onClick={handleChartClick} onWheel={handleWheel} onDoubleClick={() => { setOffset(0); setZoom(1); }}>
+      <svg viewBox={`0 0 ${width} ${height}`} className={`chart chart--candle chart--draw-${drawTool}`} role="img" aria-label="Interactive candlestick chart" onClick={handleChartClick} onWheel={handleWheel} onDoubleClick={() => { setOffset(0); setZoom(1); }}>
         <defs>
           <linearGradient id="candleGlow" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="currentColor" stopOpacity="0.16" />
@@ -250,14 +250,14 @@ export function DepthChart({
   }, [asks, bids, height, width]);
 
   if (!chart) {
-    return <div className="chart-empty">没有足够的深度数据</div>;
+    return <div className="chart-empty">Depth data is unavailable for this instrument.</div>;
   }
 
   const { minPrice, maxPrice, maxDepth, bidsPath, asksPath } = chart;
 
   return (
     <div className="chart-frame" ref={ref}>
-      <svg viewBox={`0 0 ${width} ${height}`} className="chart chart--depth" role="img" aria-label="深度图">
+      <svg viewBox={`0 0 ${width} ${height}`} className="chart chart--depth" role="img" aria-label="Market depth chart">
         <defs>
           <linearGradient id="bidDepthFill" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="currentColor" stopOpacity="0.22" />

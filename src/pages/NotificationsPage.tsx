@@ -9,13 +9,13 @@ import { formatDateTime } from '@/lib/format';
 import type { NotificationItem } from '@/types';
 import { writeStorage } from '@/lib/storage';
 
-const categories = ['全部', 'system', 'market', 'task', 'fund'] as const;
+const categories = ['All', 'system', 'market', 'task', 'fund'] as const;
 const categoryLabels: Record<(typeof categories)[number], string> = {
-  全部: '全部消息',
-  system: '系统',
-  market: '行情',
-  task: '任务',
-  fund: '资金',
+  All: 'All alerts',
+  system: 'System',
+  market: 'Market',
+  task: 'Task',
+  fund: 'Funding',
 };
 
 function NotificationIcon({ category, level }: Pick<NotificationItem, 'category' | 'level'>) {
@@ -30,7 +30,7 @@ export function NotificationsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const bundle = useAsyncResource(() => loadNotificationBundle(), [refreshKey]);
-  const [category, setCategory] = useState<(typeof categories)[number]>('全部');
+  const [category, setCategory] = useState<(typeof categories)[number]>('All');
   const [items, setItems] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
@@ -54,17 +54,17 @@ export function NotificationsPage() {
   };
 
   const filtered = useMemo(() => {
-    return items.filter((item) => category === '全部' || item.category === category);
+    return items.filter((item) => category === 'All' || item.category === category);
   }, [category, items]);
 
   const unread = filtered.filter((item) => !item.read).length;
 
   if (bundle.status === 'loading') {
-    return <LoadingState label="正在载入通知" />;
+    return <LoadingState label="Loading workspace alerts" />;
   }
 
   if (bundle.status === 'error') {
-    return <div className="state-block state-block--error"><strong>通知中心暂时不可用</strong><p>{bundle.error}</p><button type="button" className="btn btn--ghost" onClick={refreshNotifications}><RefreshCw size={15} />重新连接通知源</button></div>;
+    return <div className="state-block state-block--error"><strong>Workspace alerts are temporarily unavailable</strong><p>{bundle.error}</p><button type="button" className="btn btn--ghost" onClick={refreshNotifications}><RefreshCw size={15} /> Reconnect alerts</button></div>;
   }
 
   const markAll = () => {
@@ -102,18 +102,18 @@ export function NotificationsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        eyebrow="消息"
-        title="通知中心"
-        description="系统、行情、任务和资金通知统一管理已读与未读。"
+        eyebrow="WORKSPACE SIGNALS"
+        title="Alerts Center"
+        description="System, market, task and funding alerts with clear unread state and direct next actions."
         actions={
           <>
             <button type="button" className="btn btn--ghost" onClick={markAll}>
               <MailOpen size={16} />
-              全部已读
+              Mark all read
             </button>
             <button type="button" className={`btn btn--ghost ${refreshing ? 'is-busy' : ''}`} onClick={refreshNotifications} disabled={refreshing}>
               <RefreshCw size={16} />
-              {refreshing ? '正在同步…' : '刷新'}
+              {refreshing ? 'Synchronizing…' : 'Refresh'}
             </button>
           </>
         }
@@ -122,17 +122,17 @@ export function NotificationsPage() {
       <section className="notification-overview">
         <div className="notification-overview__icon"><BellRing size={20} /></div>
         <div>
-          <strong>{unread ? `${unread} 条通知需要查看` : '通知已全部处理'}</strong>
-          <p>点击卡片只会更新已读状态；使用“打开关联页面”才会离开通知中心。</p>
+          <strong>{unread ? `${unread} alerts need review` : 'All alerts are handled'}</strong>
+          <p>Selecting an alert updates its read state; use the linked action only when you want to leave this page.</p>
         </div>
-        <StatusPill tone={unread ? 'warning' : 'success'}>{unread ? '需要关注' : '状态正常'}</StatusPill>
+        <StatusPill tone={unread ? 'warning' : 'success'}>{unread ? 'Review needed' : 'All clear'}</StatusPill>
       </section>
 
       <section className="metric-grid metric-grid--compact">
-        <StatCard label="当前未读" value={String(unread)} note="筛选后的统计" />
-        <StatCard label="通知总数" value={String(filtered.length)} note="当前视图" />
-        <StatCard label="系统层" value={String(items.filter((item) => item.category === 'system').length)} />
-        <StatCard label="资金层" value={String(items.filter((item) => item.category === 'fund').length)} />
+        <StatCard label="Unread now" value={String(unread)} note="Filtered view" />
+        <StatCard label="Total alerts" value={String(filtered.length)} note="Current selection" />
+        <StatCard label="System signals" value={String(items.filter((item) => item.category === 'system').length)} />
+        <StatCard label="Funding signals" value={String(items.filter((item) => item.category === 'fund').length)} />
       </section>
 
       <section className="panel panel--controls">
@@ -161,8 +161,8 @@ export function NotificationsPage() {
                   </div>
                 </div>
                 <div className="notification-item__controls">
-                  <StatusPill tone={item.read ? 'muted' : 'warning'}>{item.read ? '已读' : '未读'}</StatusPill>
-                  <button type="button" className="icon-button icon-button--small" onClick={() => toggleRead(item.id)} aria-label={item.read ? '标记为未读' : '标记为已读'}>
+                  <StatusPill tone={item.read ? 'muted' : 'warning'}>{item.read ? 'Read' : 'Unread'}</StatusPill>
+                  <button type="button" className="icon-button icon-button--small" onClick={() => toggleRead(item.id)} aria-label={item.read ? 'Mark as unread' : 'Mark as read'}>
                     {item.read ? <MailOpen size={15} /> : <CheckCheck size={15} />}
                   </button>
                 </div>
@@ -174,14 +174,14 @@ export function NotificationsPage() {
                   <span>{formatDateTime(item.createdAt)}</span>
                 </div>
                 <Link className="link-action link-action--inline notification-item__open" to={targetFor(item)} onClick={() => markRead(item.id)}>
-                  打开关联页面 <ExternalLink size={13} />
+                  Open related workspace <ExternalLink size={13} />
                 </Link>
               </div>
             </article>
           ))}
         </section>
       ) : (
-        <EmptyState title="没有匹配通知" text="切换到其他分类，或者清空筛选条件。" />
+        <EmptyState title="No matching alerts" text="Switch category or clear the current filtering choice." />
       )}
     </div>
   );

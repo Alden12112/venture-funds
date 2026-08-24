@@ -4,29 +4,29 @@ import { BarChart3, BellRing, BriefcaseBusiness, FileClock, Headphones, Landmark
 export const brand = {
   name: 'AD88',
   english: 'AD88 Markets',
-  claim: 'Real-time market data, account controls, paper trading and risk checks in one regulated-style workspace.',
-  preview: 'Institutional-style market workspace',
+  claim: 'A clear market operating system for research, paper execution, risk controls and account oversight.',
+  preview: 'Institutional market operating system',
 };
 
 export const shellLinks: ShellLink[] = [
-  { to: '/app/dashboard', label: '仪表盘', icon: 'LayoutDashboard' },
-  { to: '/app/market', label: '交易', icon: 'BarChart3' },
-  { to: '/app/news', label: '新闻', icon: 'Newspaper' },
-  { to: '/app/support', label: '客服中心', icon: 'Headphones' },
-  { to: '/app/ledger', label: '资金流水', icon: 'FileClock' },
-  { to: '/app/notifications', label: '通知中心', icon: 'BellRing' },
-  { to: '/app/settings', label: '设置', icon: 'Settings2' },
+  { to: '/app/dashboard', label: 'Command Center', icon: 'LayoutDashboard' },
+  { to: '/app/market', label: 'Trade', icon: 'BarChart3' },
+  { to: '/app/news', label: 'Research', icon: 'Newspaper' },
+  { to: '/app/support', label: 'Client Support', icon: 'Headphones' },
+  { to: '/app/ledger', label: 'Activity', icon: 'FileClock' },
+  { to: '/app/notifications', label: 'Alerts', icon: 'BellRing' },
+  { to: '/app/settings', label: 'Settings', icon: 'Settings2' },
 ];
 
 export const brandMarkers = [
   {
-    title: '资产级摘要',
-    text: '同屏查看真实价格、风险预算与模拟仓位。',
+    title: 'Market intelligence',
+    text: 'Prices, risk budget and paper positions in one disciplined view.',
     icon: Landmark,
   },
   {
-    title: '数据适配层',
-    text: '行情与新闻统一汇聚，状态清晰、节奏稳定。',
+    title: 'Data integrity',
+    text: 'Market and research signals are normalized into one stable operating layer.',
     icon: BriefcaseBusiness,
   },
 ];

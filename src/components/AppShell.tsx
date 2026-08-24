@@ -48,7 +48,7 @@ function navIcon(name: keyof typeof iconMap) {
 export function AppShell() {
   const { session, signOut } = useAuth();
   const { theme, setTheme } = useTheme();
-  const { language, setLanguage, t } = useLanguage();
+  const { t } = useLanguage();
   const online = useOnlineStatus();
   const location = useLocation();
 
@@ -65,27 +65,19 @@ export function AppShell() {
         </div>
         <div className="app-shell__actions">
           <label className="theme-switch">
-            <span className="sr-only">主题</span>
+            <span className="sr-only">Theme</span>
             <MoonStar size={16} aria-hidden="true" />
-            <select value={theme} onChange={(event) => setTheme(event.target.value as typeof theme)} aria-label="切换主题">
-              <option value="linen">日间</option>
-              <option value="graphite">夜间</option>
-              <option value="midnight">深海</option>
-            </select>
-          </label>
-          <label className="theme-switch">
-            <span className="sr-only">Language</span>
-            <select value={language} onChange={(event) => setLanguage(event.target.value as typeof language)} aria-label="Language">
-              <option value="zh">中文</option>
-              <option value="ms">BM</option>
-              <option value="en">EN</option>
+            <select value={theme} onChange={(event) => setTheme(event.target.value as typeof theme)} aria-label="Theme">
+              <option value="linen">Day</option>
+              <option value="graphite">Graphite</option>
+              <option value="midnight">Midnight</option>
             </select>
           </label>
           <div className="session-chip">
-            <span className="session-chip__name">{session?.name ?? '访客'}</span>
-            <span className="session-chip__role">{session?.role === 'admin' ? '管理端' : '用户端'}</span>
+            <span className="session-chip__name">{session?.name ?? 'Guest workspace'}</span>
+            <span className="session-chip__role">{session?.role === 'admin' ? 'Administrator' : 'Client'}</span>
           </div>
-          <button type="button" className="icon-button" onClick={signOut} aria-label="退出登录">
+          <button type="button" className="icon-button" onClick={signOut} aria-label="Sign out">
             <LogOut size={16} />
           </button>
         </div>
@@ -94,7 +86,7 @@ export function AppShell() {
       <div className="app-shell__body">
         <aside className="app-shell__sidebar">
           <div className="sidebar-kicker">Workspace</div>
-          <nav className="app-shell__nav" aria-label="主导航">
+          <nav className="app-shell__nav" aria-label="Primary navigation">
             {shellLinks.map((link) => {
               const Icon = navIcon(link.icon as keyof typeof iconMap);
               return (
@@ -120,10 +112,10 @@ export function AppShell() {
         </aside>
 
         <div className="app-shell__main">
-          <div className="market-statusbar" aria-label="系统状态">
-            <span><Activity size={14} /> Public market feed</span>
-            <span><ShieldCheck size={14} /> Sandbox risk mode</span>
-            <span><Clock3 size={14} /> UTC+8 session</span>
+          <div className="market-statusbar" aria-label="Platform assurance">
+            <span><Activity size={14} /> Market data monitored</span>
+            <span><ShieldCheck size={14} /> Paper execution only</span>
+            <span><Clock3 size={14} /> Asia/Kuala Lumpur session</span>
             <span className="market-statusbar__spacer" />
             <span className="market-statusbar__secure"><span className="status-dot status-dot--live" /> Encrypted workspace</span>
           </div>

@@ -19,7 +19,7 @@ export function AdminAuthPage() {
   const handleSubmit = async () => {
     setError('');
     if (!email.trim() || !password) {
-      setError('请输入管理员邮箱和密码。');
+      setError('Enter the administrator email and password.');
       return;
     }
     try {
@@ -28,13 +28,13 @@ export function AdminAuthPage() {
         body: JSON.stringify({ identifier: email.trim(), password }),
       });
       if (result.session.role !== 'admin') {
-        setError('这个账号不是管理员账号。');
+        setError('This account does not have administrator access.');
         return;
       }
       signIn({ ...result.session, role: 'admin', token: result.token });
       navigate('/admin');
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : '后台暂时无法连接，请确认服务端已启动。');
+      setError(caught instanceof ApiError ? caught.message : 'Admin service is unavailable. Confirm the service is running and try again.');
     }
   };
 
@@ -47,17 +47,17 @@ export function AdminAuthPage() {
         </div>
         <div className="admin-auth-card__icon"><LockKeyhole size={21} /></div>
         <span className="eyebrow">Protected workspace</span>
-        <h1>后台登录</h1>
-        <p className="admin-auth-card__lead">后台使用独立会话，不需要先登录前台用户端。</p>
-        <div className="admin-auth-card__notice"><ShieldCheck size={16} /><span>管理员凭证只在服务端环境变量中校验。</span></div>
+        <h1>Administrator sign-in</h1>
+        <p className="admin-auth-card__lead">The administrator console uses its own protected session. A client-side session is never required.</p>
+        <div className="admin-auth-card__notice"><ShieldCheck size={16} /><span>Administrator credentials are validated only by protected server environment variables.</span></div>
         <div className="auth-form">
-          <label className="field"><span>管理员邮箱</span><input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@company.com" /></label>
-          <label className="field"><span>后台密码</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleSubmit(); }} /></label>
-          <button type="button" className="btn btn--primary btn--block" onClick={() => void handleSubmit()}>进入后台 <ArrowRight size={16} /></button>
+          <label className="field"><span>Administrator email</span><input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@company.com" /></label>
+          <label className="field"><span>Administrator password</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleSubmit(); }} /></label>
+          <button type="button" className="btn btn--primary btn--block" onClick={() => void handleSubmit()}>Open admin console <ArrowRight size={16} /></button>
           {error ? <div className="notice-banner notice-banner--error"><LockKeyhole size={16} />{error}</div> : null}
-          {!error && sessionExpired ? <div className="notice-banner notice-banner--error"><LockKeyhole size={16} />后台会话需要重新验证；若重复跳回此页，请检查两项 Render 服务是否共享 AUTH_SECRET。</div> : null}
+          {!error && sessionExpired ? <div className="notice-banner notice-banner--error"><LockKeyhole size={16} />Your admin session needs verification again. If this repeats, confirm both Render services share AUTH_SECRET.</div> : null}
         </div>
-        <a className="admin-auth-card__back" href="/">返回 AD88 主页</a>
+        <a className="admin-auth-card__back" href="/">Return to AD88 Markets</a>
       </div>
     </div>
   );

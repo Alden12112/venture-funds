@@ -1,4 +1,4 @@
-import type { Candle, DataCacheState, MarketAsset, MarketBundle, MarketQuote, OrderLevel, SourceMeta, TimeframeCode } from '@/types';
+import type { Candle, DataCacheState, MarketAsset, MarketBundle, MarketQuote, OrderLevel, SourceMeta, TimeframeCode, MarketDataState } from '@/types';
 import { getExecutionQuote, getMarketProduct, marketProducts } from '@/data/assets';
 
 const coinbaseBase = 'https://api.exchange.coinbase.com';
@@ -24,9 +24,12 @@ interface YahooChartResponse {
 interface MarketSnapshotQuote {
   symbol?: string;
   price?: number;
+  bid?: number;
+  ask?: number;
   change24h?: number;
   volume24h?: number;
   quoteUpdatedAt?: string;
+  dataState?: MarketDataState;
 }
 
 interface MarketSnapshotResponse {
@@ -195,7 +198,10 @@ function snapshotAsset(product: typeof marketProducts[number], quote: MarketSnap
     low24h: Math.min(price, open24h),
     orderBook: buildSyntheticBook(price, product),
     fallback: false,
-    provider: 'AD88 market proxy',
+    bid: toNumber(quote?.bid) || undefined,
+    ask: toNumber(quote?.ask) || undefined,
+    dataState: quote?.dataState ?? 'live',
+    provider: quote?.dataState === 'broker' ? 'Broker reference feed' : 'AD88 market proxy',
     providerCacheState: 'fresh',
   };
 }
@@ -264,6 +270,9 @@ export async function loadMarketBundle(symbol = 'BTC', timeframe: TimeframeCode 
       selectedLoaded = {
         ...chartLoaded,
         price: selectedLoaded.price,
+        bid: selectedLoaded.bid,
+        ask: selectedLoaded.ask,
+        dataState: selectedLoaded.dataState,
         change24h: selectedLoaded.change24h,
         volume24h: selectedLoaded.volume24h,
         updatedAt: selectedLoaded.updatedAt,
@@ -275,10 +284,13 @@ export async function loadMarketBundle(symbol = 'BTC', timeframe: TimeframeCode 
     }
   }
   const source: SourceMeta = {
-    provider: selectedProduct.assetClass === 'crypto' ? 'Coinbase Exchange public market data' : selectedLoaded.provider ?? 'Yahoo Finance public market data',
-    mode: selectedLoaded.fallback ? 'mock' : 'api',
+    provider: selectedLoaded.dataState === 'broker'
+      ? 'Broker reference feed'
+      : selectedProduct.assetClass === 'crypto' ? 'Coinbase Exchange public market data' : selectedLoaded.provider ?? 'Yahoo Finance public market data',
+    mode: selectedLoaded.dataState === 'broker' ? 'broker' : selectedLoaded.fallback ? 'mock' : 'api',
     updatedAt: selectedLoaded.updatedAt,
     cacheState: selectedLoaded.fallback ? 'stale' : selectedLoaded.cached ? 'cached' : selectedLoaded.providerCacheState ?? 'fresh',
+    dataState: selectedLoaded.dataState ?? (selectedLoaded.fallback ? 'fallback' : 'live'),
     endpoint: selectedProduct.assetClass === 'crypto' ? `${coinbaseBase}/products/*` : '/api/market',
     latencyMs: Math.max(1, Date.now() - requestStartedAt),
     health: selectedLoaded.fallback ? 'degraded' : 'healthy',

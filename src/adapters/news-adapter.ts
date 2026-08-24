@@ -44,13 +44,13 @@ function inferImpact(item: YahooNewsItem): NewsItem['impact'] {
 
 function inferCategory(item: YahooNewsItem) {
   const text = `${item.title} ${item.publisher}`.toLowerCase();
-  if (text.includes('regulat') || text.includes('sec') || text.includes('policy')) return '监管';
-  if (text.includes('bitcoin') || text.includes('ethereum') || text.includes('crypto')) return '加密市场';
-  if (text.includes('fed') || text.includes('inflation') || text.includes('rate')) return '宏观';
-  if (text.includes('oil') || text.includes('energy') || text.includes('gas')) return '能源';
-  if (text.includes('gold') || text.includes('silver') || text.includes('copper')) return '金属';
-  if (text.includes('forex') || text.includes('dollar') || text.includes('euro') || text.includes('yen')) return '外汇';
-  return '市场';
+  if (text.includes('regulat') || text.includes('sec') || text.includes('policy')) return 'Policy';
+  if (text.includes('bitcoin') || text.includes('ethereum') || text.includes('crypto')) return 'Crypto';
+  if (text.includes('fed') || text.includes('inflation') || text.includes('rate')) return 'Macro';
+  if (text.includes('oil') || text.includes('energy') || text.includes('gas')) return 'Energy';
+  if (text.includes('gold') || text.includes('silver') || text.includes('copper')) return 'Metals';
+  if (text.includes('forex') || text.includes('dollar') || text.includes('euro') || text.includes('yen')) return 'FX';
+  return 'Markets';
 }
 
 function inferTone(item: YahooNewsItem): NewsItem['tone'] {
@@ -63,11 +63,11 @@ function inferTone(item: YahooNewsItem): NewsItem['tone'] {
 function upcomingEvents() {
   const now = Date.now();
   const events = [
-    ['US CPI release', 'Macro / FX / Gold', 'United States', 1, '通胀数据可能改变利率预期与美元、黄金方向。', 'high'],
-    ['EIA crude oil inventories', 'Crude Oil / Natural Gas', 'United States', 2, '库存变化通常影响能源曲线与通胀交易。', 'medium'],
-    ['ECB policy remarks', 'EUR / USD', 'European Union', 3, '欧洲利率措辞会影响欧元与美元相对强弱。', 'high'],
-    ['China manufacturing PMI', 'Copper / Southern Copper', 'China', 4, '制造业景气度是工业金属需求的重要领先指标。', 'medium'],
-    ['US employment report', 'Equities / FX / Gold', 'United States', 6, '就业数据是风险资产和利率市场的核心周度事件。', 'high'],
+    ['US CPI release', 'Macro / FX / Gold', 'United States', 1, 'Inflation data can reshape rate expectations, the US dollar and gold direction.', 'high'],
+    ['EIA crude oil inventories', 'Crude Oil / Natural Gas', 'United States', 2, 'Inventory changes commonly move energy curves and inflation trades.', 'medium'],
+    ['ECB policy remarks', 'EUR / USD', 'European Union', 3, 'European rate language can shift relative EUR and USD strength.', 'high'],
+    ['China manufacturing PMI', 'Copper / Southern Copper', 'China', 4, 'Manufacturing momentum is a leading signal for industrial-metal demand.', 'medium'],
+    ['US employment report', 'Equities / FX / Gold', 'United States', 6, 'Employment data is a core weekly event for risk assets and rate markets.', 'high'],
   ] as const;
   return events.map(([title, market, country, days, description, impact], index) => ({
     id: `calendar-${index + 1}`,
@@ -106,7 +106,7 @@ export async function loadNewsBundle(): Promise<NewsBundle> {
 
   return {
     items,
-    categories: ['全部', '市场', '宏观', '监管', '加密市场', '能源', '金属', '外汇'],
+    categories: ['All', 'Markets', 'Macro', 'Policy', 'Crypto', 'Energy', 'Metals', 'FX'],
     events: upcomingEvents(),
     source: {
       provider: data.ad88Source ? `AD88 news proxy → ${data.ad88Source}` : 'AD88 local news API proxy',

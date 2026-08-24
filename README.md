@@ -37,6 +37,7 @@ variable key.
 
 - `AD88_ADMIN_EMAIL`: the administrator email used only for `/admin` login
 - `AD88_ADMIN_PASSWORD`: the administrator password stored only as a Render secret
+- `MT5_INGEST_SECRET`: optional one-way secret for a user-hosted MT5 EA to publish read-only Bid/Ask/Last references. It belongs only on `ad88-platform`, never in the browser or the admin service.
 
 The admin service inherits those values and `AUTH_SECRET` from the frontend
 service through Render's private `fromService` environment references. Do not
@@ -50,6 +51,16 @@ The blueprint generates `AUTH_SECRET` and provisions `ad88-postgres`; its connec
 - SPA fallback, same-origin market/news proxy, registration/login, admin account operations and workspace sync are handled by `server.mjs`.
 
 Trading and points actions remain sandbox/paper workflows. No real orders or funds are sent.
+
+## Optional MT5 market-data bridge
+
+AD88 can display a broker-authorized MT5 reference feed without taking control of the terminal. The bridge is read-only:
+
+```text
+MT5 terminal → AD88MarketBridge.mq5 → POST /api/mt5/ticks → AD88 SSE → Trade workspace
+```
+
+Use a unique `MT5_INGEST_SECRET` in Render and the same value only in the EA input parameters. Do not provide MT5 account credentials to AD88, commit the value to Git, or place it in a browser setting. Setup and supported-symbol details are in [`docs/mt5-bridge.md`](docs/mt5-bridge.md).
 
 ## GitHub publishing
 
