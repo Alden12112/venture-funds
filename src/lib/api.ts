@@ -38,6 +38,9 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}) {
     throw new ApiError('API unavailable', 0);
   }
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new ApiError(String(body.error || 'Request failed'), response.status);
+  if (!response.ok) {
+    if (response.status === 401) setAuthToken(null);
+    throw new ApiError(String(body.error || 'Request failed'), response.status);
+  }
   return body as T;
 }

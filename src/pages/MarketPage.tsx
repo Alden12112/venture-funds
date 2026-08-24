@@ -114,20 +114,21 @@ export function MarketPage() {
       : market.status === 'success' ? market.data.selected.updatedAt : new Date().toISOString();
   const selectedAsset = market.status === 'success' ? { ...market.data.selected, price: livePrice, updatedAt: selectedUpdatedAt } : null;
   const executionQuote = getExecutionQuote(symbol, livePrice);
-  const selectedChange = selectedAsset?.change24h ?? 0;
+  const selectedChange = quotePulse.changes[symbol] ?? selectedAsset?.change24h ?? 0;
 
   const rows = useMemo(() => {
     if (market.status !== 'success') return [];
     return market.data.assets.map((asset) => ({
       ...asset,
       price: priceFor(asset.symbol, asset.price),
+      change24h: quotePulse.changes[asset.symbol] ?? asset.change24h,
       updatedAt: getMarketProduct(asset.symbol).productId && live.lastTickAt[asset.symbol]
         ? new Date(live.lastTickAt[asset.symbol]).toISOString()
         : quotePulse.quoteUpdatedAt[asset.symbol]
           ? new Date(quotePulse.quoteUpdatedAt[asset.symbol]).toISOString()
           : asset.updatedAt,
     }));
-  }, [live.lastTickAt, live.prices, market, quotePulse.prices, quotePulse.quoteUpdatedAt]);
+  }, [live.lastTickAt, live.prices, market, quotePulse.changes, quotePulse.prices, quotePulse.quoteUpdatedAt]);
   const filteredRows = useMemo(() => {
     if (assetClassFilter === '全部') return rows;
     return rows.filter((asset) => asset.assetClass === assetClassFilter);

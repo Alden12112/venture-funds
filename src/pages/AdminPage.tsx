@@ -42,6 +42,13 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     return () => window.removeEventListener('ad88:storage-sync', refresh);
   }, []);
 
+  useEffect(() => {
+    if (admin.status === 'error' && admin.error === 'unauthorized') {
+      signOut();
+      navigate('/admin/login', { replace: true });
+    }
+  }, [admin.error, admin.status, navigate, signOut]);
+
   if (session?.role !== 'admin') {
     return (
       <div className="page-stack">

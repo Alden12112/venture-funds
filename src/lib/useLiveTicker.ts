@@ -114,6 +114,7 @@ type QuotePulseStatus = 'idle' | 'polling' | 'fresh' | 'stale';
  */
 export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: PriceMap = {}) {
   const [prices, setPrices] = useState<PriceMap>(fallbackPrices);
+  const [changes, setChanges] = useState<PriceMap>({});
   const [lastCheckedAt, setLastCheckedAt] = useState<TickMap>({});
   const [quoteUpdatedAt, setQuoteUpdatedAt] = useState<TickMap>({});
   const [status, setStatus] = useState<QuotePulseStatus>('idle');
@@ -130,7 +131,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
   }, [fallbackPrices]);
 
   useEffect(() => {
-    const watched = symbolsKey.split(',').filter(Boolean).filter((symbol) => !getMarketProduct(symbol).productId);
+    const watched = symbolsKey.split(',').filter(Boolean);
     if (!watched.length) {
       setStatus('idle');
       return;
@@ -141,9 +142,9 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
       inFlight.current = true;
       setStatus('polling');
       const checkedAt = Date.now();
-      let response: { quotes?: Record<string, { symbol?: string; price?: number; quoteUpdatedAt?: string }> };
+      let response: { quotes?: Record<string, { symbol?: string; price?: number; change24h?: number; quoteUpdatedAt?: string }> };
       try {
-        response = await apiFetch<{ quotes?: Record<string, { symbol?: string; price?: number; quoteUpdatedAt?: string }>; updatedAt?: string }>(`/api/market/quotes?symbols=${encodeURIComponent(watched.join(','))}`);
+        response = await apiFetch<{ quotes?: Record<string, { symbol?: string; price?: number; change24h?: number; quoteUpdatedAt?: string }>; updatedAt?: string }>(`/api/market/quotes?symbols=${encodeURIComponent(watched.join(','))}`);
       } catch {
         response = {};
       }
@@ -153,6 +154,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
         .map(([symbol, quote]) => ({
           symbol: quote.symbol ?? symbol,
           price: Number(quote.price),
+          change24h: Number(quote.change24h ?? 0),
           quoteUpdatedAt: quote.quoteUpdatedAt ?? new Date().toISOString(),
         }))
         .filter((quote) => Number.isFinite(quote.price) && quote.price > 0);
@@ -161,6 +163,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
         fresh.forEach((quote) => { nextPrices[quote.symbol] = quote.price; });
         pricesRef.current = nextPrices;
         setPrices(nextPrices);
+        setChanges((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, quote.change24h])) }));
         setLastCheckedAt((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, checkedAt])) }));
         setQuoteUpdatedAt((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, new Date(quote.quoteUpdatedAt).getTime()])) }));
         setStatus('fresh');
@@ -176,5 +179,5 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
     };
   }, [symbolsKey]);
 
-  return { prices, lastCheckedAt, quoteUpdatedAt, status };
+  return { prices, changes, lastCheckedAt, quoteUpdatedAt, status };
 }
