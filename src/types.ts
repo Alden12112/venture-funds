@@ -137,6 +137,8 @@ export interface LedgerEntry {
   note: string;
   refId: string;
   direction: 'in' | 'out';
+  userEmail?: string;
+  userName?: string;
 }
 
 export interface LedgerBundle {
@@ -187,6 +189,18 @@ export interface RegisteredUser {
   passwordDigest?: string;
 }
 
+export interface BlacklistEntry {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  phone: string;
+  country: string;
+  reason: string;
+  blacklistedAt: string;
+  blacklistedBy: string;
+}
+
 export interface AdminBundle {
   users: UserProfile[];
   registrations: RegisteredUser[];
@@ -195,6 +209,7 @@ export interface AdminBundle {
   creditAccounts: CreditAccount[];
   creditRequests: CreditRequest[];
   ledgerEntries: LedgerEntry[];
+  blacklist: BlacklistEntry[];
   notifications: NotificationItem[];
   report: {
     monthLabel: string;

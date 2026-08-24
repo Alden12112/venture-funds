@@ -8,16 +8,14 @@ import { loadNewsBundle } from '@/adapters/news-adapter';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
-import { readStorage, writeStorage } from '@/lib/storage';
 import { Link, useLocation } from 'react-router-dom';
 import { approveRemoteCreditRequest, grantRemoteCredits } from '@/lib/credits';
-import type { RegisteredUser } from '@/types';
 import { buildInternationalPhone, countryDirectory, getCountryOption, isValidCountryPhone, phoneDigitsHint } from '@/data/countries';
-import { hashSecret, isValidEmail } from '@/lib/auth';
-import { apiFetch, ApiError, isApiUnavailable } from '@/lib/api';
+import { isValidEmail } from '@/lib/auth';
+import { apiFetch } from '@/lib/api';
 import { SupportCenter } from '@/components/SupportCenter';
 
-const tabs = ['全部账号', '注册审核', 'U 管理', '月报', '交易记录', '流水通知', '客服中心', '内容配置', '审核流'] as const;
+const tabs = ['全部账号', '注册审核', 'U 管理', '月报', '交易记录', '流水通知', '客服中心', '内容配置', '审核流', '黑名单记录'] as const;
 
 export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const { session } = useAuth();
@@ -78,9 +76,10 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const visibleRegistrations = admin.data.registrations.filter((item) => matches(item.fullName) || matches(item.gmail) || matches(item.phone) || matches(item.country));
   const visiblePositions = admin.data.paperPositions.filter((item) => matches(item.userName) || matches(item.userId) || matches(item.symbol));
   const visibleTradeEvents = admin.data.tradeEvents.filter((item) => matches(item.userName) || matches(item.userEmail) || matches(item.userId) || matches(item.symbol) || matches(item.action));
-  const visibleLedger = admin.data.ledgerEntries.filter((item) => matches(item.refId) || matches(item.note) || matches(item.type));
+  const visibleLedger = admin.data.ledgerEntries.filter((item) => matches(item.userEmail) || matches(item.userName) || matches(item.note) || matches(item.type));
   const visibleNotifications = admin.data.notifications.filter((item) => matches(item.title) || matches(item.body) || matches(item.category));
   const visibleCreditAccounts = admin.data.creditAccounts.filter((item) => matches(item.userName) || matches(item.email) || matches(item.userId));
+  const visibleBlacklist = admin.data.blacklist.filter((item) => matches(item.name) || matches(item.email) || matches(item.phone) || matches(item.reason));
   const pendingCreditRequests = admin.data.creditRequests.filter((item) => item.status === 'pending');
   const totalCredits = admin.data.creditAccounts.reduce((sum, account) => sum + account.balance, 0);
   const pendingCredits = pendingCreditRequests.reduce((sum, request) => sum + request.amount, 0);
@@ -122,21 +121,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     setRefreshKey((value) => value + 1);
   };
 
-  const reviewRegistration = (id: string, status: RegisteredUser['status']) => {
-    const registrations = readStorage<RegisteredUser[]>('pendingRegistrations', []);
-    writeStorage('pendingRegistrations', registrations.map((item) => item.id === id ? { ...item, status } : item));
-    setRefreshKey((value) => value + 1);
-  };
-
   const createAccount = async () => {
     if (!accountForm.name.trim() || !isValidEmail(accountForm.email) || !isValidCountryPhone(accountCountry, accountForm.phone) || accountForm.password.length < 8) {
       setAccountMessage(`请填写完整资料：有效邮箱、${phoneDigitsHint(accountCountry)} 位手机号，以及至少 8 位密码。`);
-      return;
-    }
-    const registrations = readStorage<RegisteredUser[]>('pendingRegistrations', []);
-    const duplicate = registrations.some((item) => item.gmail.toLowerCase() === accountForm.email.trim().toLowerCase() || item.phone.replace(/\D/g, '') === buildInternationalPhone(accountCountry, accountForm.phone).replace(/\D/g, ''));
-    if (duplicate) {
-      setAccountMessage('这个邮箱或手机号已经存在。');
       return;
     }
     try {
@@ -149,26 +136,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       setRefreshKey((value) => value + 1);
       return;
     } catch (error) {
-      if (!(error instanceof ApiError) || !isApiUnavailable(error)) {
-        setAccountMessage(error instanceof Error ? error.message : '创建账号失败。');
-        return;
-      }
+      setAccountMessage(error instanceof Error ? error.message : '创建账号失败。');
+      return;
     }
-    const next: RegisteredUser = {
-      id: crypto.randomUUID(),
-      fullName: accountForm.name.trim(),
-      gmail: accountForm.email.trim(),
-      phone: buildInternationalPhone(accountCountry, accountForm.phone),
-      country: accountCountry.name,
-      status: 'approved',
-      submittedAt: new Date().toISOString(),
-      tradingScore: accountForm.role === 'admin' ? 100 : 60,
-      passwordDigest: await hashSecret(accountForm.password),
-    };
-    writeStorage('pendingRegistrations', [next, ...registrations]);
-    setAccountForm({ name: '', email: '', phone: '', country: accountCountry.name, password: '', role: 'user' });
-    setAccountMessage('账号已创建并自动通过审核。');
-    setRefreshKey((value) => value + 1);
   };
 
   const deleteAccount = async (id: string) => {
@@ -182,15 +152,29 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       setRefreshKey((value) => value + 1);
       return;
     } catch (error) {
-      if (!(error instanceof ApiError) || !isApiUnavailable(error)) {
-        setAccountMessage(error instanceof Error ? error.message : '删除账号失败。');
-        return;
-      }
+      setAccountMessage(error instanceof Error ? error.message : '删除账号失败。');
+      return;
     }
-    const registrations = readStorage<RegisteredUser[]>('pendingRegistrations', []);
-    writeStorage('pendingRegistrations', registrations.filter((item) => item.id !== id));
-    setAccountMessage(`已删除账号：${target.name}`);
-    setRefreshKey((value) => value + 1);
+  };
+
+  const blacklistAccount = async (id: string) => {
+    try {
+      await apiFetch(`/api/admin/users/${encodeURIComponent(id)}/blacklist`, { method: 'POST', body: JSON.stringify({ reason: '注册审核不通过' }) });
+      setAccountMessage('账号已拉黑；同一邮箱或手机号不能再次注册。');
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : '拉黑账号失败。');
+    }
+  };
+
+  const restoreBlacklist = async (id: string) => {
+    try {
+      await apiFetch(`/api/admin/blacklist/${encodeURIComponent(id)}/restore`, { method: 'POST' });
+      setAccountMessage('已解除拉黑，账号可再次登录或注册。');
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : '解除拉黑失败。');
+    }
   };
 
   return (
@@ -274,7 +258,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                 </tr>
               </thead>
               <tbody>
-                {visibleUsers.map((user) => {
+                {visibleUsers.length ? visibleUsers.map((user) => {
                   const credit = creditByEmail.get(user.email.toLowerCase());
                   return (
                     <tr key={user.id}>
@@ -286,10 +270,10 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                       <td>{user.tier}</td>
                       <td className="text-end">{credit?.balance ?? 0} U</td>
                       <td>{formatDateTime(user.joinedAt)}</td>
-                      <td>{admin.data.registrations.some((item) => item.id === user.id) ? <button type="button" className="btn btn--danger btn--sm" onClick={() => deleteAccount(user.id)}><Trash2 size={14} />删除</button> : <span className="text-muted">系统账号</span>}</td>
+                      <td>{user.role !== 'admin' ? <button type="button" className="btn btn--danger btn--sm" onClick={() => deleteAccount(user.id)}><Trash2 size={14} />删除</button> : <span className="text-muted">管理员受保护</span>}</td>
                     </tr>
                   );
-                })}
+                }) : <tr><td colSpan={9}><div className="empty-inline"><span>还没有账号。前台注册或后台创建后会同步显示。</span></div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -319,7 +303,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                 </tr>
               </thead>
               <tbody>
-                {visibleRegistrations.map((item) => (
+                {visibleRegistrations.length ? visibleRegistrations.map((item) => (
                   <tr key={item.id}>
                     <td><strong>{item.fullName}</strong></td>
                     <td>{item.gmail}</td>
@@ -327,16 +311,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                     <td>{item.country}</td>
                     <td><StatusPill tone={item.status === 'approved' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{item.status}</StatusPill></td>
                     <td>{formatDateTime(item.submittedAt)}</td>
-                    <td>
-                      {item.status === 'pending' ? (
-                        <div className="table-actions">
-                          <button type="button" className="btn btn--ghost btn--sm" onClick={() => reviewRegistration(item.id, 'approved')}>通过</button>
-                          <button type="button" className="btn btn--ghost btn--sm" onClick={() => reviewRegistration(item.id, 'rejected')}>拒绝</button>
-                        </div>
-                      ) : <span className="text-muted">已处理</span>}
-                    </td>
+                    <td>{item.status === 'rejected' ? <span className="text-muted">已拉黑</span> : <button type="button" className="btn btn--danger btn--sm" onClick={() => void blacklistAccount(item.id)}>不通过并拉黑</button>}</td>
                   </tr>
-                ))}
+                )) : <tr><td colSpan={7}><div className="empty-inline"><span>暂无注册记录。</span></div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -535,14 +512,14 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       {tab === '流水通知' ? (
         <section className="content-grid content-grid--two">
           <article className="panel">
-            <div className="panel__head"><div><h2>{t('admin.ledgerTitle')}</h2><p>{t('admin.ledgerHint')}</p></div></div>
+            <div className="panel__head"><div><h2>{t('admin.ledgerTitle')}</h2><p>全部账户的资金流水集中显示；搜索邮箱即可定位申请人。</p></div></div>
             <div className="stack-list">
-              {visibleLedger.map((item) => (
+              {visibleLedger.length ? visibleLedger.map((item) => (
                 <div key={item.id} className="stack-list__row">
-                  <div><strong>{item.refId}</strong><span>{item.note}</span></div>
-                  <div className="stack-list__meta"><StatusPill tone={item.status === 'approved' || item.status === 'settled' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{item.status}</StatusPill><span>{formatCurrency(item.amount)}</span></div>
+                  <div><strong>{item.userEmail ?? '已删除账号'}</strong><span>{item.userName ?? '—'} · {item.note || item.type}</span></div>
+                  <div className="stack-list__meta"><StatusPill tone={item.status === 'approved' || item.status === 'settled' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{item.status}</StatusPill><span>{item.amount.toFixed(2)} {item.currency}</span></div>
                 </div>
-              ))}
+              )) : <div className="state-block"><strong>暂无资金流水</strong><p>发生入金或出金后，会按账户邮箱在这里显示。</p></div>}
             </div>
           </article>
           <article className="panel">
@@ -608,26 +585,38 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       ) : null}
 
       {tab === '审核流' ? (
-        <article className="panel">
-          <div className="panel__head">
-            <div>
-              <h2>{t('admin.approvalTitle')}</h2>
-              <p>{t('admin.approvalHint')}</p>
+        <section className="content-grid content-grid--two">
+          <article className="panel">
+            <div className="panel__head"><div><h2>{t('admin.approvalTitle')}</h2><p>前台注册会自动通过；这里保留进入时间与后续审核状态。</p></div></div>
+            <div className="stack-list">
+              {admin.data.approvals.length ? admin.data.approvals.map((approval) => (
+                <div key={approval.id} className="stack-list__row">
+                  <div><strong>{approval.subject}</strong><span>{approval.owner}</span></div>
+                  <div className="stack-list__meta"><StatusPill tone={approval.status === 'approved' ? 'success' : approval.status === 'pending' ? 'warning' : 'critical'}>{approval.status === 'approved' ? '自动通过' : approval.status === 'rejected' ? '已拉黑' : '待处理'}</StatusPill><span>{formatDateTime(approval.updatedAt)}</span></div>
+                </div>
+              )) : <div className="state-block"><strong>暂无审核记录</strong><p>前台注册后会同步出现在这里。</p></div>}
             </div>
-          </div>
-          <div className="stack-list">
-            {admin.data.approvals.map((approval) => (
-              <div key={approval.id} className="stack-list__row">
-                <div>
-                  <strong>{approval.subject}</strong>
-                  <span>{approval.owner}</span>
-                </div>
-                <div className="stack-list__meta">
-                  <StatusPill tone={approval.status === 'approved' ? 'success' : approval.status === 'pending' ? 'warning' : 'critical'}>{approval.status}</StatusPill>
-                  <span>{formatDateTime(approval.updatedAt)}</span>
-                </div>
-              </div>
-            ))}
+          </article>
+          <article className="panel">
+            <div className="panel__head"><div><h2>黑名单记录</h2><p>可在右侧独立页查看完整名单与恢复操作。</p></div><StatusPill tone={admin.data.blacklist.length ? 'critical' : 'muted'}>{admin.data.blacklist.length} 人</StatusPill></div>
+            <div className="stack-list">
+              {admin.data.blacklist.slice(0, 5).map((entry) => <div key={entry.id} className="stack-list__row"><div><strong>{entry.name}</strong><span>{entry.email}</span></div><div className="stack-list__meta"><StatusPill tone="critical">已拉黑</StatusPill><span>{formatDateTime(entry.blacklistedAt)}</span></div></div>)}
+              {!admin.data.blacklist.length ? <div className="state-block"><strong>暂无黑名单</strong><p>点击注册审核中的“不通过并拉黑”后会显示在这里。</p></div> : null}
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {tab === '黑名单记录' ? (
+        <article className="panel">
+          <div className="panel__head"><div><h2>黑名单记录</h2><p>被拉黑后，同一邮箱或手机号不能再次注册；可在这里解除拉黑。</p></div><StatusPill tone={visibleBlacklist.length ? 'critical' : 'muted'}>{visibleBlacklist.length} 人</StatusPill></div>
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>姓名</th><th>邮箱</th><th>手机号</th><th>地区</th><th>原因</th><th>拉黑时间</th><th>操作</th></tr></thead>
+              <tbody>
+                {visibleBlacklist.length ? visibleBlacklist.map((entry) => <tr key={entry.id}><td><strong>{entry.name}</strong></td><td>{entry.email}</td><td>{entry.phone}</td><td>{entry.country}</td><td>{entry.reason}</td><td>{formatDateTime(entry.blacklistedAt)}</td><td><button type="button" className="btn btn--ghost btn--sm" onClick={() => void restoreBlacklist(entry.id)}>解除拉黑</button></td></tr>) : <tr><td colSpan={7}><div className="empty-inline"><span>暂无黑名单记录。</span></div></td></tr>}
+              </tbody>
+            </table>
           </div>
         </article>
       ) : null}

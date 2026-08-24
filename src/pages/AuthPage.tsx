@@ -6,11 +6,9 @@ import { brand } from '@/data/brand';
 import { useAuth } from '@/context/auth-context';
 import { EmptyState } from '@/components/Stats';
 import { useLanguage } from '@/context/language-context';
-import { readStorage, writeStorage } from '@/lib/storage';
-import { hashSecret, isValidEmail, isValidInternationalPhone } from '@/lib/auth';
+import { isValidEmail, isValidInternationalPhone } from '@/lib/auth';
 import { buildInternationalPhone, countryDirectory, defaultCountry, getCountryOption, isValidCountryPhone, phoneDigitsHint } from '@/data/countries';
-import { apiFetch, ApiError, isApiUnavailable } from '@/lib/api';
-import type { RegisteredUser } from '@/types';
+import { apiFetch } from '@/lib/api';
 
 export function AuthPage() {
   const { mode } = useParams();
@@ -86,12 +84,6 @@ export function AuthPage() {
         setError(`请输入 ${selectedCountry.name} 的完整手机号：国家区号 +${selectedCountry.dialCode} 后需要 ${phoneDigitsHint(selectedCountry)} 位号码。`);
         return;
       }
-      const current = readStorage<RegisteredUser[]>('pendingRegistrations', []);
-      const duplicate = current.some((item) => item.gmail.toLowerCase() === form.gmail.trim().toLowerCase() || item.phone.replace(/\D/g, '') === form.phone.replace(/\D/g, ''));
-      if (duplicate) {
-        setError('这个邮箱或手机号已经提交过注册申请，请直接登录或联系后台。');
-        return;
-      }
       if (form.password.length < 8) {
         setError('auth.errorPasswordLength');
         return;
@@ -114,26 +106,9 @@ export function AuthPage() {
         setSuccess('账号已创建，可以直接登录。');
         return;
       } catch (error) {
-        if (!(error instanceof ApiError) || !isApiUnavailable(error)) {
-          setError(error instanceof Error ? error.message : '注册失败，请稍后重试。');
-          return;
-        }
+        setError(error instanceof Error ? error.message : '注册失败，请稍后重试。');
+        return;
       }
-      const passwordDigest = await hashSecret(form.password);
-      const next: RegisteredUser = {
-        id: crypto.randomUUID(),
-        fullName: form.name.trim(),
-        gmail: form.gmail.trim(),
-        phone: buildInternationalPhone(selectedCountry, form.phone),
-        country: form.country.trim(),
-        status: 'approved',
-        submittedAt: new Date().toISOString(),
-        tradingScore: 0,
-        passwordDigest,
-      };
-      writeStorage('pendingRegistrations', [next, ...current]);
-      setSuccess('账号已创建，可以直接登录。');
-      return;
     }
 
     if (!form.identifier.trim() || !form.password) {
@@ -161,35 +136,9 @@ export function AuthPage() {
       navigate('/app/dashboard');
       return;
     } catch (error) {
-      if (!(error instanceof ApiError) || !isApiUnavailable(error)) {
-        setError(error instanceof Error ? error.message : '登录失败，请稍后重试。');
-        return;
-      }
-    }
-    const registered = readStorage<RegisteredUser[]>('pendingRegistrations', []);
-    const normalizedIdentifier = delivery === 'email' ? form.identifier.trim().toLowerCase() : form.identifier.replace(/\D/g, '');
-    const account = registered.find((item) => delivery === 'email' ? item.gmail.toLowerCase() === normalizedIdentifier : item.phone.replace(/\D/g, '') === normalizedIdentifier);
-    if (!account) {
-      setError('没有找到这个账号，请先注册。');
+      setError(error instanceof Error ? error.message : '登录失败，请稍后重试。');
       return;
     }
-    if (account.status !== 'approved') {
-      setError('这个账号还在审核中，审核通过后才能登录。');
-      return;
-    }
-    if (!account.passwordDigest || account.passwordDigest !== await hashSecret(form.password)) {
-      setError('邮箱或手机号与密码不匹配。');
-      return;
-    }
-    signIn({
-      name: account.fullName,
-      email: account.gmail,
-      phone: account.phone,
-      country: account.country,
-      role: 'user',
-      tradingScore: account.tradingScore,
-    });
-    navigate('/app/dashboard');
   };
 
   return (

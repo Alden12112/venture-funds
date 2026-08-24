@@ -20,6 +20,8 @@ const memorySupportMessages = [];
 const memoryTradeEvents = [];
 const memoryCreditAccounts = new Map();
 const memoryCreditRequests = new Map();
+const memoryBlacklist = new Map();
+const memoryNotifications = [];
 const marketProxyCache = new Map();
 const marketProxyTtlMs = 8_000;
 const newsProxyCache = new Map();
@@ -219,6 +221,27 @@ async function initDatabase() {
       trading_score INTEGER NOT NULL DEFAULT 60,
       joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS ad88_blacklist (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      phone TEXT NOT NULL UNIQUE,
+      country TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      blacklisted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      blacklisted_by TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS ad88_notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      level TEXT NOT NULL,
+      target_path TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS ad88_user_state (
       user_id TEXT NOT NULL,
       state_key TEXT NOT NULL,
@@ -324,6 +347,16 @@ async function accountExists(email, phone) {
   return [...memoryAccounts.values()].some((account) => account.email === email.toLowerCase() || normalizePhone(account.phone) === normalizePhone(phone));
 }
 
+async function isBlacklisted(email, phone) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedPhone = normalizePhone(phone);
+  if (pool) {
+    const result = await pool.query(`SELECT 1 FROM ad88_blacklist WHERE LOWER(email) = $1 OR regexp_replace(phone, '[^0-9]', '', 'g') = $2 LIMIT 1`, [normalizedEmail, normalizedPhone]);
+    return result.rowCount > 0;
+  }
+  return [...memoryBlacklist.values()].some((entry) => entry.email === normalizedEmail || normalizePhone(entry.phone) === normalizedPhone);
+}
+
 async function saveAccount(account, password) {
   const passwordHash = hashPassword(password);
   if (pool) {
@@ -351,6 +384,7 @@ async function deleteAccount(id) {
     await pool.query('DELETE FROM ad88_ledger_entries WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_credit_requests WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_credit_accounts WHERE user_id = $1', [id]);
+    await pool.query('DELETE FROM ad88_notifications WHERE user_id = $1', [id]);
   } else {
     const account = memoryAccounts.get(id);
     if (account?.role !== 'admin') {
@@ -359,6 +393,7 @@ async function deleteAccount(id) {
       memoryTradeEvents.splice(0, memoryTradeEvents.length, ...memoryTradeEvents.filter((item) => item.userId !== id));
       memoryCreditRequests.forEach((item, key) => { if (item.userId === id) memoryCreditRequests.delete(key); });
       memoryCreditAccounts.delete(id);
+      memoryNotifications.splice(0, memoryNotifications.length, ...memoryNotifications.filter((item) => item.userId !== id));
     }
     memoryState.delete(id);
   }
@@ -369,14 +404,56 @@ function sessionResponse(account) {
   return { session: normalized, token: createToken({ sub: normalized.id, email: normalized.email, name: normalized.name, phone: normalized.phone, role: normalized.role }) };
 }
 
+function normalizeNotification(row) {
+  return {
+    id: row.id,
+    category: row.category,
+    title: row.title,
+    body: row.body,
+    level: row.level,
+    read: false,
+    targetPath: row.targetPath ?? row.target_path ?? undefined,
+    createdAt: row.createdAt ?? row.created_at,
+  };
+}
+
+async function createNotification(userId, category, title, body, level = 'info', targetPath) {
+  const notification = { id: randomUUID(), userId, category, title, body, level, targetPath: targetPath || null, createdAt: new Date().toISOString() };
+  if (pool) {
+    await pool.query('INSERT INTO ad88_notifications (id,user_id,category,title,body,level,target_path,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [notification.id, notification.userId, notification.category, notification.title, notification.body, notification.level, notification.targetPath, notification.createdAt]);
+  } else {
+    memoryNotifications.push(notification);
+  }
+  return normalizeNotification(notification);
+}
+
+async function listNotifications(session, all = false) {
+  if (pool) {
+    const result = all
+      ? await pool.query('SELECT * FROM ad88_notifications ORDER BY created_at DESC LIMIT 500')
+      : await pool.query('SELECT * FROM ad88_notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100', [session.sub]);
+    return result.rows.map(normalizeNotification);
+  }
+  return memoryNotifications.filter((item) => all || item.userId === session.sub).slice().reverse().map(normalizeNotification);
+}
+
+async function handleNotifications(req, res, requestUrl) {
+  const session = requireSession(req, res);
+  if (!session) return true;
+  if (req.method === 'GET' && requestUrl.pathname === '/api/notifications') return sendJson(res, 200, await listNotifications(session));
+  return sendJson(res, 404, { error: 'notification route not found' });
+}
+
 async function handleAuth(req, res, requestUrl) {
   if (req.method === 'POST' && requestUrl.pathname === '/api/auth/register') {
     if (appSurface === 'admin') return sendJson(res, 403, { error: '管理员服务不开放前台注册' });
     const input = validateCredentials(await readBody(req));
     if (input.error) return sendJson(res, 400, input);
+    if (await isBlacklisted(input.email, input.phone)) return sendJson(res, 403, { error: 'registration is blocked' });
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
     const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Core', tradingScore: 0, joinedAt: new Date().toISOString() }, input.password);
     await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
+    await createNotification(account.id, 'system', '账号已自动通过', '你的账号已创建，并已同步至后台审核记录。', 'success', '/app/settings');
     return sendJson(res, 201, sessionResponse(account));
   }
 
@@ -400,21 +477,109 @@ async function handleAuth(req, res, requestUrl) {
   return false;
 }
 
+function normalizeBlacklistEntry(row) {
+  return {
+    id: row.id,
+    userId: row.userId ?? row.user_id,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    country: row.country,
+    reason: row.reason || '',
+    blacklistedAt: row.blacklistedAt ?? row.blacklisted_at,
+    blacklistedBy: row.blacklistedBy ?? row.blacklisted_by ?? '',
+  };
+}
+
+async function listBlacklistEntries() {
+  if (pool) {
+    const result = await pool.query('SELECT * FROM ad88_blacklist ORDER BY blacklisted_at DESC LIMIT 500');
+    return result.rows.map(normalizeBlacklistEntry);
+  }
+  return [...memoryBlacklist.values()].sort((left, right) => new Date(right.blacklistedAt).getTime() - new Date(left.blacklistedAt).getTime()).map(normalizeBlacklistEntry);
+}
+
+async function blacklistAccount(accountId, session, reason) {
+  const account = await findAccountById(accountId);
+  if (!account || account.role === 'admin') return null;
+  const entry = {
+    id: randomUUID(),
+    userId: account.id,
+    name: account.name,
+    email: account.email,
+    phone: account.phone,
+    country: account.country,
+    reason: String(reason || '注册审核不通过').trim().slice(0, 240),
+    blacklistedAt: new Date().toISOString(),
+    blacklistedBy: session.email || session.name || 'AD88 Admin',
+  };
+  if (pool) {
+    const existing = await pool.query('SELECT id FROM ad88_blacklist WHERE user_id = $1 LIMIT 1', [account.id]);
+    if (existing.rowCount) {
+      await pool.query('UPDATE ad88_blacklist SET reason=$2, blacklisted_at=$3, blacklisted_by=$4 WHERE user_id=$1', [account.id, entry.reason, entry.blacklistedAt, entry.blacklistedBy]);
+      await pool.query('UPDATE ad88_accounts SET status=$2 WHERE id=$1', [account.id, 'locked']);
+      const updated = await pool.query('SELECT * FROM ad88_blacklist WHERE user_id = $1', [account.id]);
+      return normalizeBlacklistEntry(updated.rows[0]);
+    }
+    await pool.query('UPDATE ad88_accounts SET status=$2 WHERE id=$1', [account.id, 'locked']);
+    await pool.query('INSERT INTO ad88_blacklist (id,user_id,name,email,phone,country,reason,blacklisted_at,blacklisted_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [entry.id, entry.userId, entry.name, entry.email, entry.phone, entry.country, entry.reason, entry.blacklistedAt, entry.blacklistedBy]);
+  } else {
+    const accountRecord = memoryAccounts.get(account.id);
+    if (accountRecord) memoryAccounts.set(account.id, { ...accountRecord, status: 'locked' });
+    const existing = [...memoryBlacklist.values()].find((item) => item.userId === account.id);
+    if (existing) memoryBlacklist.set(existing.id, { ...existing, ...entry, id: existing.id });
+    else memoryBlacklist.set(entry.id, entry);
+  }
+  return normalizeBlacklistEntry(entry);
+}
+
+async function restoreBlacklistEntry(id) {
+  if (pool) {
+    const result = await pool.query('SELECT * FROM ad88_blacklist WHERE id = $1 LIMIT 1', [id]);
+    if (!result.rowCount) return null;
+    const entry = normalizeBlacklistEntry(result.rows[0]);
+    await pool.query('UPDATE ad88_accounts SET status=$2 WHERE id=$1 AND role <> $3', [entry.userId, 'active', 'admin']);
+    await pool.query('DELETE FROM ad88_blacklist WHERE id=$1', [id]);
+    return entry;
+  }
+  const entry = memoryBlacklist.get(id);
+  if (!entry) return null;
+  const account = memoryAccounts.get(entry.userId);
+  if (account && account.role !== 'admin') memoryAccounts.set(entry.userId, { ...account, status: 'active' });
+  memoryBlacklist.delete(id);
+  return normalizeBlacklistEntry(entry);
+}
+
 async function handleAdmin(req, res, requestUrl) {
-  if (!requireSession(req, res, 'admin')) return true;
+  const session = requireSession(req, res, 'admin');
+  if (!session) return true;
   if (req.method === 'GET' && requestUrl.pathname === '/api/admin/users') return sendJson(res, 200, await listAccounts());
+  if (req.method === 'GET' && requestUrl.pathname === '/api/admin/blacklist') return sendJson(res, 200, await listBlacklistEntries());
 
   if (req.method === 'POST' && requestUrl.pathname === '/api/admin/users') {
     const body = await readBody(req);
     const input = validateCredentials(body);
     if (input.error) return sendJson(res, 400, input);
+    if (await isBlacklisted(input.email, input.phone)) return sendJson(res, 403, { error: 'registration is blocked' });
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
     const requestedRole = body.role === 'admin' ? 'admin' : 'user';
     const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: requestedRole, status: 'active', tier: requestedRole === 'admin' ? 'Enterprise' : 'Core', tradingScore: requestedRole === 'admin' ? 100 : 0, joinedAt: new Date().toISOString() }, input.password);
     await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
+    await createNotification(account.id, 'system', '后台已创建账号', '账号已由后台创建，并已自动通过审核。', 'success', '/app/settings');
     return sendJson(res, 201, normalizeAccount(account));
   }
 
+  const blacklistMatch = requestUrl.pathname.match(/^\/api\/admin\/users\/([^/]+)\/blacklist$/);
+  if (req.method === 'POST' && blacklistMatch) {
+    const body = await readBody(req);
+    const entry = await blacklistAccount(blacklistMatch[1], session, body.reason);
+    return entry ? sendJson(res, 200, entry) : sendJson(res, 404, { error: 'account not found' });
+  }
+  const restoreMatch = requestUrl.pathname.match(/^\/api\/admin\/blacklist\/([^/]+)\/restore$/);
+  if (req.method === 'POST' && restoreMatch) {
+    const entry = await restoreBlacklistEntry(restoreMatch[1]);
+    return entry ? sendJson(res, 200, entry) : sendJson(res, 404, { error: 'blacklist entry not found' });
+  }
   const match = requestUrl.pathname.match(/^\/api\/admin\/users\/([^/]+)$/);
   if (req.method === 'DELETE' && match) {
     const account = await findAccountById(match[1]);
@@ -559,7 +724,9 @@ async function handleAdminCredits(req, res, requestUrl) {
     const target = await findAccountById(targetId);
     if (!target) return sendJson(res, 404, { error: 'account not found' });
     const account = await getOrCreateCreditAccount({ sub: target.id, name: target.name, email: target.email });
-    return sendJson(res, 200, await updateCreditAccount({ ...account, userName: target.name, email: target.email, balance: account.balance + amount, available: account.available + amount, grantedTotal: account.grantedTotal + amount, updatedAt: new Date().toISOString() }));
+    const updated = await updateCreditAccount({ ...account, userName: target.name, email: target.email, balance: account.balance + amount, available: account.available + amount, grantedTotal: account.grantedTotal + amount, updatedAt: new Date().toISOString() });
+    await createNotification(target.id, 'fund', 'U 余额已更新', `后台已发放 ${amount} U 到你的账户。`, 'success', '/app/dashboard');
+    return sendJson(res, 200, updated);
   }
   if (req.method === 'POST' && requestUrl.pathname === '/api/admin/credits/approve') {
     const input = await readBody(req);
@@ -580,6 +747,7 @@ async function handleAdminCredits(req, res, requestUrl) {
     } else {
       memoryCreditRequests.set(id, { ...target, status: 'approved', reviewedAt, reviewer: session.name });
     }
+    await createNotification(target.userId, 'fund', 'U 申请已通过', `你的 ${target.amount} U 申请已由后台通过。`, 'success', '/app/dashboard');
     return sendJson(res, 200, { ...target, status: 'approved', reviewedAt, reviewer: session.name });
   }
   return sendJson(res, 404, { error: 'admin credits route not found' });
@@ -772,6 +940,13 @@ async function handleAdminTrades(req, res, requestUrl) {
   return sendJson(res, 404, { error: 'admin trade route not found' });
 }
 
+async function handleAdminNotifications(req, res, requestUrl) {
+  const session = requireSession(req, res, 'admin');
+  if (!session) return true;
+  if (req.method === 'GET' && requestUrl.pathname === '/api/admin/notifications') return sendJson(res, 200, await listNotifications(session, true));
+  return sendJson(res, 404, { error: 'admin notification route not found' });
+}
+
 function normalizeLedgerEntry(row) {
   return {
     id: row.id,
@@ -783,14 +958,16 @@ function normalizeLedgerEntry(row) {
     note: row.note || '',
     refId: row.refId ?? row.ref_id,
     direction: row.direction,
+    userEmail: row.userEmail ?? row.user_email,
+    userName: row.userName ?? row.user_name,
   };
 }
 
 async function listLedgerEntries(session, all = false) {
   if (pool) {
     const result = all
-      ? await pool.query('SELECT * FROM ad88_ledger_entries ORDER BY time DESC LIMIT 500')
-      : await pool.query('SELECT * FROM ad88_ledger_entries WHERE user_id = $1 ORDER BY time DESC LIMIT 500', [session.sub]);
+      ? await pool.query('SELECT ledger.*, account.email AS user_email, account.name AS user_name FROM ad88_ledger_entries ledger LEFT JOIN ad88_accounts account ON account.id = ledger.user_id ORDER BY ledger.time DESC LIMIT 500')
+      : await pool.query('SELECT ledger.*, account.email AS user_email, account.name AS user_name FROM ad88_ledger_entries ledger LEFT JOIN ad88_accounts account ON account.id = ledger.user_id WHERE ledger.user_id = $1 ORDER BY ledger.time DESC LIMIT 500', [session.sub]);
     return result.rows.map(normalizeLedgerEntry);
   }
   return [];
@@ -853,6 +1030,7 @@ async function handleSupport(req, res, requestUrl) {
     } else {
       memorySupportMessages.push(message);
     }
+    if (session.role === 'admin') await createNotification(userId, 'task', '客服有新回复', '后台客服已回复你的消息。', 'info', '/app/support');
     return sendJson(res, 201, message);
   }
   return sendJson(res, 404, { error: 'support route not found' });
@@ -1141,6 +1319,15 @@ const server = http.createServer(async (req, res) => {
   try {
     await databaseReady;
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
+    if (req.method === 'GET' && requestUrl.pathname === '/health') {
+      return sendJson(res, 200, {
+        status: 'ok',
+        surface: appSurface,
+        storage: pool ? 'postgres' : 'memory',
+        adminProxy: Boolean(appSurface === 'admin' && remoteApiOrigin),
+        checkedAt: new Date().toISOString(),
+      });
+    }
     if (appSurface === 'admin' && remoteApiOrigin && requestUrl.pathname === '/api/auth/login') {
       const input = await readBody(req);
       if (!adminEmail || !adminPassword) return sendJson(res, 503, { error: 'admin credentials are not configured' });
@@ -1158,6 +1345,7 @@ const server = http.createServer(async (req, res) => {
       if (handled !== false) return;
     }
     if (requestUrl.pathname.startsWith('/api/admin/trades')) return handleAdminTrades(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/admin/notifications')) return handleAdminNotifications(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/credits/')) return handleAdminCredits(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/')) return handleAdmin(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/trades')) return handleTrades(req, res, requestUrl);
@@ -1165,6 +1353,7 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname.startsWith('/api/credits/')) return handleCredits(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/profile')) return handleProfile(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/support/')) return handleSupport(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/notifications')) return handleNotifications(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/sync')) return handleSync(req, res, requestUrl);
     if (requestUrl.pathname === '/api/market') return proxyMarket(res, requestUrl);
     if (requestUrl.pathname === '/api/news') return proxyNews(res, requestUrl);
