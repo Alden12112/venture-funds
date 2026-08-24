@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { SessionRole, UserProfile } from '@/types';
 import { readStorage, removeStorage, writeStorage } from '@/lib/storage';
-import { apiFetch, getAuthToken, setAuthToken } from '@/lib/api';
+import { ApiError, apiFetch, getAuthToken, setAuthToken } from '@/lib/api';
 
 interface SessionState {
   id: string;
@@ -29,7 +29,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(() => readStorage('profile', null));
 
   useEffect(() => {
-    setReady(true);
+    let cancelled = false;
+    const token = getAuthToken();
+    if (!session || !token) {
+      setReady(true);
+      return () => { cancelled = true; };
+    }
+    // Validate a persisted token before rendering protected pages. A Render
+    // redeploy or secret rotation should return the visitor to the appropriate
+    // login screen rather than showing a broken admin workspace.
+    void apiFetch<UserProfile>('/api/auth/me')
+      .then((account) => {
+        if (cancelled) return;
+        setSession({
+          id: account.id,
+          name: account.name,
+          email: account.email,
+          phone: account.phone ?? '',
+          role: account.role,
+          tradingScore: Number(account.tradingScore ?? (account.role === 'admin' ? 100 : 0)),
+        });
+        setProfile(account);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        if (error instanceof ApiError && [401, 403, 404].includes(error.status)) {
+          setSession(null);
+          setProfile(null);
+          setAuthToken(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -41,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [profile]);
 
   useEffect(() => {
-    if (!session || !getAuthToken()) return;
+    if (!ready || !session || !getAuthToken()) return;
     let cancelled = false;
     void apiFetch<Record<string, unknown>>('/api/sync').then((remoteState) => {
       if (cancelled) return;
@@ -57,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!cancelled) setProfile(remoteProfile);
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [session?.id]);
+  }, [ready, session?.id]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

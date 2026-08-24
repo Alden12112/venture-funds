@@ -2,6 +2,7 @@ services:
   - type: web
     name: ad88-platform
     runtime: node
+    autoDeploy: true
     buildCommand: npm ci && npm run build
     startCommand: npm run start
     healthCheckPath: /health
@@ -26,6 +27,7 @@ services:
   - type: web
     name: ad88-admin
     runtime: node
+    autoDeploy: true
     buildCommand: npm ci && npm run build
     startCommand: npm run start
     healthCheckPath: /health
@@ -43,9 +45,15 @@ services:
           name: ad88-platform
           envVarKey: AUTH_SECRET
       - key: AD88_ADMIN_EMAIL
-        sync: false
+        fromService:
+          type: web
+          name: ad88-platform
+          envVarKey: AD88_ADMIN_EMAIL
       - key: AD88_ADMIN_PASSWORD
-        sync: false
+        fromService:
+          type: web
+          name: ad88-platform
+          envVarKey: AD88_ADMIN_PASSWORD
 
 databases:
   - name: ad88-postgres

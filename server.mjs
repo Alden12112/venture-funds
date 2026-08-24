@@ -7,6 +7,7 @@ import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
 const port = Number(process.env.PORT || 10000);
+const deploymentRevision = String(process.env.RENDER_GIT_COMMIT || process.env.SOURCE_VERSION || '').trim().slice(0, 12);
 const authSecret = process.env.AUTH_SECRET || 'ad88-local-change-me';
 const adminEmail = (process.env.AD88_ADMIN_EMAIL || '').trim().toLowerCase();
 const adminPassword = process.env.AD88_ADMIN_PASSWORD || '';
@@ -31,6 +32,15 @@ const memoryBlacklist = new Map();
 const memoryNotifications = [];
 const marketProxyCache = new Map();
 const marketProxyTtlMs = 8_000;
+// Twelve Data remains an optional server-only fallback. Its free tier is not
+// suited to polling every instrument every few seconds, so the multi-asset
+// public snapshot remains primary and Twelve calls are rate-bounded.
+const twelveQuoteCache = new Map();
+const twelveQuoteTtlMs = 60_000;
+const twelveNegativeQuoteTtlMs = 5 * 60_000;
+const twelveQuoteWindowMs = 60_000;
+const twelveQuoteWindowLimit = 6;
+let twelveQuoteWindow = { startedAt: 0, used: 0 };
 const spotMetalCache = new Map();
 const spotMetalTtlMs = 8_000;
 let marketQuoteSnapshotCache = { expiresAt: 0, value: null, builtAt: 0, snapshotId: '' };
@@ -512,6 +522,25 @@ async function handleAuth(req, res, requestUrl) {
     if (!account || !verifyPassword(password, account.password_hash)) return sendJson(res, 401, { error: 'email, phone or password is incorrect' });
     if (account.status !== 'active' && account.status !== 'approved') return sendJson(res, 403, { error: 'account is not active' });
     return sendJson(res, 200, sessionResponse(account));
+  }
+
+  // Restore a persisted browser session before any protected workspace is
+  // loaded. This prevents an expired admin token from briefly rendering the
+  // console as an "unavailable" backend and makes the independent login flow
+  // deterministic after a deploy or a secret rotation.
+  if (req.method === 'GET' && requestUrl.pathname === '/api/auth/me') {
+    const session = requireSession(req, res);
+    if (!session) return true;
+    if (session.sub === 'env-admin') {
+      return sendJson(res, 200, {
+        id: 'env-admin', name: 'AD88 Administrator', email: adminEmail,
+        phone: '', country: 'Global', role: 'admin', status: 'active',
+        tier: 'Enterprise', tradingScore: 100, joinedAt: new Date().toISOString(),
+      });
+    }
+    const account = await findAccountById(session.sub);
+    if (!account) return sendJson(res, 404, { error: 'account not found' });
+    return sendJson(res, 200, normalizeAccount(account));
   }
 
   return false;
@@ -1077,8 +1106,11 @@ async function handleSupport(req, res, requestUrl) {
 }
 
 const twelveDataSymbols = {
-  'GC=F': 'XAU/USD', 'SI=F': 'XAG/USD', 'CL=F': 'WTI/USD', 'NG=F': 'NATGAS/USD', 'HG=F': 'COPPER/USD',
-  SCCO: 'SCCO', 'BZ=F': 'BRENT/USD', 'HO=F': 'HO/USD', 'RB=F': 'RBOB/USD', 'LGO=F': 'GASOIL/USD', 'BTC-USD': 'BTC/USD', 'ETH-USD': 'ETH/USD', 'SOL-USD': 'SOL/USD',
+  // Twelve Data supports FX and digital assets well on its free plan. Its
+  // WTI/NatGas aliases are not valid quote symbols, so energy and metals stay
+  // on the validated public market snapshot below instead of becoming stale
+  // or falling back to a fabricated price.
+  'GC=F': 'XAU/USD', 'SI=F': 'XAG/USD', 'BTC-USD': 'BTC/USD', 'ETH-USD': 'ETH/USD', 'SOL-USD': 'SOL/USD',
   'XRP-USD': 'XRP/USD', 'LINK-USD': 'LINK/USD', 'AVAX-USD': 'AVAX/USD', 'EURUSD=X': 'EUR/USD',
   'GBPUSD=X': 'GBP/USD', 'JPY=X': 'USD/JPY', 'AUDUSD=X': 'AUD/USD', 'CAD=X': 'USD/CAD',
 };
@@ -1111,8 +1143,13 @@ function twelveInterval(interval) {
   return intervals[interval] || '15min';
 }
 
-function buildTwelveChartPayload(payload) {
+function buildTwelveChartPayload(payload, requestedInterval) {
   const values = Array.isArray(payload?.values) ? payload.values.slice().reverse() : [];
+  const needsIntradaySeries = !['1d', '1wk', '1mo'].includes(requestedInterval);
+  // A date-only value is an end-of-day response. Never draw it as an M1/M5
+  // chart, because that would make the ticket look live while its candles are
+  // actually delayed by a full session.
+  if (needsIntradaySeries && !values.some((value) => /\d{1,2}:\d{2}/.test(String(value?.datetime || '')))) return null;
   const candles = values.map((value) => ({
     time: Math.floor(new Date(`${String(value.datetime).replace(' ', 'T')}Z`).getTime() / 1000),
     open: Number(value.open), high: Number(value.high), low: Number(value.low), close: Number(value.close), volume: Number(value.volume || 0),
@@ -1155,12 +1192,25 @@ async function loadTwelveMarket(symbol, interval) {
   upstream.searchParams.set('apikey', twelveDataApiKey);
   const response = await fetch(upstream, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
   if (!response.ok) return null;
-  return buildTwelveChartPayload(await response.json());
+  return buildTwelveChartPayload(await response.json(), interval);
+}
+
+function reserveTwelveQuoteRequest() {
+  const now = Date.now();
+  if (now - twelveQuoteWindow.startedAt >= twelveQuoteWindowMs) {
+    twelveQuoteWindow = { startedAt: now, used: 0 };
+  }
+  if (twelveQuoteWindow.used >= twelveQuoteWindowLimit) return false;
+  twelveQuoteWindow.used += 1;
+  return true;
 }
 
 async function loadTwelveQuote(providerSymbol) {
   const twelveSymbol = twelveDataSymbols[providerSymbol];
   if (!twelveDataApiKey || !twelveSymbol) return null;
+  const cached = twelveQuoteCache.get(providerSymbol);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (!reserveTwelveQuoteRequest()) return null;
   const upstream = new URL('https://api.twelvedata.com/quote');
   upstream.searchParams.set('symbol', twelveSymbol);
   upstream.searchParams.set('apikey', twelveDataApiKey);
@@ -1168,16 +1218,25 @@ async function loadTwelveQuote(providerSymbol) {
   if (!response.ok) return null;
   const payload = await response.json();
   const price = Number(payload.close ?? payload.price);
-  if (!Number.isFinite(price) || price <= 0) return null;
+  const rawTimestamp = String(payload.datetime || '');
+  // A free-plan quote with only a date is end-of-day data. Keep it out of the
+  // live quote path; TradingView/spot/Yahoo can continue supplying the current
+  // snapshot instead.
+  if (!Number.isFinite(price) || price <= 0 || !/\d{1,2}:\d{2}/.test(rawTimestamp)) {
+    twelveQuoteCache.set(providerSymbol, { expiresAt: Date.now() + twelveNegativeQuoteTtlMs, value: null });
+    return null;
+  }
   const previous = Number(payload.previous_close ?? payload.prev_close);
-  return {
+  const value = {
     price,
     change24h: Number.isFinite(Number(payload.percent_change)) ? Number(payload.percent_change) : previous > 0 ? ((price - previous) / previous) * 100 : 0,
     volume24h: Number(payload.volume) || 0,
-    quoteUpdatedAt: payload.datetime ? new Date(`${String(payload.datetime).replace(' ', 'T')}Z`).toISOString() : new Date().toISOString(),
+    quoteUpdatedAt: new Date(`${rawTimestamp.replace(' ', 'T')}Z`).toISOString(),
     provider: 'Twelve Data',
     fallback: false,
   };
+  twelveQuoteCache.set(providerSymbol, { expiresAt: Date.now() + twelveQuoteTtlMs, value });
+  return value;
 }
 
 // Gold API is a keyless spot-metal quote. It is a better reference for XAUUSD
@@ -1321,12 +1380,6 @@ async function buildMarketQuoteSnapshot() {
     if (cryptoQuoteSymbols.has(symbol)) {
       try { quote = await loadCoinbaseQuote(providerSymbol); } catch { quote = null; }
     }
-    // If the operator has configured a server-side Twelve Data key, honor it
-    // first for symbols it supports. When it is absent, rate-limited or
-    // rejects a symbol, use the public multi-asset snapshot below.
-    if (!quote && twelveDataApiKey) {
-      try { quote = await loadTwelveQuote(providerSymbol); } catch { quote = null; }
-    }
     // Prefer one public market snapshot for spot metals, futures, FX and
     // indices. This keeps the table, ticker and trade ticket on the same
     // reference price instead of mixing a stale futures quote with spot gold.
@@ -1334,7 +1387,10 @@ async function buildMarketQuoteSnapshot() {
     if (!quote && (symbol === 'XAU' || symbol === 'XAG')) {
       try { quote = await loadSpotMetalQuote(symbol); } catch { quote = null; }
     }
-    if (!quote && !twelveDataApiKey) {
+    // Twelve Data is only a rate-bounded fallback. The free tier cannot safely
+    // serve thirty real-time instruments every eight seconds, while the batch
+    // snapshot above can keep the whole catalogue aligned.
+    if (!quote && twelveDataApiKey) {
       try { quote = await loadTwelveQuote(providerSymbol); } catch { quote = null; }
     }
     if (!quote) {
@@ -1670,6 +1726,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         status: 'ok',
         surface: appSurface,
+        revision: deploymentRevision || undefined,
         // The admin deployment intentionally has no independent database. It
         // proxies privileged requests to the frontend API, which owns the
         // shared PostgreSQL connection, so it cannot drift into a second store.

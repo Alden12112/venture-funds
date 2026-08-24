@@ -30,12 +30,17 @@ The production output is generated in `dist/`.
 
 Both services share `AUTH_SECRET`; the admin service forwards account, support, trade, workspace, market and news API calls to the frontend service, so the two addresses see the same live data and quote snapshot. The two bundles are built with different `VITE_APP_SURFACE` values and the server also enforces `APP_SURFACE` at runtime.
 
-When the blueprint is first applied, set the two private admin values on `ad88-platform`:
+When the blueprint is first applied, set the two private admin values on
+`ad88-platform` using the exact variable names below. The email and password
+belong in the **Value** column; do not use an email address as an environment
+variable key.
 
 - `AD88_ADMIN_EMAIL`: the administrator email used only for `/admin` login
 - `AD88_ADMIN_PASSWORD`: the administrator password stored only as a Render secret
 
-The admin service reads those values from the frontend service through Render's private `fromService` environment references. Do not put the password in GitHub, source files, or client-side environment variables.
+The admin service inherits those values and `AUTH_SECRET` from the frontend
+service through Render's private `fromService` environment references. Do not
+put the password in GitHub, source files, or client-side environment variables.
 
 The blueprint generates `AUTH_SECRET` and provisions `ad88-postgres`; its connection string is injected into the frontend as `DATABASE_URL`. The server creates the account, ledger, support, trade-audit, credits, notification and blacklist tables on startup. If the Render account no longer offers the free Postgres plan, Blueprint sync will require selecting the lowest available managed Postgres plan before the database can be created. Do not use a demo password in production.
 

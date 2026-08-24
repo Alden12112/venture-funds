@@ -8,7 +8,7 @@ import { loadNewsBundle } from '@/adapters/news-adapter';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { approveRemoteCreditRequest, grantRemoteCredits } from '@/lib/credits';
 import { buildInternationalPhone, countryDirectory, getCountryOption, isValidCountryPhone, phoneDigitsHint } from '@/data/countries';
 import { isValidEmail } from '@/lib/auth';
@@ -54,7 +54,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   useEffect(() => {
     if (admin.status === 'error' && admin.error === 'unauthorized') {
       signOut();
-      navigate('/admin/login', { replace: true });
+      navigate('/admin/login?reason=session', { replace: true });
     }
   }, [admin.error, admin.status, navigate, signOut]);
 
@@ -81,6 +81,13 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
 
   if (admin.status === 'loading') {
     return <LoadingState label="正在载入后台" />;
+  }
+
+  if (admin.status === 'error' && admin.error === 'unauthorized') {
+    // The redirect effect above clears the local token. Keep the old console
+    // from flashing an alarming error state while React moves back to the
+    // dedicated login page.
+    return <Navigate to="/admin/login?reason=session" replace />;
   }
 
   if (admin.status === 'error') {

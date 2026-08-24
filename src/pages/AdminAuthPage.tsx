@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowRight, LockKeyhole, ShieldCheck } from 'lucide-react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { brand } from '@/data/brand';
 import { useAuth } from '@/context/auth-context';
 import { apiFetch, ApiError } from '@/lib/api';
@@ -8,9 +8,11 @@ import { apiFetch, ApiError } from '@/lib/api';
 export function AdminAuthPage() {
   const { session, signIn } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const sessionExpired = new URLSearchParams(location.search).get('reason') === 'session';
 
   if (session?.role === 'admin') return <Navigate to="/admin" replace />;
 
@@ -53,6 +55,7 @@ export function AdminAuthPage() {
           <label className="field"><span>后台密码</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void handleSubmit(); }} /></label>
           <button type="button" className="btn btn--primary btn--block" onClick={() => void handleSubmit()}>进入后台 <ArrowRight size={16} /></button>
           {error ? <div className="notice-banner notice-banner--error"><LockKeyhole size={16} />{error}</div> : null}
+          {!error && sessionExpired ? <div className="notice-banner notice-banner--error"><LockKeyhole size={16} />后台会话需要重新验证；若重复跳回此页，请检查两项 Render 服务是否共享 AUTH_SECRET。</div> : null}
         </div>
         <a className="admin-auth-card__back" href="/">返回 AD88 主页</a>
       </div>
