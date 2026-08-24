@@ -129,7 +129,7 @@ export function LandingPage() {
         <div>
           <span className="status-dot status-dot--live" />
           <strong>Public market data connected</strong>
-          <span>Coinbase Exchange feed</span>
+          <span>实时市场连接</span>
         </div>
         <div>
           <strong>Sandbox by design</strong>

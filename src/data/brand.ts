@@ -26,7 +26,7 @@ export const brandMarkers = [
   },
   {
     title: '数据适配层',
-    text: '行情与新闻接入公开 API，密钥源可替换。',
+    text: '行情与新闻统一汇聚，状态清晰、节奏稳定。',
     icon: BriefcaseBusiness,
   },
 ];
