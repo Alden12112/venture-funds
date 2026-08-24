@@ -1,4 +1,5 @@
 import { readStorage, writeStorage } from '@/lib/storage';
+import { apiFetch, isApiUnavailable } from '@/lib/api';
 import type { CreditAccount, CreditRequest, SessionRole, UserProfile } from '@/types';
 
 type CreditIdentity = {
@@ -150,4 +151,99 @@ export function approveCreditRequest(requestId: string, reviewer: string) {
   );
   writeCreditAccounts(nextAccounts);
   return { requests: nextRequests, accounts: nextAccounts };
+}
+
+export async function loadRemoteCreditAccount(identity: CreditIdentity) {
+  try {
+    const account = await apiFetch<CreditAccount>('/api/credits/account');
+    const accounts = readCreditAccounts().filter((item) => item.userId !== identity.id && item.email.toLowerCase() !== identity.email.toLowerCase());
+    writeStorage('creditAccounts', [account, ...accounts], { sync: false, notify: false });
+    return account;
+  } catch (error) {
+    if (!(error instanceof Error) || !isApiUnavailable(error)) throw error;
+    return ensureCreditAccount(identity).account;
+  }
+}
+
+export async function loadRemoteCreditRequests(identity: CreditIdentity) {
+  try {
+    const requests = await apiFetch<CreditRequest[]>('/api/credits/requests');
+    const current = readCreditRequests().filter((item) => item.userId !== identity.id && item.email.toLowerCase() !== identity.email.toLowerCase());
+    writeStorage('creditRequests', [...requests, ...current], { sync: false, notify: false });
+    return requests;
+  } catch (error) {
+    if (!(error instanceof Error) || !isApiUnavailable(error)) throw error;
+    return readCreditRequests().filter((item) => item.userId === identity.id || item.email.toLowerCase() === identity.email.toLowerCase());
+  }
+}
+
+export async function createRemoteCreditRequest(identity: CreditIdentity, amount: number, reason: string) {
+  try {
+    const request = await apiFetch<CreditRequest>('/api/credits/requests', { method: 'POST', body: JSON.stringify({ amount, reason }) });
+    const requests = readCreditRequests().filter((item) => item.id !== request.id);
+    writeCreditRequests([request, ...requests]);
+    return request;
+  } catch (error) {
+    if (!(error instanceof Error) || !isApiUnavailable(error)) throw error;
+    return createCreditRequest(identity, amount, reason);
+  }
+}
+
+export async function reserveRemoteMargin(amount: number) {
+  try {
+    return await apiFetch<CreditAccount>('/api/credits/reserve', { method: 'POST', body: JSON.stringify({ amount }) });
+  } catch (error) {
+    if (!(error instanceof Error) || !isApiUnavailable(error)) return null;
+    return null;
+  }
+}
+
+export async function settleRemoteMargin(amount: number, pnl: number) {
+  try {
+    return await apiFetch<CreditAccount>('/api/credits/settle', { method: 'POST', body: JSON.stringify({ amount, pnl }) });
+  } catch (error) {
+    if (!(error instanceof Error) || !isApiUnavailable(error)) return null;
+    return null;
+  }
+}
+
+export async function loadRemoteAdminCredits() {
+  try {
+    const [accounts, requests] = await Promise.all([
+      apiFetch<CreditAccount[]>('/api/admin/credits/accounts'),
+      apiFetch<CreditRequest[]>('/api/admin/credits/requests'),
+    ]);
+    writeStorage('creditAccounts', accounts, { sync: false, notify: false });
+    writeStorage('creditRequests', requests, { sync: false, notify: false });
+    return { accounts, requests };
+  } catch (error) {
+    if (!(error instanceof Error) || !isApiUnavailable(error)) throw error;
+    return { accounts: readCreditAccounts(), requests: readCreditRequests() };
+  }
+}
+
+export async function grantRemoteCredits(identity: CreditIdentity, amount: number) {
+  try {
+    const account = await apiFetch<CreditAccount>('/api/admin/credits/grant', { method: 'POST', body: JSON.stringify({ userId: identity.id, amount }) });
+    const accounts = readCreditAccounts().filter((item) => item.userId !== account.userId);
+    writeStorage('creditAccounts', [account, ...accounts], { sync: false, notify: false });
+    return account;
+  } catch (error) {
+    if (!(error instanceof Error) || !isApiUnavailable(error)) throw error;
+    grantCredits(identity, amount);
+    return null;
+  }
+}
+
+export async function approveRemoteCreditRequest(requestId: string, reviewer: string) {
+  try {
+    const request = await apiFetch<CreditRequest>('/api/admin/credits/approve', { method: 'POST', body: JSON.stringify({ id: requestId }) });
+    const requests = readCreditRequests().map((item) => item.id === request.id ? request : item);
+    writeStorage('creditRequests', requests, { sync: false, notify: false });
+    return request;
+  } catch (error) {
+    if (!(error instanceof Error) || !isApiUnavailable(error)) throw error;
+    approveCreditRequest(requestId, reviewer);
+    return null;
+  }
 }

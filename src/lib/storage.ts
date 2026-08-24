@@ -10,9 +10,10 @@ export function readStorage<T>(key: string, fallback: T): T {
   }
 }
 
-export function writeStorage<T>(key: string, value: T, options: { sync?: boolean } = {}) {
+export function writeStorage<T>(key: string, value: T, options: { sync?: boolean; notify?: boolean } = {}) {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(prefix + key, JSON.stringify(value));
+  if (options.notify !== false) window.dispatchEvent(new CustomEvent('ad88:storage-sync', { detail: { key } }));
   if (options.sync === false || key === 'session' || key === 'profile' || key === 'auth-token') return;
   const token = window.localStorage.getItem(prefix + 'auth-token');
   if (!token) return;
@@ -30,4 +31,5 @@ export function writeStorage<T>(key: string, value: T, options: { sync?: boolean
 export function removeStorage(key: string) {
   if (typeof window === 'undefined') return;
   window.localStorage.removeItem(prefix + key);
+  window.dispatchEvent(new CustomEvent('ad88:storage-sync', { detail: { key } }));
 }

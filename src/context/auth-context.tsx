@@ -49,6 +49,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const remoteProfile = readStorage<UserProfile | null>('profile', null);
       if (remoteProfile) setProfile(remoteProfile);
     }).catch(() => undefined);
+    void apiFetch<UserProfile>('/api/profile').then((remoteProfile) => {
+      if (!cancelled) setProfile(remoteProfile);
+    }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [session?.id]);
 
@@ -102,6 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           };
           return next;
         });
+        void apiFetch<UserProfile>('/api/profile', { method: 'PUT', body: JSON.stringify(patch) }).then((remoteProfile) => setProfile(remoteProfile)).catch(() => undefined);
       },
     }),
     [profile, ready, session],

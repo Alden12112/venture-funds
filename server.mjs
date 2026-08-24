@@ -16,6 +16,8 @@ const memoryAccounts = new Map();
 const memoryState = new Map();
 const memorySupportMessages = [];
 const memoryTradeEvents = [];
+const memoryCreditAccounts = new Map();
+const memoryCreditRequests = new Map();
 const marketProxyCache = new Map();
 const marketProxyTtlMs = 8_000;
 const newsProxyCache = new Map();
@@ -249,6 +251,28 @@ async function initDatabase() {
       margin NUMERIC,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS ad88_credit_accounts (
+      user_id TEXT PRIMARY KEY,
+      user_name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      balance NUMERIC NOT NULL DEFAULT 0,
+      available NUMERIC NOT NULL DEFAULT 0,
+      pending NUMERIC NOT NULL DEFAULT 0,
+      granted_total NUMERIC NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS ad88_credit_requests (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      user_name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      amount NUMERIC NOT NULL,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      reviewed_at TIMESTAMPTZ,
+      reviewer TEXT
+    );
     ALTER TABLE ad88_support_messages ADD COLUMN IF NOT EXISTS user_phone TEXT NOT NULL DEFAULT '';
   `);
 }
@@ -308,12 +332,16 @@ async function deleteAccount(id) {
     await pool.query('DELETE FROM ad88_user_state WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_support_messages WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_trade_events WHERE user_id = $1', [id]);
+    await pool.query('DELETE FROM ad88_credit_requests WHERE user_id = $1', [id]);
+    await pool.query('DELETE FROM ad88_credit_accounts WHERE user_id = $1', [id]);
   } else {
     const account = memoryAccounts.get(id);
     if (account?.role !== 'admin') {
       memoryAccounts.delete(id);
       memorySupportMessages.splice(0, memorySupportMessages.length, ...memorySupportMessages.filter((item) => item.userId !== id));
       memoryTradeEvents.splice(0, memoryTradeEvents.length, ...memoryTradeEvents.filter((item) => item.userId !== id));
+      memoryCreditRequests.forEach((item, key) => { if (item.userId === id) memoryCreditRequests.delete(key); });
+      memoryCreditAccounts.delete(id);
     }
     memoryState.delete(id);
   }
@@ -331,6 +359,7 @@ async function handleAuth(req, res, requestUrl) {
     if (input.error) return sendJson(res, 400, input);
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
     const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Core', tradingScore: 0, joinedAt: new Date().toISOString() }, input.password);
+    await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
     return sendJson(res, 201, sessionResponse(account));
   }
 
@@ -365,6 +394,7 @@ async function handleAdmin(req, res, requestUrl) {
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
     const requestedRole = body.role === 'admin' ? 'admin' : 'user';
     const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: requestedRole, status: 'active', tier: requestedRole === 'admin' ? 'Enterprise' : 'Core', tradingScore: requestedRole === 'admin' ? 100 : 0, joinedAt: new Date().toISOString() }, input.password);
+    await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
     return sendJson(res, 201, normalizeAccount(account));
   }
 
@@ -378,10 +408,222 @@ async function handleAdmin(req, res, requestUrl) {
   return sendJson(res, 404, { error: 'admin route not found' });
 }
 
+function normalizeCreditAccount(row) {
+  return {
+    userId: row.userId ?? row.user_id,
+    userName: row.userName ?? row.user_name,
+    email: row.email,
+    balance: Number(row.balance ?? 0),
+    available: Number(row.available ?? 0),
+    pending: Number(row.pending ?? 0),
+    grantedTotal: Number(row.grantedTotal ?? row.granted_total ?? 0),
+    updatedAt: row.updatedAt ?? row.updated_at ?? new Date().toISOString(),
+  };
+}
+
+function normalizeCreditRequest(row) {
+  return {
+    id: row.id,
+    userId: row.userId ?? row.user_id,
+    userName: row.userName ?? row.user_name,
+    email: row.email,
+    amount: Number(row.amount ?? 0),
+    reason: row.reason,
+    status: row.status,
+    requestedAt: row.requestedAt ?? row.requested_at,
+    reviewedAt: row.reviewedAt ?? row.reviewed_at ?? undefined,
+    reviewer: row.reviewer ?? undefined,
+  };
+}
+
+async function getOrCreateCreditAccount(session) {
+  if (pool) {
+    const result = await pool.query('SELECT * FROM ad88_credit_accounts WHERE user_id = $1 LIMIT 1', [session.sub]);
+    if (result.rowCount) return normalizeCreditAccount(result.rows[0]);
+    const created = {
+      userId: session.sub,
+      userName: session.name,
+      email: session.email,
+      balance: 0,
+      available: 0,
+      pending: 0,
+      grantedTotal: 0,
+      updatedAt: new Date().toISOString(),
+    };
+    await pool.query('INSERT INTO ad88_credit_accounts (user_id, user_name, email, balance, available, pending, granted_total, updated_at) VALUES ($1,$2,$3,0,0,0,0,$4)', [created.userId, created.userName, created.email, created.updatedAt]);
+    return created;
+  }
+  const existing = memoryCreditAccounts.get(session.sub);
+  if (existing) return normalizeCreditAccount(existing);
+  const created = { userId: session.sub, userName: session.name, email: session.email, balance: 0, available: 0, pending: 0, grantedTotal: 0, updatedAt: new Date().toISOString() };
+  memoryCreditAccounts.set(session.sub, created);
+  return created;
+}
+
+async function listCreditAccounts() {
+  if (pool) {
+    const result = await pool.query('SELECT * FROM ad88_credit_accounts ORDER BY updated_at DESC');
+    return result.rows.map(normalizeCreditAccount);
+  }
+  return [...memoryCreditAccounts.values()].map(normalizeCreditAccount);
+}
+
+async function listCreditRequests(session, admin = false) {
+  if (pool) {
+    const result = admin
+      ? await pool.query('SELECT * FROM ad88_credit_requests ORDER BY requested_at DESC LIMIT 500')
+      : await pool.query('SELECT * FROM ad88_credit_requests WHERE user_id = $1 ORDER BY requested_at DESC LIMIT 100', [session.sub]);
+    return result.rows.map(normalizeCreditRequest);
+  }
+  return [...memoryCreditRequests.values()]
+    .filter((item) => admin || item.userId === session.sub)
+    .sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime())
+    .map(normalizeCreditRequest);
+}
+
+async function updateCreditAccount(account) {
+  const normalized = normalizeCreditAccount(account);
+  if (pool) {
+    await pool.query('UPDATE ad88_credit_accounts SET user_name=$2, email=$3, balance=$4, available=$5, pending=$6, granted_total=$7, updated_at=$8 WHERE user_id=$1', [normalized.userId, normalized.userName, normalized.email, normalized.balance, normalized.available, normalized.pending, normalized.grantedTotal, normalized.updatedAt]);
+  } else {
+    memoryCreditAccounts.set(normalized.userId, normalized);
+  }
+  return normalized;
+}
+
+async function handleCredits(req, res, requestUrl) {
+  const session = requireSession(req, res);
+  if (!session) return true;
+  if (req.method === 'GET' && requestUrl.pathname === '/api/credits/account') return sendJson(res, 200, await getOrCreateCreditAccount(session));
+  if (req.method === 'GET' && requestUrl.pathname === '/api/credits/requests') return sendJson(res, 200, await listCreditRequests(session));
+  if (req.method === 'POST' && requestUrl.pathname === '/api/credits/requests') {
+    const input = await readBody(req);
+    const amount = Math.round(Number(input.amount));
+    const reason = String(input.reason || '').trim().slice(0, 240) || '交易额度补充';
+    if (!Number.isFinite(amount) || amount < 1 || amount > 1_000_000) return sendJson(res, 400, { error: 'invalid credit request' });
+    const account = await getOrCreateCreditAccount(session);
+    const request = { id: randomUUID(), userId: session.sub, userName: session.name, email: session.email, amount, reason, status: 'pending', requestedAt: new Date().toISOString() };
+    await updateCreditAccount({ ...account, pending: account.pending + amount, updatedAt: request.requestedAt });
+    if (pool) {
+      await pool.query('INSERT INTO ad88_credit_requests (id,user_id,user_name,email,amount,reason,status,requested_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [request.id, request.userId, request.userName, request.email, request.amount, request.reason, request.status, request.requestedAt]);
+    } else {
+      memoryCreditRequests.set(request.id, request);
+    }
+    return sendJson(res, 201, normalizeCreditRequest(request));
+  }
+  if (req.method === 'POST' && requestUrl.pathname === '/api/credits/reserve') {
+    const amount = Number((await readBody(req)).amount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000) return sendJson(res, 400, { error: 'invalid reserve amount' });
+    const account = await getOrCreateCreditAccount(session);
+    if (account.available < amount) return sendJson(res, 409, { error: 'insufficient margin', account });
+    return sendJson(res, 200, await updateCreditAccount({ ...account, available: Number((account.available - amount).toFixed(2)), updatedAt: new Date().toISOString() }));
+  }
+  if (req.method === 'POST' && requestUrl.pathname === '/api/credits/settle') {
+    const input = await readBody(req);
+    const amount = Number(input.amount);
+    const pnl = Number(input.pnl || 0);
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(pnl) || Math.abs(pnl) > 1_000_000) return sendJson(res, 400, { error: 'invalid settlement' });
+    const account = await getOrCreateCreditAccount(session);
+    return sendJson(res, 200, await updateCreditAccount({ ...account, balance: Number((account.balance + pnl).toFixed(2)), available: Number((account.available + amount + pnl).toFixed(2)), updatedAt: new Date().toISOString() }));
+  }
+  return sendJson(res, 404, { error: 'credits route not found' });
+}
+
+async function handleAdminCredits(req, res, requestUrl) {
+  const session = requireSession(req, res, 'admin');
+  if (!session) return true;
+  if (req.method === 'GET' && requestUrl.pathname === '/api/admin/credits/accounts') return sendJson(res, 200, await listCreditAccounts());
+  if (req.method === 'GET' && requestUrl.pathname === '/api/admin/credits/requests') return sendJson(res, 200, await listCreditRequests(session, true));
+  if (req.method === 'POST' && requestUrl.pathname === '/api/admin/credits/grant') {
+    const input = await readBody(req);
+    const amount = Math.round(Number(input.amount));
+    const targetId = String(input.userId || '').trim();
+    if (!targetId || !Number.isFinite(amount) || amount <= 0 || amount > 1_000_000) return sendJson(res, 400, { error: 'invalid grant' });
+    const target = await findAccountById(targetId);
+    if (!target) return sendJson(res, 404, { error: 'account not found' });
+    const account = await getOrCreateCreditAccount({ sub: target.id, name: target.name, email: target.email });
+    return sendJson(res, 200, await updateCreditAccount({ ...account, userName: target.name, email: target.email, balance: account.balance + amount, available: account.available + amount, grantedTotal: account.grantedTotal + amount, updatedAt: new Date().toISOString() }));
+  }
+  if (req.method === 'POST' && requestUrl.pathname === '/api/admin/credits/approve') {
+    const input = await readBody(req);
+    const id = String(input.id || '').trim();
+    let target;
+    if (pool) {
+      const result = await pool.query('SELECT * FROM ad88_credit_requests WHERE id = $1 LIMIT 1', [id]);
+      target = result.rows[0] ? normalizeCreditRequest(result.rows[0]) : null;
+    } else {
+      target = memoryCreditRequests.get(id) ? normalizeCreditRequest(memoryCreditRequests.get(id)) : null;
+    }
+    if (!target || target.status !== 'pending') return sendJson(res, 404, { error: 'credit request not found' });
+    const account = await getOrCreateCreditAccount({ sub: target.userId, name: target.userName, email: target.email });
+    await updateCreditAccount({ ...account, balance: account.balance + target.amount, available: account.available + target.amount, pending: Math.max(0, account.pending - target.amount), grantedTotal: account.grantedTotal + target.amount, updatedAt: new Date().toISOString() });
+    const reviewedAt = new Date().toISOString();
+    if (pool) {
+      await pool.query('UPDATE ad88_credit_requests SET status=$2, reviewed_at=$3, reviewer=$4 WHERE id=$1', [id, 'approved', reviewedAt, session.name]);
+    } else {
+      memoryCreditRequests.set(id, { ...target, status: 'approved', reviewedAt, reviewer: session.name });
+    }
+    return sendJson(res, 200, { ...target, status: 'approved', reviewedAt, reviewer: session.name });
+  }
+  return sendJson(res, 404, { error: 'admin credits route not found' });
+}
+
+async function handleProfile(req, res, requestUrl) {
+  const session = requireSession(req, res);
+  if (!session) return true;
+  if (req.method === 'GET' && requestUrl.pathname === '/api/profile') {
+    const account = await findAccountById(session.sub);
+    return account ? sendJson(res, 200, normalizeAccount(account)) : sendJson(res, 404, { error: 'profile not found' });
+  }
+  if (req.method === 'PUT' && requestUrl.pathname === '/api/profile') {
+    const input = await readBody(req);
+    const current = await findAccountById(session.sub);
+    if (!current) return sendJson(res, 404, { error: 'profile not found' });
+    const name = String(input.name ?? current.name).trim();
+    const email = String(input.email ?? current.email).trim().toLowerCase();
+    const phone = String(input.phone ?? current.phone).trim();
+    const country = String(input.country ?? current.country).trim();
+    const rule = countryPhoneRules[country];
+    const digits = normalizePhone(phone);
+    const national = rule && digits.startsWith(String(rule[0])) ? digits.slice(String(rule[0]).length) : digits;
+    if (name.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email) || !rule || !digits.startsWith(String(rule[0])) || national.length < rule[1] || national.length > rule[rule.length - 1]) return sendJson(res, 400, { error: 'invalid profile fields' });
+    if (pool) {
+      const duplicate = await pool.query('SELECT id FROM ad88_accounts WHERE (LOWER(email) = $1 OR regexp_replace(phone, \'[^0-9]\', \'\', \'g\') = $2) AND id <> $3 LIMIT 1', [email, digits, session.sub]);
+      if (duplicate.rowCount) return sendJson(res, 409, { error: 'email or phone already exists' });
+      await pool.query('UPDATE ad88_accounts SET name=$2, email=$3, phone=$4, country=$5 WHERE id=$1', [session.sub, name, email, phone, country]);
+      return sendJson(res, 200, normalizeAccount({ ...current, name, email, phone, country }));
+    }
+    const duplicate = [...memoryAccounts.values()].find((item) => item.id !== session.sub && (item.email === email || normalizePhone(item.phone) === digits));
+    if (duplicate) return sendJson(res, 409, { error: 'email or phone already exists' });
+    const updated = { ...current, name, email, phone, country };
+    memoryAccounts.set(session.sub, updated);
+    return sendJson(res, 200, normalizeAccount(updated));
+  }
+  return sendJson(res, 404, { error: 'profile route not found' });
+}
+
 async function handleSync(req, res, requestUrl) {
   const session = requireSession(req, res);
   if (!session) return true;
   if (req.method === 'GET' && requestUrl.pathname === '/api/sync') {
+    if (session.role === 'admin' && requestUrl.searchParams.get('scope') === 'all') {
+      if (pool) {
+        const result = await pool.query("SELECT state_key, state_value FROM ad88_user_state WHERE state_key IN ('paperPositions','notificationReads') ORDER BY updated_at DESC");
+        const merged = {};
+        for (const row of result.rows) {
+          const value = row.state_value;
+          if (row.state_key === 'paperPositions') merged.paperPositions = [...(merged.paperPositions || []), ...(Array.isArray(value) ? value : [])];
+          if (row.state_key === 'notificationReads') merged.notificationReads = { ...(merged.notificationReads || {}), ...(value && typeof value === 'object' ? value : {}) };
+        }
+        return sendJson(res, 200, merged);
+      }
+      const merged = {};
+      for (const state of memoryState.values()) {
+        if (Array.isArray(state.paperPositions)) merged.paperPositions = [...(merged.paperPositions || []), ...state.paperPositions];
+        if (state.notificationReads && typeof state.notificationReads === 'object') merged.notificationReads = { ...(merged.notificationReads || {}), ...state.notificationReads };
+      }
+      return sendJson(res, 200, merged);
+    }
     if (pool) {
       const result = await pool.query('SELECT state_key, state_value FROM ad88_user_state WHERE user_id = $1', [session.sub]);
       return sendJson(res, 200, Object.fromEntries(result.rows.map((row) => [row.state_key, row.state_value])));
@@ -767,6 +1009,7 @@ const server = http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
     if (appSurface === 'admin' && remoteApiOrigin && requestUrl.pathname === '/api/auth/login') {
       const input = await readBody(req);
+      if (!adminEmail || !adminPassword) return sendJson(res, 503, { error: 'admin credentials are not configured' });
       if (adminEmail && String(input.identifier || '').trim().toLowerCase() === adminEmail && adminPassword && String(input.password || '') === adminPassword) {
         const account = { id: 'env-admin', name: 'AD88 Administrator', email: adminEmail, phone: '', country: 'Global', role: 'admin', status: 'active', tier: 'Enterprise', tradingScore: 100, joinedAt: new Date().toISOString() };
         return sendJson(res, 200, sessionResponse(account));
@@ -781,8 +1024,11 @@ const server = http.createServer(async (req, res) => {
       if (handled !== false) return;
     }
     if (requestUrl.pathname.startsWith('/api/admin/trades')) return handleAdminTrades(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/admin/credits/')) return handleAdminCredits(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/')) return handleAdmin(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/trades')) return handleTrades(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/credits/')) return handleCredits(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/profile')) return handleProfile(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/support/')) return handleSupport(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/sync')) return handleSync(req, res, requestUrl);
     if (requestUrl.pathname === '/api/market') return proxyMarket(res, requestUrl);

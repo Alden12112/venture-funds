@@ -39,6 +39,15 @@ export function NotificationsPage() {
     setRefreshing(false);
   }, [bundle.status]);
 
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+      if (key === 'notificationReads') setRefreshKey((value) => value + 1);
+    };
+    window.addEventListener('ad88:storage-sync', refresh);
+    return () => window.removeEventListener('ad88:storage-sync', refresh);
+  }, []);
+
   const refreshNotifications = () => {
     setRefreshing(true);
     setRefreshKey((value) => value + 1);

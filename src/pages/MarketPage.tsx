@@ -15,7 +15,7 @@ import { useLanguage } from '@/context/language-context';
 import { getExecutionQuote, getMarketProduct } from '@/data/assets';
 import { marketFilters } from '@/data/navigation';
 import { apiFetch } from '@/lib/api';
-import { ensureCreditAccount, readCreditAccounts, writeCreditAccounts } from '@/lib/credits';
+import { loadRemoteCreditAccount, readCreditAccounts, reserveRemoteMargin, settleRemoteMargin, writeCreditAccounts } from '@/lib/credits';
 import type { CreditAccount, PaperPosition, TimeframeCode, TradeSide } from '@/types';
 
 const timeframes: TimeframeCode[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
@@ -75,7 +75,23 @@ export function MarketPage() {
       setCreditAccount(null);
       return;
     }
-    setCreditAccount(ensureCreditAccount(session).account);
+    let cancelled = false;
+    void loadRemoteCreditAccount(session).then((account) => {
+      if (!cancelled) setCreditAccount(account);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [session?.id]);
+
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+      if (key === 'creditAccounts' || key === 'paperPositions') {
+        if (key === 'paperPositions') setPositions(readStorage('paperPositions', []));
+        if (session) void loadRemoteCreditAccount(session).then(setCreditAccount).catch(() => undefined);
+      }
+    };
+    window.addEventListener('ad88:storage-sync', refresh);
+    return () => window.removeEventListener('ad88:storage-sync', refresh);
   }, [session?.id]);
 
   const fallbackPrices = useMemo(() => {
@@ -168,6 +184,7 @@ export function MarketPage() {
     const next = { ...current, available: Number((current.available - amount).toFixed(2)), updatedAt: new Date().toISOString() };
     writeCreditAccounts(accounts.map((item) => item.userId === current.userId ? next : item));
     setCreditAccount(next);
+    void reserveRemoteMargin(amount).then((remote) => { if (remote) setCreditAccount(remote); });
     return true;
   };
 
@@ -184,6 +201,7 @@ export function MarketPage() {
     };
     writeCreditAccounts(accounts.map((item) => item.userId === current.userId ? next : item));
     setCreditAccount(next);
+    void settleRemoteMargin(amount, pnl).then((remote) => { if (remote) setCreditAccount(remote); });
   };
 
   const openPosition = (orderSide: TradeSide = side, orderPrice = orderPreviewPrice) => {

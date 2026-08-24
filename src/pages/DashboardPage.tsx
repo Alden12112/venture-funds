@@ -11,7 +11,7 @@ import { loadMarketBundle } from '@/adapters/market-adapter';
 import { loadNotificationBundle } from '@/adapters/notification-adapter';
 import { formatCurrency, formatPercent, formatCompact, formatDateTime } from '@/lib/format';
 import { useAuth } from '@/context/auth-context';
-import { createCreditRequest, ensureCreditAccount, readCreditRequests } from '@/lib/credits';
+import { createRemoteCreditRequest, loadRemoteCreditAccount, loadRemoteCreditRequests } from '@/lib/credits';
 import type { CreditAccount, CreditRequest } from '@/types';
 
 export function DashboardPage() {
@@ -27,12 +27,23 @@ export function DashboardPage() {
 
   useEffect(() => {
     if (!session) return;
-    const { account } = ensureCreditAccount(session);
-    const requests = readCreditRequests().filter((request) => request.userId === session.id);
-    const pending = requests.filter((request) => request.status === 'pending').reduce((sum, request) => sum + request.amount, 0);
-    setCreditAccount({ ...account, pending });
-    setCreditRequests(requests);
+    let cancelled = false;
+    void Promise.all([loadRemoteCreditAccount(session), loadRemoteCreditRequests(session)]).then(([account, requests]) => {
+      if (cancelled) return;
+      setCreditAccount(account);
+      setCreditRequests(requests);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
   }, [creditVersion, session]);
+
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+      if (key === 'creditAccounts' || key === 'creditRequests') setCreditVersion((value) => value + 1);
+    };
+    window.addEventListener('ad88:storage-sync', refresh);
+    return () => window.removeEventListener('ad88:storage-sync', refresh);
+  }, []);
 
   if ([market, ledger, notifications].some((resource) => resource.status === 'loading')) {
     return <LoadingState label="正在整理仪表盘" />;
@@ -63,10 +74,10 @@ export function DashboardPage() {
   const trendSeries = marketData.candles.slice(-12).map((item) => item.close);
   const recentCreditRequests = creditRequests.slice(0, 3);
 
-  const submitCreditRequest = () => {
+  const submitCreditRequest = async () => {
     if (!session) return;
     const amount = Math.max(1, Math.round(creditAmount));
-    createCreditRequest(session, amount, creditReason.trim() || '交易额度补充');
+    await createRemoteCreditRequest(session, amount, creditReason.trim() || '交易额度补充');
     setCreditAmount(100);
     setCreditReason('交易额度补充');
     setCreditVersion((value) => value + 1);
@@ -145,7 +156,7 @@ export function DashboardPage() {
               <input value={creditReason} onChange={(event) => setCreditReason(event.target.value)} />
             </label>
           </div>
-          <button type="button" className="btn btn--primary" onClick={submitCreditRequest}>
+            <button type="button" className="btn btn--primary" onClick={() => void submitCreditRequest()}>
             <HandCoins size={16} />
             提交 U 申请
           </button>

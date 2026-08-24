@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowRight, HandCoins, PlusCircle, Trash2, UserPlus } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, LoadingState, StatCard, StatusPill, EmptyState } from '@/components/Stats';
@@ -10,7 +10,7 @@ import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
 import { readStorage, writeStorage } from '@/lib/storage';
 import { Link, useLocation } from 'react-router-dom';
-import { approveCreditRequest, grantCredits } from '@/lib/credits';
+import { approveRemoteCreditRequest, grantRemoteCredits } from '@/lib/credits';
 import type { RegisteredUser } from '@/types';
 import { buildInternationalPhone, countryDirectory, getCountryOption, isValidCountryPhone, phoneDigitsHint } from '@/data/countries';
 import { hashSecret, isValidEmail } from '@/lib/auth';
@@ -33,6 +33,15 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [accountMessage, setAccountMessage] = useState('');
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
+
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const key = (event as CustomEvent<{ key?: string }>).detail?.key;
+      if (key === 'creditAccounts' || key === 'creditRequests' || key === 'paperPositions') setRefreshKey((value) => value + 1);
+    };
+    window.addEventListener('ad88:storage-sync', refresh);
+    return () => window.removeEventListener('ad88:storage-sync', refresh);
+  }, []);
 
   if (session?.role !== 'admin') {
     return (
@@ -101,15 +110,15 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const accountCountry = getCountryOption(accountForm.country);
   const accountPhoneMaxLength = Array.isArray(accountCountry.digits) ? accountCountry.digits[1] : accountCountry.digits;
 
-  const grantToTarget = () => {
+  const grantToTarget = async () => {
     const target = grantAccount ?? (grantUser ? { userId: grantUser.id, userName: grantUser.name, email: grantUser.email } : null);
     if (!target || grantAmount <= 0) return;
-    grantCredits({ id: target.userId, name: target.userName, email: target.email }, Math.round(grantAmount));
+    await grantRemoteCredits({ id: target.userId, name: target.userName, email: target.email }, Math.round(grantAmount));
     setRefreshKey((value) => value + 1);
   };
 
-  const approveRequest = (id: string) => {
-    approveCreditRequest(id, session?.name ?? 'AD88 Admin');
+  const approveRequest = async (id: string) => {
+    await approveRemoteCreditRequest(id, session?.name ?? 'AD88 Admin');
     setRefreshKey((value) => value + 1);
   };
 
@@ -354,7 +363,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                 <input type="number" min="1" step="1" value={grantAmount} onChange={(event) => setGrantAmount(Number(event.target.value))} />
               </label>
             </div>
-            <button type="button" className="btn btn--primary" onClick={grantToTarget} disabled={!grantLookup || (!grantAccount && !grantUser) || grantAmount <= 0}>
+            <button type="button" className="btn btn--primary" onClick={() => void grantToTarget()} disabled={!grantLookup || (!grantAccount && !grantUser) || grantAmount <= 0}>
               <PlusCircle size={16} />
               发放 U
             </button>
@@ -410,7 +419,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                     <div className="stack-list__meta">
                       <StatusPill tone={request.status === 'approved' ? 'success' : request.status === 'pending' ? 'warning' : 'critical'}>{request.status}</StatusPill>
                       {request.status === 'pending' ? (
-                        <button type="button" className="btn btn--ghost btn--sm" onClick={() => approveRequest(request.id)}>
+                        <button type="button" className="btn btn--ghost btn--sm" onClick={() => void approveRequest(request.id)}>
                           <HandCoins size={14} />
                           批准
                         </button>

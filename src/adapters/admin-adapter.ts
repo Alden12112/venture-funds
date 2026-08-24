@@ -2,7 +2,7 @@ import type { AdminBundle, PaperPosition, RegisteredUser, TradeAuditEvent, UserP
 import { readStorage } from '@/lib/storage';
 import { loadLedgerBundle } from '@/adapters/ledger-adapter';
 import { loadNotificationBundle } from '@/adapters/notification-adapter';
-import { hydrateCreditAccounts, readCreditRequests } from '@/lib/credits';
+import { hydrateCreditAccounts, loadRemoteAdminCredits, readCreditRequests } from '@/lib/credits';
 import { apiFetch } from '@/lib/api';
 
 function delay<T>(value: T, ms = 180): Promise<T> {
@@ -116,7 +116,8 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     tradingScore: item.tradingScore ?? 60,
   }));
   const registrations = remoteUsers ? [...localRegistrations, ...remoteRegistrations.filter((remote) => !localRegistrations.some((local) => local.id === remote.id))] : localRegistrations;
-  const paperPositions = readStorage<PaperPosition[]>('paperPositions', []);
+  const remoteState = await apiFetch<{ paperPositions?: PaperPosition[] }>('/api/sync?scope=all').catch(() => null);
+  const paperPositions = remoteState?.paperPositions ?? readStorage<PaperPosition[]>('paperPositions', []);
   const tradeEvents = await apiFetch<TradeAuditEvent[]>('/api/admin/trades').catch(() => []);
   const ledger = await loadLedgerBundle();
   const notifications = await loadNotificationBundle();
@@ -134,8 +135,9 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     tradingScore: item.tradingScore,
   }));
   const allUsers = [...(remoteUsers ?? registeredUsers), ...users.filter((seed) => !(remoteUsers ?? []).some((remote) => remote.id === seed.id))];
-  const creditAccounts = hydrateCreditAccounts(allUsers);
-  const creditRequests = readCreditRequests();
+  const remoteCredits = await loadRemoteAdminCredits().catch(() => null);
+  const creditAccounts = remoteCredits?.accounts ?? hydrateCreditAccounts(allUsers);
+  const creditRequests = remoteCredits?.requests ?? readCreditRequests();
   const monthRegistrations = registrations.filter((item) => isCurrentMonth(item.submittedAt, now));
   const monthLedgerEntries = ledger.entries.filter((item) => isCurrentMonth(item.time, now));
   const monthPositions = (tradeEvents.length ? tradeEvents.filter((item) => item.action === 'open') : paperPositions).filter((item) => isCurrentMonth('createdAt' in item ? item.createdAt : item.openedAt, now));
