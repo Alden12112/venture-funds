@@ -11,6 +11,7 @@ import { NewsPage } from '@/pages/NewsPage';
 import { LedgerPage } from '@/pages/LedgerPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { SupportPage } from '@/pages/SupportPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { AdminAuthPage } from '@/pages/AdminAuthPage';
 import { LegalPage } from '@/pages/LegalPage';
@@ -85,6 +86,7 @@ export default function App() {
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="market" element={<MarketPage />} />
               <Route path="news" element={<NewsPage />} />
+              <Route path="support" element={<SupportPage />} />
               <Route path="ledger" element={<LedgerPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="settings" element={<SettingsPage />} />

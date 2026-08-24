@@ -263,15 +263,15 @@ export function DashboardPage() {
         <article className="panel">
           <div className="panel__head">
             <div>
-              <h2>订单摘要</h2>
-              <p>资金流水、审核和模拟出入金的当前切面。</p>
+              <h2>资金流水摘要</h2>
+              <p>只显示账户已产生的入金与出金记录。</p>
             </div>
             <Link to="/app/ledger" className="link-action">
               查看流水 <ArrowRight size={16} />
             </Link>
           </div>
           <div className="stack-list">
-            {ledgerData.entries.slice(0, 4).map((entry) => (
+            {ledgerData.entries.length ? ledgerData.entries.slice(0, 4).map((entry) => (
               <div key={entry.id} className="stack-list__row">
                 <div>
                   <strong>{entry.refId}</strong>
@@ -284,7 +284,7 @@ export function DashboardPage() {
                   <span>{formatDateTime(entry.time)}</span>
                 </div>
               </div>
-            ))}
+            )) : <div className="state-block"><strong>暂无资金流水</strong><p>账户发生入金或出金后会显示在这里。</p></div>}
           </div>
         </article>
 

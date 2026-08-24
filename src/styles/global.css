@@ -704,14 +704,26 @@ table {
   width: 38px;
   height: 38px;
   flex: 0 0 auto;
-  border: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid rgba(255, 255, 255, 0.38);
   border-radius: 50%;
   color: #ffffff;
   font-size: 14px;
   font-weight: 760;
   line-height: 1;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 8px 18px rgba(8, 14, 24, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42), inset 0 -8px 14px rgba(13, 26, 45, 0.12), 0 8px 18px rgba(8, 14, 24, 0.16);
   letter-spacing: -.04em;
+}
+
+.asset-logo::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 1px;
+  border-radius: inherit;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.2), transparent 42%);
 }
 
 .asset-logo--sm {
@@ -727,27 +739,27 @@ table {
 }
 
 .asset-logo--bitcoin {
-  background: #c67a14;
+  background: linear-gradient(135deg, #f4b83d, #cf7516 74%);
 }
 
 .asset-logo--ethereum {
-  background: #52617c;
+  background: linear-gradient(135deg, #8ea6df, #4f5f96 74%);
 }
 
 .asset-logo--solana {
-  background: #28735f;
+  background: linear-gradient(135deg, #2aac9b, #246b80 74%);
 }
 
 .asset-logo--xrp {
-  background: #3f4856;
+  background: linear-gradient(135deg, #5c7ca8, #345170 74%);
 }
 
 .asset-logo--link {
-  background: #315d9a;
+  background: linear-gradient(135deg, #4e8ee8, #315d9a 74%);
 }
 
 .asset-logo--avax {
-  background: #a93632;
+  background: linear-gradient(135deg, #e15d57, #a93632 74%);
 }
 
 .asset-logo--xs {

@@ -1,4 +1,4 @@
-import type { Candle, MarketAsset, MarketBundle, MarketQuote, OrderLevel, SourceMeta, TimeframeCode } from '@/types';
+import type { Candle, DataCacheState, MarketAsset, MarketBundle, MarketQuote, OrderLevel, SourceMeta, TimeframeCode } from '@/types';
 import { getExecutionQuote, getMarketProduct, marketProducts } from '@/data/assets';
 
 const coinbaseBase = 'https://api.exchange.coinbase.com';
@@ -13,7 +13,13 @@ interface YahooChartResult {
   timestamp?: number[];
   indicators?: { quote?: Array<{ open?: Array<number | null>; high?: Array<number | null>; low?: Array<number | null>; close?: Array<number | null>; volume?: Array<number | null> }> };
 }
-interface YahooChartResponse { ad88Fallback?: boolean; chart?: { result?: YahooChartResult[] } }
+interface YahooChartResponse {
+  ad88Fallback?: boolean;
+  ad88Source?: string;
+  ad88Cache?: DataCacheState;
+  ad88Lineage?: string;
+  chart?: { result?: YahooChartResult[] };
+}
 
 type LoadedAsset = MarketAsset & {
   open24h: number;
@@ -23,6 +29,9 @@ type LoadedAsset = MarketAsset & {
   orderBook?: { asks: OrderLevel[]; bids: OrderLevel[] };
   fallback?: boolean;
   cached?: boolean;
+  provider?: string;
+  providerCacheState?: DataCacheState;
+  lineage?: string;
 };
 
 const marketCacheTtlMs = 8_000;
@@ -151,7 +160,7 @@ async function loadCachedAsset(product: typeof marketProducts[number]) {
   if (pending) return { ...(await pending), cached: true };
   const request = (async () => {
     try {
-      return product.assetClass === 'crypto' ? await loadCoinbaseAsset(product) : await loadYahooAsset(product);
+      return product.assetClass === 'crypto' ? await loadCoinbaseAsset(product) : await loadYahooAsset(product, 'yahoo');
     } catch {
       return fallbackAsset(product);
     }
@@ -166,8 +175,8 @@ async function loadCachedAsset(product: typeof marketProducts[number]) {
   }
 }
 
-async function loadYahooAsset(product: typeof marketProducts[number]): Promise<LoadedAsset> {
-  const data = await getJson<YahooChartResponse>(`/api/market?symbol=${encodeURIComponent(product.providerSymbol)}&range=1d&interval=15m`);
+async function loadYahooAsset(product: typeof marketProducts[number], provider: 'primary' | 'yahoo' = 'yahoo'): Promise<LoadedAsset> {
+  const data = await getJson<YahooChartResponse>(`/api/market?symbol=${encodeURIComponent(product.providerSymbol)}&range=1d&interval=15m&provider=${provider}`);
   if (data.ad88Fallback) throw new Error(`Market provider fallback for ${product.symbol}`);
   const result = data.chart?.result?.[0];
   if (!result?.meta) throw new Error(`Market data unavailable for ${product.symbol}`);
@@ -182,7 +191,7 @@ async function loadYahooAsset(product: typeof marketProducts[number]): Promise<L
     return { time: new Date(time * 1000).toISOString(), open, high: toNumber(quote?.high?.[index], Math.max(open, close)), low: toNumber(quote?.low?.[index], Math.min(open, close)), close, volume: toNumber(quote?.volume?.[index]) };
   }).filter((candle) => candle.close > 0);
   const change24h = previousClose ? ((price - previousClose) / previousClose) * 100 : 0;
-  return { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h, volume24h: toNumber(meta.regularMarketVolume), spreadBps: getExecutionQuote(product.symbol, price).spreadBps, updatedAt: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : new Date().toISOString(), open24h: previousClose, high24h: toNumber(meta.regularMarketDayHigh, price), low24h: toNumber(meta.regularMarketDayLow, price), candles: candles.length > 4 ? candles : makeFallbackCandles(price, change24h), orderBook: buildSyntheticBook(price, product) };
+  return { symbol: product.symbol, name: product.name, assetClass: product.assetClass, price, change24h, volume24h: toNumber(meta.regularMarketVolume), spreadBps: getExecutionQuote(product.symbol, price).spreadBps, updatedAt: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : new Date().toISOString(), open24h: previousClose, high24h: toNumber(meta.regularMarketDayHigh, price), low24h: toNumber(meta.regularMarketDayLow, price), candles: candles.length > 4 ? candles : makeFallbackCandles(price, change24h), orderBook: buildSyntheticBook(price, product), provider: data.ad88Source ?? 'Yahoo Finance', providerCacheState: data.ad88Cache ?? 'fresh', lineage: data.ad88Lineage };
 }
 
 async function loadSelectedCoinbaseDetails(product: typeof marketProducts[number], timeframe: TimeframeCode, source: SourceMeta) {
@@ -212,8 +221,24 @@ export async function loadMarketBundle(symbol = 'BTC', timeframe: TimeframeCode 
   const requestStartedAt = Date.now();
   const selectedProduct = getMarketProduct(symbol);
   const loaded = await Promise.all(marketProducts.map((product) => loadCachedAsset(product)));
-  const selectedLoaded = loaded.find((asset) => asset.symbol === selectedProduct.symbol) ?? fallbackAsset(selectedProduct);
-  const source: SourceMeta = { provider: selectedProduct.assetClass === 'crypto' ? 'Coinbase Exchange public market data' : 'Yahoo Finance public market data', mode: selectedLoaded.fallback ? 'mock' : 'api', updatedAt: selectedLoaded.updatedAt, cacheState: selectedLoaded.fallback ? 'stale' : selectedLoaded.cached ? 'cached' : 'fresh', endpoint: selectedProduct.assetClass === 'crypto' ? `${coinbaseBase}/products/*` : '/api/market', latencyMs: Math.max(1, Date.now() - requestStartedAt), health: selectedLoaded.fallback ? 'degraded' : 'healthy', lineage: 'provider → adapter → chart' };
+  let selectedLoaded = loaded.find((asset) => asset.symbol === selectedProduct.symbol) ?? fallbackAsset(selectedProduct);
+  if (selectedProduct.assetClass !== 'crypto') {
+    try {
+      selectedLoaded = await loadYahooAsset(selectedProduct, 'primary');
+    } catch {
+      // The catalogue price remains available from the resilient public-source path.
+    }
+  }
+  const source: SourceMeta = {
+    provider: selectedProduct.assetClass === 'crypto' ? 'Coinbase Exchange public market data' : selectedLoaded.provider ?? 'Yahoo Finance public market data',
+    mode: selectedLoaded.fallback ? 'mock' : 'api',
+    updatedAt: selectedLoaded.updatedAt,
+    cacheState: selectedLoaded.fallback ? 'stale' : selectedLoaded.cached ? 'cached' : selectedLoaded.providerCacheState ?? 'fresh',
+    endpoint: selectedProduct.assetClass === 'crypto' ? `${coinbaseBase}/products/*` : '/api/market',
+    latencyMs: Math.max(1, Date.now() - requestStartedAt),
+    health: selectedLoaded.fallback ? 'degraded' : 'healthy',
+    lineage: selectedProduct.assetClass === 'crypto' ? 'Coinbase Exchange → adapter → chart' : selectedLoaded.lineage ?? 'market provider → AD88 server proxy → adapter → chart',
+  };
   let selected: MarketQuote = { ...selectedLoaded, source };
   let orderBook = selectedLoaded.orderBook ?? buildSyntheticBook(selectedLoaded.price, selectedProduct);
   let candles = selectedLoaded.candles ?? makeFallbackCandles(selectedLoaded.price, selectedLoaded.change24h);
@@ -235,7 +260,7 @@ export function computeSpreadBasisPoints(bestBid: number, bestAsk: number) {
 export async function loadIndicativeQuote(symbol: string) {
   const product = getMarketProduct(symbol);
   if (product.productId) throw new Error('Crypto quotes are streamed through the exchange ticker');
-  const data = await getJson<YahooChartResponse>(`/api/market?symbol=${encodeURIComponent(product.providerSymbol)}&range=1d&interval=1m&fast=1`);
+  const data = await getJson<YahooChartResponse>(`/api/market?symbol=${encodeURIComponent(product.providerSymbol)}&range=1d&interval=1m&fast=1&provider=primary`);
   if (data.ad88Fallback) throw new Error(`Market provider fallback for ${product.symbol}`);
   const meta = data.chart?.result?.[0]?.meta;
   const price = toNumber(meta?.regularMarketPrice);

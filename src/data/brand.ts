@@ -1,5 +1,5 @@
 import type { ShellLink } from '@/types';
-import { BarChart3, BellRing, BriefcaseBusiness, FileClock, Landmark, LayoutDashboard, Newspaper, Settings2 } from 'lucide-react';
+import { BarChart3, BellRing, BriefcaseBusiness, FileClock, Headphones, Landmark, LayoutDashboard, Newspaper, Settings2 } from 'lucide-react';
 
 export const brand = {
   name: 'AD88',
@@ -12,6 +12,7 @@ export const shellLinks: ShellLink[] = [
   { to: '/app/dashboard', label: '仪表盘', icon: 'LayoutDashboard' },
   { to: '/app/market', label: '交易', icon: 'BarChart3' },
   { to: '/app/news', label: '新闻', icon: 'Newspaper' },
+  { to: '/app/support', label: '客服中心', icon: 'Headphones' },
   { to: '/app/ledger', label: '资金流水', icon: 'FileClock' },
   { to: '/app/notifications', label: '通知中心', icon: 'BellRing' },
   { to: '/app/settings', label: '设置', icon: 'Settings2' },

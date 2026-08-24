@@ -172,7 +172,7 @@ export function MarketPage() {
   const sellPrice = executionQuote.bid;
   const buyPrice = executionQuote.ask;
 
-  const auditTrade = (event: { positionId: string; symbol: string; side: TradeSide; action: 'open' | 'close' | 'partial-close' | 'risk-update'; lots: number; price: number; contractSize?: number; leverage?: number; margin?: number }) => {
+  const auditTrade = (event: { positionId: string; symbol: string; side: TradeSide; action: 'open' | 'close' | 'partial-close' | 'risk-update'; lots: number; price: number; contractSize?: number; leverage?: number; margin?: number; pnl?: number }) => {
     void apiFetch('/api/trades', { method: 'POST', body: JSON.stringify(event) }).catch(() => undefined);
   };
 
@@ -243,8 +243,9 @@ export function MarketPage() {
     const position = userPositions.find((item) => item.id === id);
     if (position) {
       const closeLots = position.remainingLots ?? position.lots;
-      settlePaperTrade(position.margin * (closeLots / position.lots), computePnl(position, position.markPrice, closeLots));
-      auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
+      const pnl = computePnl(position, position.markPrice, closeLots);
+      settlePaperTrade(position.margin * (closeLots / position.lots), pnl);
+      auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin, pnl });
     }
     setPositions((current) =>
       current.map((position) =>
@@ -258,8 +259,9 @@ export function MarketPage() {
   const closeAllPositions = () => {
     userPositions.forEach((position) => {
       const closeLots = position.remainingLots ?? position.lots;
-      settlePaperTrade(position.margin * (closeLots / position.lots), computePnl(position, position.markPrice, closeLots));
-      auditTrade({ positionId: position.id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
+      const pnl = computePnl(position, position.markPrice, closeLots);
+      settlePaperTrade(position.margin * (closeLots / position.lots), pnl);
+      auditTrade({ positionId: position.id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin, pnl });
     });
     setPositions((current) =>
       current.map((position) =>
@@ -276,8 +278,9 @@ export function MarketPage() {
     if (!position) return;
     const remaining = position.remainingLots ?? position.lots;
     const closeLots = Math.min(Math.max(partialLots, 0.01), remaining);
-    settlePaperTrade(position.margin * (closeLots / position.lots), computePnl(position, position.markPrice, closeLots));
-    auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: closeLots >= remaining ? 'close' : 'partial-close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
+    const pnl = computePnl(position, position.markPrice, closeLots);
+    settlePaperTrade(position.margin * (closeLots / position.lots), pnl);
+    auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: closeLots >= remaining ? 'close' : 'partial-close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin, pnl });
     setPositions((current) =>
       current.map((position) => {
         if (position.id !== id) return position;
@@ -488,7 +491,6 @@ export function MarketPage() {
               <span className="execution-bar__label">参考中间价</span>
               <strong>{formatNumber(livePrice)}</strong>
               <label><span>开仓手数</span><input type="number" min="0.01" step="0.01" value={lots} onChange={(event) => setLots(Math.max(0.01, Number(event.target.value) || 0.01))} /></label>
-              <small>点差 {executionQuote.spread.toFixed(executionQuote.decimals)}</small>
             </div>
             <button type="button" className="execution-quote execution-quote--buy" onClick={() => openPosition('long', buyPrice)} disabled={!canOpen}>
               <span>BUY · ASK</span><strong>{formatNumber(buyPrice)}</strong><small>做多</small>

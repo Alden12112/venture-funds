@@ -119,7 +119,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
   const remoteState = await apiFetch<{ paperPositions?: PaperPosition[] }>('/api/sync?scope=all').catch(() => null);
   const paperPositions = remoteState?.paperPositions ?? readStorage<PaperPosition[]>('paperPositions', []);
   const tradeEvents = await apiFetch<TradeAuditEvent[]>('/api/admin/trades').catch(() => []);
-  const ledger = await loadLedgerBundle();
+  const ledger = await loadLedgerBundle('all');
   const notifications = await loadNotificationBundle();
   const now = new Date();
   const registeredUsers: UserProfile[] = registrations.map((item) => ({
@@ -134,7 +134,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     tier: 'Applicant',
     tradingScore: item.tradingScore,
   }));
-  const allUsers = [...(remoteUsers ?? registeredUsers), ...users.filter((seed) => !(remoteUsers ?? []).some((remote) => remote.id === seed.id))];
+  const allUsers = remoteUsers ?? registeredUsers;
   const remoteCredits = await loadRemoteAdminCredits().catch(() => null);
   const creditAccounts = remoteCredits?.accounts ?? hydrateCreditAccounts(allUsers);
   const creditRequests = remoteCredits?.requests ?? readCreditRequests();
@@ -169,12 +169,12 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
       unreadNotifications: unreadNotifications.length,
       averageTradingScore,
     },
-    approvals,
-    configs,
+    approvals: [],
+    configs: [],
     source: {
-      provider: 'AD88 admin console data',
-      mode: 'mock',
-      updatedAt: approvals[0].updatedAt,
+      provider: 'AD88 shared administration API',
+      mode: 'api',
+      updatedAt: new Date().toISOString(),
       cacheState: 'fresh',
     },
   });

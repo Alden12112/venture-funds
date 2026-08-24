@@ -10,6 +10,7 @@ import {
   SunMedium,
   MonitorSmartphone,
   BadgeCheck,
+  Headphones,
 } from 'lucide-react';
 import { brand, shellLinks } from '@/data/brand';
 import { useAuth } from '@/context/auth-context';
@@ -22,6 +23,7 @@ const iconMap = {
   LayoutDashboard: PanelLeft,
   BarChart3: MonitorSmartphone,
   Newspaper: Bell,
+  Headphones,
   Sparkles: BadgeCheck,
   FileClock: PanelLeft,
   BellRing: Bell,
@@ -33,6 +35,7 @@ const navKeyByPath: Record<string, TranslationKey> = {
   '/app/dashboard': 'nav.dashboard',
   '/app/market': 'nav.market',
   '/app/news': 'nav.news',
+  '/app/support': 'nav.support',
   '/app/ledger': 'nav.ledger',
   '/app/notifications': 'nav.notifications',
   '/app/settings': 'nav.settings',

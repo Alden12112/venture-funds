@@ -247,6 +247,8 @@ export interface TradeAuditEvent {
   contractSize?: number;
   leverage?: number;
   margin?: number;
+  /** Realized paper-trade PnL, captured when a position is closed. */
+  pnl?: number;
   createdAt: string;
 }
 

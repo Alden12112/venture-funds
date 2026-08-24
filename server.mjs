@@ -12,6 +12,8 @@ const adminEmail = (process.env.AD88_ADMIN_EMAIL || '').trim().toLowerCase();
 const adminPassword = process.env.AD88_ADMIN_PASSWORD || '';
 const appSurface = process.env.APP_SURFACE === 'admin' ? 'admin' : 'frontend';
 const remoteApiOrigin = (process.env.REMOTE_API_ORIGIN || '').trim().replace(/\/$/, '');
+// Keep the market key server-side. The browser only ever talks to /api/market.
+const twelveDataApiKey = (process.env.TWELVE_DATA_API_KEY || '').trim();
 const memoryAccounts = new Map();
 const memoryState = new Map();
 const memorySupportMessages = [];
@@ -249,7 +251,20 @@ async function initDatabase() {
       contract_size NUMERIC,
       leverage NUMERIC,
       margin NUMERIC,
+      pnl NUMERIC,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS ad88_ledger_entries (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      amount NUMERIC NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'U',
+      status TEXT NOT NULL,
+      time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      note TEXT NOT NULL DEFAULT '',
+      ref_id TEXT NOT NULL,
+      direction TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS ad88_credit_accounts (
       user_id TEXT PRIMARY KEY,
@@ -274,6 +289,7 @@ async function initDatabase() {
       reviewer TEXT
     );
     ALTER TABLE ad88_support_messages ADD COLUMN IF NOT EXISTS user_phone TEXT NOT NULL DEFAULT '';
+    ALTER TABLE ad88_trade_events ADD COLUMN IF NOT EXISTS pnl NUMERIC;
   `);
 }
 
@@ -332,6 +348,7 @@ async function deleteAccount(id) {
     await pool.query('DELETE FROM ad88_user_state WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_support_messages WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_trade_events WHERE user_id = $1', [id]);
+    await pool.query('DELETE FROM ad88_ledger_entries WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_credit_requests WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_credit_accounts WHERE user_id = $1', [id]);
   } else {
@@ -685,6 +702,7 @@ function normalizeTradeEvent(row) {
     contractSize: row.contractSize == null && row.contract_size == null ? undefined : Number(row.contractSize ?? row.contract_size),
     leverage: row.leverage == null ? undefined : Number(row.leverage),
     margin: row.margin == null ? undefined : Number(row.margin),
+    pnl: row.pnl == null ? undefined : Number(row.pnl),
     createdAt: row.createdAt ?? row.created_at,
   };
 }
@@ -698,12 +716,14 @@ function validateTradeEvent(input) {
   const contractSize = input.contractSize == null ? undefined : Number(input.contractSize);
   const leverage = input.leverage == null ? undefined : Number(input.leverage);
   const margin = input.margin == null ? undefined : Number(input.margin);
+  const pnl = input.pnl == null ? undefined : Number(input.pnl);
   if (!/^[A-Z0-9]{1,16}$/.test(symbol) || !['long', 'short'].includes(side) || !['open', 'close', 'partial-close', 'risk-update'].includes(action)) return { error: 'invalid trade event' };
   if (!Number.isFinite(lots) || lots < 0.01 || lots > 100000 || !Number.isFinite(price) || price <= 0) return { error: 'invalid trade values' };
   if (contractSize !== undefined && (!Number.isFinite(contractSize) || contractSize <= 0)) return { error: 'invalid contract size' };
   if (leverage !== undefined && (!Number.isFinite(leverage) || leverage <= 0)) return { error: 'invalid leverage' };
   if (margin !== undefined && (!Number.isFinite(margin) || margin < 0)) return { error: 'invalid margin' };
-  return { symbol, side, action, lots, price, contractSize, leverage, margin, positionId: String(input.positionId || '').slice(0, 120) || undefined };
+  if (pnl !== undefined && (!Number.isFinite(pnl) || Math.abs(pnl) > 1_000_000)) return { error: 'invalid pnl' };
+  return { symbol, side, action, lots, price, contractSize, leverage, margin, pnl, positionId: String(input.positionId || '').slice(0, 120) || undefined };
 }
 
 async function listTradeEvents(session, admin = false) {
@@ -737,7 +757,7 @@ async function handleTrades(req, res, requestUrl) {
       createdAt: new Date().toISOString(),
     };
     if (pool) {
-      await pool.query('INSERT INTO ad88_trade_events (id, position_id, user_id, user_name, user_email, symbol, side, action, lots, price, contract_size, leverage, margin, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)', [event.id, event.positionId ?? null, event.userId, event.userName, event.userEmail, event.symbol, event.side, event.action, event.lots, event.price, event.contractSize ?? null, event.leverage ?? null, event.margin ?? null, event.createdAt]);
+      await pool.query('INSERT INTO ad88_trade_events (id, position_id, user_id, user_name, user_email, symbol, side, action, lots, price, contract_size, leverage, margin, pnl, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)', [event.id, event.positionId ?? null, event.userId, event.userName, event.userEmail, event.symbol, event.side, event.action, event.lots, event.price, event.contractSize ?? null, event.leverage ?? null, event.margin ?? null, event.pnl ?? null, event.createdAt]);
     } else {
       memoryTradeEvents.push(event);
     }
@@ -750,6 +770,38 @@ async function handleAdminTrades(req, res, requestUrl) {
   if (!requireSession(req, res, 'admin')) return true;
   if (req.method === 'GET' && requestUrl.pathname === '/api/admin/trades') return sendJson(res, 200, await listTradeEvents({ sub: '' }, true));
   return sendJson(res, 404, { error: 'admin trade route not found' });
+}
+
+function normalizeLedgerEntry(row) {
+  return {
+    id: row.id,
+    type: row.type,
+    amount: Number(row.amount),
+    currency: row.currency || 'U',
+    status: row.status,
+    time: row.time,
+    note: row.note || '',
+    refId: row.refId ?? row.ref_id,
+    direction: row.direction,
+  };
+}
+
+async function listLedgerEntries(session, all = false) {
+  if (pool) {
+    const result = all
+      ? await pool.query('SELECT * FROM ad88_ledger_entries ORDER BY time DESC LIMIT 500')
+      : await pool.query('SELECT * FROM ad88_ledger_entries WHERE user_id = $1 ORDER BY time DESC LIMIT 500', [session.sub]);
+    return result.rows.map(normalizeLedgerEntry);
+  }
+  return [];
+}
+
+async function handleLedger(req, res, requestUrl) {
+  const session = requireSession(req, res);
+  if (!session) return true;
+  if (req.method !== 'GET' || requestUrl.pathname !== '/api/ledger') return sendJson(res, 404, { error: 'ledger route not found' });
+  const all = session.role === 'admin' && requestUrl.searchParams.get('scope') === 'all';
+  return sendJson(res, 200, await listLedgerEntries(session, all));
 }
 
 async function handleSupport(req, res, requestUrl) {
@@ -806,23 +858,103 @@ async function handleSupport(req, res, requestUrl) {
   return sendJson(res, 404, { error: 'support route not found' });
 }
 
+const twelveDataSymbols = {
+  'GC=F': 'XAU/USD', 'SI=F': 'XAG/USD', 'CL=F': 'WTI/USD', 'NG=F': 'NATGAS/USD', 'HG=F': 'COPPER/USD',
+  SCCO: 'SCCO', 'BZ=F': 'BRENT/USD', 'BTC-USD': 'BTC/USD', 'ETH-USD': 'ETH/USD', 'SOL-USD': 'SOL/USD',
+  'XRP-USD': 'XRP/USD', 'LINK-USD': 'LINK/USD', 'AVAX-USD': 'AVAX/USD', 'EURUSD=X': 'EUR/USD',
+  'GBPUSD=X': 'GBP/USD', 'JPY=X': 'USD/JPY', 'AUDUSD=X': 'AUD/USD', 'CAD=X': 'USD/CAD',
+};
+
+function twelveInterval(interval) {
+  const intervals = { '1m': '1min', '5m': '5min', '15m': '15min', '30m': '30min', '60m': '1h', '1h': '1h', '4h': '4h', '1d': '1day', '1wk': '1week', '1mo': '1month' };
+  return intervals[interval] || '15min';
+}
+
+function buildTwelveChartPayload(payload) {
+  const values = Array.isArray(payload?.values) ? payload.values.slice().reverse() : [];
+  const candles = values.map((value) => ({
+    time: Math.floor(new Date(`${String(value.datetime).replace(' ', 'T')}Z`).getTime() / 1000),
+    open: Number(value.open), high: Number(value.high), low: Number(value.low), close: Number(value.close), volume: Number(value.volume || 0),
+  })).filter((value) => Number.isFinite(value.time) && Number.isFinite(value.close) && value.close > 0);
+  if (!candles.length) return null;
+  const latest = candles.at(-1);
+  const first = candles[0];
+  const prices = candles.map((value) => value.close);
+  return {
+    ad88Fallback: false,
+    ad88Source: 'Twelve Data',
+    ad88Cache: 'fresh',
+    ad88Lineage: 'Twelve Data → AD88 server proxy → market workspace',
+    chart: {
+      result: [{
+        meta: {
+          regularMarketPrice: latest.close,
+          regularMarketTime: latest.time,
+          previousClose: first.close,
+          chartPreviousClose: first.close,
+          regularMarketDayHigh: Math.max(...prices),
+          regularMarketDayLow: Math.min(...prices),
+          regularMarketVolume: candles.reduce((total, value) => total + value.volume, 0),
+        },
+        timestamp: candles.map((value) => value.time),
+        indicators: { quote: [{ open: candles.map((value) => value.open), high: candles.map((value) => value.high), low: candles.map((value) => value.low), close: candles.map((value) => value.close), volume: candles.map((value) => value.volume) }] },
+      }],
+    },
+  };
+}
+
+async function loadTwelveMarket(symbol, interval) {
+  const twelveSymbol = twelveDataSymbols[symbol];
+  if (!twelveDataApiKey || !twelveSymbol) return null;
+  const upstream = new URL('https://api.twelvedata.com/time_series');
+  upstream.searchParams.set('symbol', twelveSymbol);
+  upstream.searchParams.set('interval', twelveInterval(interval));
+  upstream.searchParams.set('outputsize', '160');
+  upstream.searchParams.set('timezone', 'UTC');
+  upstream.searchParams.set('apikey', twelveDataApiKey);
+  const response = await fetch(upstream, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
+  if (!response.ok) return null;
+  return buildTwelveChartPayload(await response.json());
+}
+
 async function proxyMarket(res, requestUrl) {
   const symbol = requestUrl.searchParams.get('symbol') || 'GC=F';
   if (!/^[A-Z0-9=^.-]+$/.test(symbol)) return sendJson(res, 400, { error: 'invalid market symbol' });
+  const interval = requestUrl.searchParams.get('interval') || '15m';
+  const providerPreference = requestUrl.searchParams.get('provider') || 'primary';
   const upstream = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
   upstream.searchParams.set('range', requestUrl.searchParams.get('range') || '1d');
-  upstream.searchParams.set('interval', requestUrl.searchParams.get('interval') || '15m');
-  const cacheKey = upstream.toString();
-  const cacheTtlMs = requestUrl.searchParams.get('fast') === '1' ? 950 : marketProxyTtlMs;
+  upstream.searchParams.set('interval', interval);
+  const cacheKey = `${symbol}:${interval}:${upstream.searchParams.get('range')}:${providerPreference}`;
+  const cacheTtlMs = requestUrl.searchParams.get('fast') === '1' ? 5_000 : marketProxyTtlMs;
   const cached = marketProxyCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     res.statusCode = 200;
     res.setHeader('content-type', 'application/json; charset=utf-8');
-    res.setHeader('x-ad88-cache', 'fresh');
-    res.setHeader('x-ad88-provider', 'cached-yahoo');
+    res.setHeader('x-ad88-cache', 'cached');
+    res.setHeader('x-ad88-provider', `cached-${cached.provider || 'market'}`);
     res.end(cached.body);
     return;
   }
+
+  if (providerPreference !== 'yahoo') {
+    try {
+      const twelvePayload = await loadTwelveMarket(symbol, interval);
+      if (twelvePayload) {
+        const body = JSON.stringify(twelvePayload);
+        marketProxyCache.set(cacheKey, { expiresAt: Date.now() + cacheTtlMs, body, provider: 'twelvedata' });
+        res.statusCode = 200;
+        res.setHeader('content-type', 'application/json; charset=utf-8');
+        res.setHeader('x-ad88-cache', 'fresh');
+        res.setHeader('x-ad88-provider', 'api.twelvedata.com');
+        res.end(body);
+        return;
+      }
+    } catch {
+      // Yahoo below is an intentional resilient provider fallback.
+    }
+  }
+
   let lastStatus = 502;
   let lastBody = '';
   try {
@@ -834,12 +966,14 @@ async function proxyMarket(res, requestUrl) {
         lastStatus = response.status;
         lastBody = body;
         if (!response.ok) continue;
-        marketProxyCache.set(cacheKey, { expiresAt: Date.now() + cacheTtlMs, body });
+        const payload = JSON.parse(body);
+        const normalizedBody = JSON.stringify({ ...payload, ad88Fallback: false, ad88Source: 'Yahoo Finance', ad88Cache: 'fresh', ad88Lineage: `${candidate.hostname} → AD88 server proxy → market workspace` });
+        marketProxyCache.set(cacheKey, { expiresAt: Date.now() + cacheTtlMs, body: normalizedBody, provider: 'yahoo' });
         res.statusCode = 200;
         res.setHeader('content-type', 'application/json; charset=utf-8');
         res.setHeader('x-ad88-cache', 'fresh');
         res.setHeader('x-ad88-provider', candidate.hostname);
-        res.end(body);
+        res.end(normalizedBody);
         return;
       } catch {
         continue;
@@ -849,7 +983,7 @@ async function proxyMarket(res, requestUrl) {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json; charset=utf-8');
       res.setHeader('x-ad88-cache', 'fallback');
-      res.end(JSON.stringify(buildMarketFallback(symbol)));
+      res.end(JSON.stringify({ ...buildMarketFallback(symbol), ad88Source: 'AD88 market fallback', ad88Cache: 'stale' }));
       return;
     }
     res.statusCode = lastStatus;
@@ -1016,7 +1150,7 @@ const server = http.createServer(async (req, res) => {
       }
       return forwardToRemoteApi(req, res, requestUrl, input, true);
     }
-    if (appSurface === 'admin' && remoteApiOrigin && (requestUrl.pathname.startsWith('/api/admin/') || requestUrl.pathname.startsWith('/api/support/') || requestUrl.pathname.startsWith('/api/sync') || requestUrl.pathname.startsWith('/api/trades'))) {
+    if (appSurface === 'admin' && remoteApiOrigin && (requestUrl.pathname.startsWith('/api/admin/') || requestUrl.pathname.startsWith('/api/support/') || requestUrl.pathname.startsWith('/api/sync') || requestUrl.pathname.startsWith('/api/trades') || requestUrl.pathname.startsWith('/api/ledger'))) {
       return forwardToRemoteApi(req, res, requestUrl);
     }
     if (requestUrl.pathname.startsWith('/api/auth/')) {
@@ -1027,6 +1161,7 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname.startsWith('/api/admin/credits/')) return handleAdminCredits(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/')) return handleAdmin(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/trades')) return handleTrades(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/ledger')) return handleLedger(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/credits/')) return handleCredits(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/profile')) return handleProfile(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/support/')) return handleSupport(req, res, requestUrl);
