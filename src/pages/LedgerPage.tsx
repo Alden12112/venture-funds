@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { PageHeader } from '@/components/PageHeader';
-import { DataMeta, LoadingState, StatCard, StatusPill } from '@/components/Stats';
+import { LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadLedgerBundle } from '@/adapters/ledger-adapter';
 import { formatDateTime } from '@/lib/format';
@@ -40,7 +40,6 @@ export function LedgerPage() {
         eyebrow="账本"
         title="资金流水"
         description="只显示该账户实际产生的入金、出金与处理状态。"
-        meta={<DataMeta source={bundle.data.source} />}
       />
 
       <section className="metric-grid metric-grid--compact">

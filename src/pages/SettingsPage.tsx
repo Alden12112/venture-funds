@@ -3,7 +3,7 @@ import { CheckCircle2, KeyRound, MoonStar, ShieldCheck, SlidersHorizontal } from
 import { PageHeader } from '@/components/PageHeader';
 import { useAuth } from '@/context/auth-context';
 import { useTheme } from '@/context/theme-context';
-import { DataMeta, StatCard, StatusPill } from '@/components/Stats';
+import { StatCard, StatusPill } from '@/components/Stats';
 import { formatDateTime } from '@/lib/format';
 import { isValidEmail, isValidInternationalPhone, maskEmail } from '@/lib/auth';
 import { readStorage, writeStorage } from '@/lib/storage';

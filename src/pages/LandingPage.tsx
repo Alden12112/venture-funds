@@ -4,7 +4,7 @@ import { brand, brandMarkers } from '@/data/brand';
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadMarketBundle } from '@/adapters/market-adapter';
 import { formatCurrency, formatPercent, formatCompact } from '@/lib/format';
-import { DataMeta, LoadingState, StatCard, StatusPill } from '@/components/Stats';
+import { LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { Sparkline } from '@/components/Charts';
 import { useLanguage } from '@/context/language-context';
 
@@ -119,8 +119,6 @@ export function LandingPage() {
                     </div>
                   ))}
                 </div>
-
-                <DataMeta source={market.data.source} />
               </>
             )}
           </div>

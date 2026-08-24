@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, BellRing, CheckCheck, CircleDollarSign, ExternalLink, MailOpen, RefreshCw, Settings2, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/PageHeader';
-import { DataMeta, EmptyState, LoadingState, StatCard, StatusPill } from '@/components/Stats';
+import { EmptyState, LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadNotificationBundle } from '@/adapters/notification-adapter';
 import { formatDateTime } from '@/lib/format';
@@ -105,7 +105,6 @@ export function NotificationsPage() {
         eyebrow="消息"
         title="通知中心"
         description="系统、行情、任务和资金通知统一管理已读与未读。"
-        meta={<DataMeta source={bundle.data.source} />}
         actions={
           <>
             <button type="button" className="btn btn--ghost" onClick={markAll}>
