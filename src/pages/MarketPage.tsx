@@ -3,7 +3,7 @@ import { AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, ChevronDown, ChevronU
 import { PageHeader } from '@/components/PageHeader';
 import { CandleChart, DepthChart } from '@/components/Charts';
 import type { ChartDrawing } from '@/components/Charts';
-import { DataMeta, LoadingState, StatCard, StatusPill } from '@/components/Stats';
+import { LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { MarketTicker } from '@/components/MarketTicker';
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadMarketBundle } from '@/adapters/market-adapter';
@@ -12,7 +12,7 @@ import { useIndicativeQuotePulse, useLiveTickers } from '@/lib/useLiveTicker';
 import { readStorage, writeStorage } from '@/lib/storage';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
-import { getExecutionQuote, getMarketProduct } from '@/data/assets';
+import { getExecutionQuote, getMarketProduct, marketProducts } from '@/data/assets';
 import { marketFilters } from '@/data/navigation';
 import { apiFetch } from '@/lib/api';
 import { loadRemoteCreditAccount, readCreditAccounts, reserveRemoteMargin, settleRemoteMargin, writeCreditAccounts } from '@/lib/credits';
@@ -100,8 +100,7 @@ export function MarketPage() {
   }, [market]);
   const live = useLiveTickers(fallbackPrices);
   const userPositions = positions.filter((position) => (position.userId === session?.id || (!position.userId && session?.id)) && position.status !== 'closed');
-  const watchedSymbols = useMemo(() => [symbol, ...userPositions.map((position) => position.symbol)], [symbol, userPositions]);
-  const quotePulse = useIndicativeQuotePulse(watchedSymbols, fallbackPrices);
+  const quotePulse = useIndicativeQuotePulse(marketProducts.map((product) => product.symbol), fallbackPrices);
   const priceFor = (assetSymbol: string, fallback: number) => {
     const product = getMarketProduct(assetSymbol);
     return product.productId ? live.prices[assetSymbol] ?? fallback : quotePulse.prices[assetSymbol] ?? fallback;
@@ -329,14 +328,13 @@ export function MarketPage() {
     ? live.status
     : quotePulse.status === 'fresh' ? 'http-fresh' : quotePulse.status === 'polling' ? 'polling' : quotePulse.status === 'stale' ? 'stale' : market.data.source.cacheState;
   const liveTone = selectedFeedState === 'live' || selectedFeedState === 'http-fresh' ? 'success' : selectedFeedState === 'stale' || selectedFeedState === 'offline' ? 'critical' : 'warning';
-  const liveLabel = selectedFeedState === 'live' ? '实时订阅' : selectedFeedState === 'http-fresh' ? '报价已更新' : selectedFeedState === 'polling' ? '更新中' : selectedFeedState === 'cached' ? '缓存' : selectedFeedState === 'stale' ? '延迟' : selectedFeedState === 'offline' ? '离线' : '连接中';
+  const liveLabel = selectedFeedState === 'stale' || selectedFeedState === 'offline' ? '行情同步中' : selectedFeedState === 'polling' ? '正在同步' : '行情在线';
   return (
     <div className="page-stack">
       <PageHeader
         eyebrow="Markets"
         title={t('nav.market')}
-        description={t('market.description')}
-        meta={<DataMeta source={market.data.source} />}
+        description="统一交易工作台：选择品种、查看图表并进行模拟风控测算。"
         actions={
           <button type="button" className={`btn btn--ghost ${refreshing ? 'is-busy' : ''}`} onClick={refreshMarkets} disabled={refreshing}>
             <RefreshCw size={16} />
@@ -428,7 +426,7 @@ export function MarketPage() {
           <div className="panel__head">
             <div>
               <h2>{selectedAsset?.symbol} {t('market.chart')}</h2>
-              <p>{t('market.updated')} {formatDateTime(selectedAsset?.updatedAt ?? market.data.source.updatedAt)}</p>
+              <p>{timeframe} 价格图表 · 可缩放、拖动与画线</p>
             </div>
             <StatusPill tone={selectedChange >= 0 ? 'success' : 'critical'}>{formatPercent(selectedChange)}</StatusPill>
           </div>
@@ -700,11 +698,6 @@ export function MarketPage() {
                 </div>
               ))}
             </div>
-          </div>
-          <div className="inline-meta">
-            <span>{t('market.source')} {market.data.source.provider}</span>
-            <span>{t('market.updated')} {formatDateTime(market.data.source.updatedAt)}</span>
-            <span>{t('market.cache')} {market.data.source.cacheState}</span>
           </div>
         </article>
       </section>

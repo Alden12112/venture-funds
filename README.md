@@ -35,7 +35,7 @@ When the blueprint is first applied, set the two private admin values on `ad88-p
 
 The admin service reads those values from the frontend service through Render's private `fromService` environment references. Do not put the password in GitHub, source files, or client-side environment variables.
 
-The blueprint generates `AUTH_SECRET`. This no-card deployment uses the frontend service as the central live API. Render free instances are ephemeral, so add a managed PostgreSQL later when durable persistence across service restarts is required. Do not use a demo password in production.
+The blueprint generates `AUTH_SECRET` and provisions `ad88-postgres`; its connection string is injected into the frontend as `DATABASE_URL`. The server creates the account, ledger, support, trade-audit, credits, notification and blacklist tables on startup. If the Render account no longer offers the free Postgres plan, Blueprint sync will require selecting the lowest available managed Postgres plan before the database can be created. Do not use a demo password in production.
 
 - Build command: `npm ci && npm run build`
 - Start command: `npm run start`

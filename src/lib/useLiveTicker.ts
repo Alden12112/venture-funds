@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getMarketProduct, marketProducts } from '@/data/assets';
-import { loadIndicativeQuote } from '@/adapters/market-adapter';
+import { apiFetch } from '@/lib/api';
 
 type FeedStatus = 'connecting' | 'live' | 'stale' | 'closed';
 type PriceMap = Record<string, number>;
@@ -108,10 +108,9 @@ export function useLiveTicker(symbol: string, fallbackPrice: number) {
 type QuotePulseStatus = 'idle' | 'polling' | 'fresh' | 'stale';
 
 /**
- * Checks the currently selected non-crypto instruments every two seconds. It is
- * intentionally separate from the Coinbase socket: public commodity/FX feeds
- * can be delayed by their provider, so the UI can show both the local check
- * time and the source quote timestamp without claiming a false live feed.
+ * Checks one server-side snapshot every two seconds. The server owns the
+ * provider fan-out and keeps an eight-second cache, so every non-crypto row
+ * advances from the same snapshot instead of only the selected instrument.
  */
 export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: PriceMap = {}) {
   const [prices, setPrices] = useState<PriceMap>(fallbackPrices);
@@ -142,12 +141,21 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
       inFlight.current = true;
       setStatus('polling');
       const checkedAt = Date.now();
-      const results = await Promise.allSettled(watched.map((symbol) => loadIndicativeQuote(symbol)));
+      let response: { quotes?: Record<string, { symbol?: string; price?: number; quoteUpdatedAt?: string }> };
+      try {
+        response = await apiFetch<{ quotes?: Record<string, { symbol?: string; price?: number; quoteUpdatedAt?: string }>; updatedAt?: string }>(`/api/market/quotes?symbols=${encodeURIComponent(watched.join(','))}`);
+      } catch {
+        response = {};
+      }
       inFlight.current = false;
       if (!active) return;
-      const fresh = results
-        .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof loadIndicativeQuote>>> => result.status === 'fulfilled')
-        .map((result) => result.value);
+      const fresh = Object.entries(response.quotes ?? {})
+        .map(([symbol, quote]) => ({
+          symbol: quote.symbol ?? symbol,
+          price: Number(quote.price),
+          quoteUpdatedAt: quote.quoteUpdatedAt ?? new Date().toISOString(),
+        }))
+        .filter((quote) => Number.isFinite(quote.price) && quote.price > 0);
       if (fresh.length) {
         const nextPrices = { ...pricesRef.current };
         fresh.forEach((quote) => { nextPrices[quote.symbol] = quote.price; });

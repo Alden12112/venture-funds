@@ -8,7 +8,7 @@ import { loadNewsBundle } from '@/adapters/news-adapter';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { approveRemoteCreditRequest, grantRemoteCredits } from '@/lib/credits';
 import { buildInternationalPhone, countryDirectory, getCountryOption, isValidCountryPhone, phoneDigitsHint } from '@/data/countries';
 import { isValidEmail } from '@/lib/auth';
@@ -18,9 +18,10 @@ import { SupportCenter } from '@/components/SupportCenter';
 const tabs = ['全部账号', '注册审核', 'U 管理', '月报', '交易记录', '流水通知', '客服中心', '内容配置', '审核流', '黑名单记录'] as const;
 
 export function AdminPage({ standalone = false }: { standalone?: boolean }) {
-  const { session } = useAuth();
+  const { session, signOut } = useAuth();
   const { t } = useLanguage();
   const location = useLocation();
+  const navigate = useNavigate();
   const initialQuery = new URLSearchParams(location.search).get('query') ?? '';
   const [tab, setTab] = useState<(typeof tabs)[number]>('全部账号');
   const [query, setQuery] = useState(initialQuery);
@@ -62,12 +63,24 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     );
   }
 
-  if (admin.status === 'loading' || news.status === 'loading') {
+  if (admin.status === 'loading') {
     return <LoadingState label="正在载入后台" />;
   }
 
-  if (admin.status === 'error' || news.status === 'error') {
-    return <div className="state-block state-block--error"><strong>后台数据暂不可用</strong><p>请稍后重试。</p></div>;
+  if (admin.status === 'error') {
+    return (
+      <div className="page-stack">
+        <PageHeader eyebrow="后台状态" title="后台暂时无法载入" description="账号接口或管理员会话没有返回有效数据。" />
+        <div className="state-block state-block--error">
+          <strong>后台数据暂不可用</strong>
+          <p>{admin.error || '共享后台接口暂时不可用，请稍后重试。'}</p>
+          <div className="state-block__action">
+            <button type="button" className="btn btn--ghost" onClick={() => setRefreshKey((value) => value + 1)}>重新加载</button>
+            <button type="button" className="btn btn--primary" onClick={() => { signOut(); navigate('/admin/login'); }}>重新登录</button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const normalizedQuery = query.trim().toLowerCase();
@@ -92,7 +105,8 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const monthLedger = admin.data.ledgerEntries.filter((item) => isCurrentMonth(item.time));
   const monthPositions = admin.data.paperPositions.filter((item) => isCurrentMonth(item.openedAt));
   const monthNotifications = admin.data.notifications.filter((item) => isCurrentMonth(item.createdAt));
-  const contentCount = news.data.items.length;
+  const newsItems = news.status === 'success' ? news.data.items : [];
+  const contentCount = newsItems.length;
   const report = admin.data.report;
   const creditByEmail = new Map(admin.data.creditAccounts.map((account) => [account.email.toLowerCase(), account]));
   const grantLookup = grantTarget.trim().toLowerCase();
@@ -548,7 +562,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <StatusPill tone="info">{String(contentCount)} {t('admin.articles')}</StatusPill>
           </div>
           <div className="stack-list">
-            {news.data.items.slice(0, 6).map((item) => (
+            {newsItems.slice(0, 6).map((item) => (
               <div key={item.id} className="stack-list__row">
                 <div>
                   <strong>{item.title}</strong>

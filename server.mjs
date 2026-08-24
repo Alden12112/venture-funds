@@ -24,6 +24,8 @@ const memoryBlacklist = new Map();
 const memoryNotifications = [];
 const marketProxyCache = new Map();
 const marketProxyTtlMs = 8_000;
+let marketQuoteSnapshotCache = { expiresAt: 0, value: null };
+let marketQuoteSnapshotRequest = null;
 const newsProxyCache = new Map();
 const newsProxyTtlMs = 5 * 60_000;
 const marketFallbackPrices = {
@@ -1043,6 +1045,17 @@ const twelveDataSymbols = {
   'GBPUSD=X': 'GBP/USD', 'JPY=X': 'USD/JPY', 'AUDUSD=X': 'AUD/USD', 'CAD=X': 'USD/CAD',
 };
 
+// This is the server-side catalogue used by the single quote snapshot. It is
+// deliberately separate from the React asset catalogue so the browser never
+// needs provider credentials or to fan out one request per instrument.
+const marketQuoteCatalogue = {
+  XAU: 'GC=F', BTC: 'BTC-USD', ETH: 'ETH-USD', CL: 'CL=F', NG: 'NG=F', XAG: 'SI=F', HG: 'HG=F', SCCO: 'SCCO',
+  BRN: 'BZ=F', HO: 'HO=F', RB: 'RB=F', LGO: 'LGO=F', PL: 'PL=F', PA: 'PA=F', CORN: 'ZC=F', WHEAT: 'ZW=F', COFFEE: 'KC=F',
+  SOL: 'SOL-USD', XRP: 'XRP-USD', LINK: 'LINK-USD', AVAX: 'AVAX-USD', EURUSD: 'EURUSD=X', GBPUSD: 'GBPUSD=X',
+  USDJPY: 'JPY=X', AUDUSD: 'AUDUSD=X', USDCAD: 'CAD=X', SPX: '^GSPC', NAS100: '^NDX', DAX: '^GDAXI',
+};
+const cryptoQuoteSymbols = new Set(['BTC', 'ETH', 'SOL', 'XRP', 'LINK', 'AVAX']);
+
 function twelveInterval(interval) {
   const intervals = { '1m': '1min', '5m': '5min', '15m': '15min', '30m': '30min', '60m': '1h', '1h': '1h', '4h': '4h', '1d': '1day', '1wk': '1week', '1mo': '1month' };
   return intervals[interval] || '15min';
@@ -1093,6 +1106,106 @@ async function loadTwelveMarket(symbol, interval) {
   const response = await fetch(upstream, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
   if (!response.ok) return null;
   return buildTwelveChartPayload(await response.json());
+}
+
+async function loadTwelveQuote(providerSymbol) {
+  const twelveSymbol = twelveDataSymbols[providerSymbol];
+  if (!twelveDataApiKey || !twelveSymbol) return null;
+  const upstream = new URL('https://api.twelvedata.com/quote');
+  upstream.searchParams.set('symbol', twelveSymbol);
+  upstream.searchParams.set('apikey', twelveDataApiKey);
+  const response = await fetch(upstream, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
+  if (!response.ok) return null;
+  const payload = await response.json();
+  const price = Number(payload.close ?? payload.price);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  const previous = Number(payload.previous_close ?? payload.prev_close);
+  return {
+    price,
+    change24h: Number.isFinite(Number(payload.percent_change)) ? Number(payload.percent_change) : previous > 0 ? ((price - previous) / previous) * 100 : 0,
+    volume24h: Number(payload.volume) || 0,
+    quoteUpdatedAt: payload.datetime ? new Date(`${String(payload.datetime).replace(' ', 'T')}Z`).toISOString() : new Date().toISOString(),
+    provider: 'Twelve Data',
+    fallback: false,
+  };
+}
+
+async function loadYahooQuote(providerSymbol) {
+  const hosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
+  for (const host of hosts) {
+    try {
+      const upstream = new URL(`https://${host}/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
+      upstream.searchParams.set('range', '1d');
+      upstream.searchParams.set('interval', '1m');
+      const response = await fetch(upstream, { headers: { 'User-Agent': 'AD88/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
+      if (!response.ok) continue;
+      const payload = await response.json();
+      const meta = payload?.chart?.result?.[0]?.meta;
+      const price = Number(meta?.regularMarketPrice);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      const previous = Number(meta?.previousClose ?? meta?.chartPreviousClose);
+      return {
+        price,
+        change24h: previous > 0 ? ((price - previous) / previous) * 100 : 0,
+        volume24h: Number(meta?.regularMarketVolume) || 0,
+        quoteUpdatedAt: meta?.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : new Date().toISOString(),
+        provider: 'Yahoo Finance',
+        fallback: false,
+      };
+    } catch {
+      // Try the second public host, then use the deterministic local quote.
+    }
+  }
+  return null;
+}
+
+async function buildMarketQuoteSnapshot() {
+  const entries = Object.entries(marketQuoteCatalogue).filter(([symbol]) => !cryptoQuoteSymbols.has(symbol));
+  const values = await Promise.all(entries.map(async ([symbol, providerSymbol]) => {
+    let quote = null;
+    try { quote = await loadTwelveQuote(providerSymbol); } catch { quote = null; }
+    if (!quote) {
+      try { quote = await loadYahooQuote(providerSymbol); } catch { quote = null; }
+    }
+    if (!quote) {
+      const [price, change] = marketFallbackPrices[providerSymbol] || [100, 0];
+      quote = { price, change24h: change, volume24h: 0, quoteUpdatedAt: new Date().toISOString(), provider: 'AD88 fallback', fallback: true };
+    }
+    return [symbol, quote];
+  }));
+  return Object.fromEntries(values);
+}
+
+async function proxyMarketQuotes(res, requestUrl) {
+  const requested = (requestUrl.searchParams.get('symbols') || Object.keys(marketQuoteCatalogue).join(','))
+    .split(',')
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter((symbol, index, all) => marketQuoteCatalogue[symbol] && !cryptoQuoteSymbols.has(symbol) && all.indexOf(symbol) === index);
+  if (!requested.length) return sendJson(res, 400, { error: 'no supported market symbols' });
+  let snapshot = marketQuoteSnapshotCache.value;
+  if (!snapshot || marketQuoteSnapshotCache.expiresAt <= Date.now()) {
+    if (!marketQuoteSnapshotRequest) marketQuoteSnapshotRequest = buildMarketQuoteSnapshot().finally(() => { marketQuoteSnapshotRequest = null; });
+    snapshot = await marketQuoteSnapshotRequest;
+    marketQuoteSnapshotCache = { expiresAt: Date.now() + marketProxyTtlMs, value: snapshot };
+  }
+  // Keep provider diagnostics server-side. The public workspace only needs a
+  // normalized quote and its source timestamp for calculations; it does not
+  // expose provider names, fallback labels, cache flags or API lineage.
+  const quotes = Object.fromEntries(requested
+    .map((symbol) => [symbol, snapshot[symbol]])
+    .filter(([, quote]) => quote)
+    .map(([symbol, quote]) => [symbol, {
+      symbol,
+      price: quote.price,
+      change24h: quote.change24h,
+      volume24h: quote.volume24h,
+      quoteUpdatedAt: quote.quoteUpdatedAt,
+    }]));
+  res.statusCode = 200;
+  res.setHeader('content-type', 'application/json; charset=utf-8');
+  res.setHeader('cache-control', 'no-store');
+  res.setHeader('x-ad88-cache', marketQuoteSnapshotCache.expiresAt > Date.now() ? 'cached' : 'fresh');
+  res.end(JSON.stringify({ quotes, updatedAt: new Date().toISOString() }));
 }
 
 async function proxyMarket(res, requestUrl) {
@@ -1363,6 +1476,7 @@ const server = http.createServer(async (req, res) => {
     if (requestUrl.pathname.startsWith('/api/support/')) return handleSupport(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/notifications')) return handleNotifications(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/sync')) return handleSync(req, res, requestUrl);
+    if (requestUrl.pathname === '/api/market/quotes') return proxyMarketQuotes(res, requestUrl);
     if (requestUrl.pathname === '/api/market') return proxyMarket(res, requestUrl);
     if (requestUrl.pathname === '/api/news') return proxyNews(res, requestUrl);
     await serveFile(res, requestUrl.pathname);

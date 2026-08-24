@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, Filter, Globe2, Search, RefreshCcw, Target } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
-import { DataMeta, EmptyState, LoadingState, StatusPill } from '@/components/Stats';
+import { EmptyState, LoadingState, StatusPill } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadNewsBundle } from '@/adapters/news-adapter';
 import { formatDateTime } from '@/lib/format';
@@ -52,8 +52,7 @@ export function NewsPage() {
       <PageHeader
         eyebrow="资讯"
         title="新闻"
-        description="新闻列表、分类和搜索都走同一套适配层。"
-        meta={<DataMeta source={news.data.source} />}
+        description="按市场影响、发布地区和事件窗口整理的金融资讯。"
         actions={
           <button type="button" className={`btn btn--ghost ${refreshing ? 'is-busy' : ''}`} onClick={refreshNews} disabled={refreshing}>
             <RefreshCcw size={16} />
@@ -145,25 +144,6 @@ export function NewsPage() {
       </section>
 
       <section className="content-grid content-grid--two">
-        <article className="panel">
-          <div className="panel__head">
-            <div>
-              <h2>来源说明</h2>
-              <p>RSS / API 聚合的替换入口预留在适配层。</p>
-            </div>
-          </div>
-          <div className="stack-list">
-            {news.data.categories.map((item) => (
-              <div key={item} className="stack-list__row">
-                <div>
-                  <strong>{item}</strong>
-                  <span>可作为独立分类或标签源</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </article>
-
         <article className="panel">
           <div className="panel__head">
             <div>

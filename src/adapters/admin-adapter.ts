@@ -1,4 +1,4 @@
-import type { AdminBundle, BlacklistEntry, PaperPosition, RegisteredUser, TradeAuditEvent, UserProfile } from '@/types';
+import type { AdminBundle, BlacklistEntry, LedgerBundle, PaperPosition, RegisteredUser, TradeAuditEvent, UserProfile } from '@/types';
 import { loadLedgerBundle } from '@/adapters/ledger-adapter';
 import { loadRemoteAdminCredits } from '@/lib/credits';
 import { apiFetch } from '@/lib/api';
@@ -15,14 +15,37 @@ function isCurrentMonth(value: string, anchor = new Date()) {
 }
 
 export async function loadAdminBundle(): Promise<AdminBundle> {
-  const [remoteUsers, remoteState, tradeEvents, ledger, remoteCredits, blacklist, notifications] = await Promise.all([
-    apiFetch<UserProfile[]>('/api/admin/users'),
-    apiFetch<{ paperPositions?: PaperPosition[] }>('/api/sync?scope=all').catch((): { paperPositions?: PaperPosition[] } => ({})),
-    apiFetch<TradeAuditEvent[]>('/api/admin/trades'),
-    loadLedgerBundle('all'),
-    loadRemoteAdminCredits(),
-    apiFetch<BlacklistEntry[]>('/api/admin/blacklist'),
-    apiFetch<AdminBundle['notifications']>('/api/admin/notifications'),
+  // Account access is the one core request: if it fails, the session is either
+  // unauthorized or the shared API is unavailable. Every other admin panel is
+  // allowed to degrade independently so one transient module cannot blank the
+  // whole console.
+  const remoteUsers = await apiFetch<UserProfile[]>('/api/admin/users');
+  const degraded: string[] = [];
+  const safe = async <T>(label: string, request: () => Promise<T>, fallback: T) => {
+    try {
+      return await request();
+    } catch {
+      degraded.push(label);
+      return fallback;
+    }
+  };
+  const emptyLedger: LedgerBundle = {
+    entries: [],
+    source: {
+      provider: 'AD88 account ledger API',
+      mode: 'api',
+      updatedAt: new Date().toISOString(),
+      cacheState: 'offline',
+      health: 'offline',
+    },
+  };
+  const [remoteState, tradeEvents, ledger, remoteCredits, blacklist, notifications] = await Promise.all([
+    safe('workspace', () => apiFetch<{ paperPositions?: PaperPosition[] }>('/api/sync?scope=all'), {}),
+    safe('trades', () => apiFetch<TradeAuditEvent[]>('/api/admin/trades'), []),
+    safe('ledger', () => loadLedgerBundle('all'), emptyLedger),
+    safe('credits', () => loadRemoteAdminCredits(), { accounts: [], requests: [] }),
+    safe('blacklist', () => apiFetch<BlacklistEntry[]>('/api/admin/blacklist'), []),
+    safe('notifications', () => apiFetch<AdminBundle['notifications']>('/api/admin/notifications'), []),
   ]);
   const registrations: RegisteredUser[] = remoteUsers.map((item) => ({
     id: item.id,
@@ -86,6 +109,8 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
       mode: 'api',
       updatedAt: new Date().toISOString(),
       cacheState: 'fresh',
+      health: degraded.length ? 'degraded' : 'healthy',
+      lineage: degraded.length ? `shared API · partial modules unavailable: ${degraded.join(', ')}` : 'shared API → admin workspace',
     },
   });
 }
