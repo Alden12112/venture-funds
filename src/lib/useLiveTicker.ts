@@ -128,6 +128,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
   const [bids, setBids] = useState<PriceMap>({});
   const [asks, setAsks] = useState<PriceMap>({});
   const [changes, setChanges] = useState<PriceMap>({});
+  const [directions, setDirections] = useState<DirectionMap>({});
   const [lastCheckedAt, setLastCheckedAt] = useState<TickMap>({});
   const [quoteUpdatedAt, setQuoteUpdatedAt] = useState<TickMap>({});
   const [status, setStatus] = useState<QuotePulseStatus>('idle');
@@ -171,9 +172,15 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
           .filter((quote) => Number.isFinite(quote.price) && quote.price > 0);
         if (!fresh.length) return;
         const nextPrices = { ...pricesRef.current };
-        fresh.forEach((quote) => { nextPrices[quote.symbol] = quote.price; });
+        const nextDirections = { ...directions };
+        fresh.forEach((quote) => {
+          const previous = pricesRef.current[quote.symbol];
+          nextDirections[quote.symbol] = previous == null ? 'flat' : quote.price > previous ? 'up' : quote.price < previous ? 'down' : 'flat';
+          nextPrices[quote.symbol] = quote.price;
+        });
         pricesRef.current = nextPrices;
         setPrices(nextPrices);
+        setDirections(nextDirections);
         setBids((current) => ({ ...current, ...Object.fromEntries(fresh.filter((quote) => Number.isFinite(quote.bid) && quote.bid > 0).map((quote) => [quote.symbol, quote.bid])) }));
         setAsks((current) => ({ ...current, ...Object.fromEntries(fresh.filter((quote) => Number.isFinite(quote.ask) && quote.ask > 0).map((quote) => [quote.symbol, quote.ask])) }));
         setChanges((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, quote.change24h])) }));
@@ -235,9 +242,15 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
         .filter((quote) => Number.isFinite(quote.price) && quote.price > 0);
       if (fresh.length) {
         const nextPrices = { ...pricesRef.current };
-        fresh.forEach((quote) => { nextPrices[quote.symbol] = quote.price; });
+        const nextDirections = { ...directions };
+        fresh.forEach((quote) => {
+          const previous = pricesRef.current[quote.symbol];
+          nextDirections[quote.symbol] = previous == null ? 'flat' : quote.price > previous ? 'up' : quote.price < previous ? 'down' : 'flat';
+          nextPrices[quote.symbol] = quote.price;
+        });
         pricesRef.current = nextPrices;
         setPrices(nextPrices);
+        setDirections(nextDirections);
         setBids((current) => ({ ...current, ...Object.fromEntries(fresh.filter((quote) => Number.isFinite(quote.bid) && quote.bid > 0).map((quote) => [quote.symbol, quote.bid])) }));
         setAsks((current) => ({ ...current, ...Object.fromEntries(fresh.filter((quote) => Number.isFinite(quote.ask) && quote.ask > 0).map((quote) => [quote.symbol, quote.ask])) }));
         setChanges((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, quote.change24h])) }));
@@ -257,5 +270,5 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
     };
   }, [symbolsKey]);
 
-  return { prices, bids, asks, changes, lastCheckedAt, quoteUpdatedAt, dataStates, streamStatus, status };
+  return { prices, bids, asks, changes, directions, lastCheckedAt, quoteUpdatedAt, dataStates, streamStatus, status };
 }

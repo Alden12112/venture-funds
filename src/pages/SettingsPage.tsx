@@ -7,9 +7,20 @@ import { StatCard, StatusPill } from '@/components/Stats';
 import { formatDateTime } from '@/lib/format';
 import { isValidEmail, isValidInternationalPhone, maskEmail } from '@/lib/auth';
 import { readStorage, writeStorage } from '@/lib/storage';
+import { useLanguage } from '@/context/language-context';
+import { labelCountry } from '@/lib/news-labels';
+
+const profileCountryOptions = ['Malaysia', 'Singapore', 'China', 'Indonesia', 'Thailand', 'United States', 'United Kingdom', 'Other'] as const;
+const profileTierOptions = ['Core', 'Pro', 'Enterprise'] as const;
+
+function tierLabel(t: (key: string) => string, value: string) {
+  const key = value === 'Pro' ? 'settings.tierPro' : value === 'Enterprise' ? 'settings.tierEnterprise' : 'settings.tierCore';
+  return t(key);
+}
 
 export function SettingsPage() {
   const { session, profile, updateProfile } = useAuth();
+  const { t } = useLanguage();
   const { theme, setTheme } = useTheme();
   const [saved, setSaved] = useState('');
   const [form, setForm] = useState({
@@ -45,165 +56,156 @@ export function SettingsPage() {
 
   const saveProfile = () => {
     if (!isValidEmail(form.email)) {
-      setSecurityNotice('Enter a valid email address.');
+      setSecurityNotice(t('settings.validEmail'));
       return;
     }
     if (!isValidInternationalPhone(form.phone)) {
-      setSecurityNotice('Phone number must include its country code, for example +60 12 345 6789.');
+      setSecurityNotice(t('settings.validPhone'));
       return;
     }
     updateProfile(form);
-    setSecurityNotice('Profile saved securely.');
-    setSaved(`Saved ${formatDateTime(new Date())}`);
+    setSecurityNotice(t('settings.profileSaved'));
+    setSaved(t('settings.savedAt').replace('{time}', formatDateTime(new Date())));
   };
 
   const toggleMfa = (enabled: boolean) => {
     setSecurity((current) => ({ ...current, mfa: enabled }));
-    if (enabled && !mfaVerified) setSecurityNotice(`A local verification step is ready for ${maskEmail(form.email)}. Connect an email provider before treating this as production MFA.`);
+    if (enabled && !mfaVerified) setSecurityNotice(t('settings.mfaReady').replace('{email}', maskEmail(form.email)));
     if (!enabled) {
       setMfaVerified(false);
       writeStorage('mfaVerified', false);
-      setSecurityNotice('Two-step verification is disabled.');
+      setSecurityNotice(t('settings.mfaDisabled'));
     }
   };
 
   const verifyMfa = () => {
     if (!/^\d{6}$/.test(mfaCode)) {
-      setSecurityNotice('Enter a 6-digit verification code.');
+      setSecurityNotice(t('settings.codeRequired'));
       return;
     }
     setMfaVerified(true);
     writeStorage('mfaVerified', true);
-    setSecurityNotice('Two-step verification is enabled for this workspace.');
+    setSecurityNotice(t('settings.mfaEnabled'));
   };
 
   return (
     <div className="page-stack">
       <PageHeader
-        eyebrow="ACCOUNT CONTROL"
-        title="Settings & Security"
-        description="Manage personal profile, session safeguards, workspace alerts and presentation preferences in one place."
-        meta={<StatusPill tone="info">Theme: {theme}</StatusPill>}
+        eyebrow={t('settings.eyebrow')}
+        title={t('settings.title')}
+        description={t('settings.description')}
+        meta={<StatusPill tone="info">{t('settings.theme')}: {theme}</StatusPill>}
       />
 
       <section className="metric-grid metric-grid--compact">
-        <StatCard label="Current role" value={session?.role ?? 'guest'} note={session?.email ?? 'Not signed in'} />
-        <StatCard label="Profile status" value={profile?.status ?? 'active'} note={saved || 'No changes yet'} />
-        <StatCard label="Workspace tier" value={form.tier} note="Profile setting" />
-        <StatCard label="Last verified" value={formatDateTime(new Date())} note="Workspace settings" />
+        <StatCard label={t('settings.currentRole')} value={session?.role === 'admin' ? t('ui.administrator') : session?.role === 'user' ? t('ui.client') : t('settings.guest')} note={session?.email ?? t('auth.userAccount')} />
+        <StatCard label={t('settings.profileStatus')} value={profile?.status === 'active' ? t('settings.active') : profile?.status ?? t('settings.active')} note={saved || t('settings.profileSetting')} />
+        <StatCard label={t('settings.workspaceTier')} value={tierLabel(t, form.tier)} note={t('settings.profileSetting')} />
+        <StatCard label={t('settings.lastVerified')} value={formatDateTime(new Date())} note={t('settings.workspaceSettings')} />
       </section>
 
       <section className="content-grid content-grid--two">
         <article className="panel">
           <div className="panel__head">
             <div>
-              <h2>Personal profile</h2>
-              <p>Profile changes are synchronized with your signed-in workspace.</p>
+              <h2>{t('settings.personalProfile')}</h2>
+              <p>{t('settings.personalProfileHint')}</p>
             </div>
           </div>
           <div className="form-grid">
             <label className="field">
-              <span>Full name</span>
+              <span>{t('settings.fullName')}</span>
               <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
             </label>
             <label className="field">
-              <span>Email</span>
+              <span>{t('settings.email')}</span>
               <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
             </label>
             <label className="field">
-              <span>Phone</span>
+              <span>{t('settings.phone')}</span>
               <input type="tel" placeholder="+60 12 345 6789" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
             </label>
             <label className="field">
-              <span>Country / region</span>
+              <span>{t('settings.countryRegion')}</span>
               <select value={form.country} onChange={(event) => setForm({ ...form, country: event.target.value })}>
-                <option>Malaysia</option>
-                <option>Singapore</option>
-                <option>China</option>
-                <option>Indonesia</option>
-                <option>Thailand</option>
-                <option>United States</option>
-                <option>United Kingdom</option>
-                <option>Other</option>
+                {profileCountryOptions.map((country) => <option key={country} value={country}>{country === 'Other' ? t('settings.otherCountry') : labelCountry(country, t)}</option>)}
               </select>
             </label>
             <label className="field">
-              <span>Workspace tier</span>
+              <span>{t('settings.workspaceTier')}</span>
               <select value={form.tier} onChange={(event) => setForm({ ...form, tier: event.target.value })}>
-                <option>Core</option>
-                <option>Pro</option>
-                <option>Enterprise</option>
+                {profileTierOptions.map((tier) => <option key={tier} value={tier}>{tierLabel(t, tier)}</option>)}
               </select>
             </label>
           </div>
           <button type="button" className="btn btn--primary" onClick={saveProfile}>
             <CheckCircle2 size={16} />
-            Save profile
+            {t('settings.saveProfile')}
           </button>
         </article>
 
         <article className="panel">
           <div className="panel__head">
             <div>
-              <h2>Presentation & security</h2>
-              <p>Visual preferences and account safeguards remain separate by design.</p>
+              <h2>{t('settings.presentationSecurity')}</h2>
+              <p>{t('settings.presentationSecurityHint')}</p>
             </div>
           </div>
           <div className="settings-stack">
             <label className="field">
               <span className="field-label">
                 <MoonStar size={16} />
-                Theme
+                {t('settings.theme')}
               </span>
               <select value={theme} onChange={(event) => setTheme(event.target.value as typeof theme)}>
-                <option value="linen">Day</option>
-                <option value="graphite">Graphite</option>
-                <option value="midnight">Midnight</option>
+                <option value="linen">{t('settings.day')}</option>
+                <option value="graphite">{t('ui.graphite')}</option>
+                <option value="midnight">{t('ui.midnight')}</option>
               </select>
             </label>
             <label className="toggle-row">
               <span>
                 <ShieldCheck size={16} />
-                Two-step verification
+                {t('settings.twoStep')}
               </span>
               <input type="checkbox" checked={security.mfa} onChange={(event) => toggleMfa(event.target.checked)} />
             </label>
             <label className="toggle-row">
               <span>
                 <SlidersHorizontal size={16} />
-                Trusted device
+                {t('settings.trustedDevice')}
               </span>
               <input type="checkbox" checked={security.trustedDevice} onChange={(event) => setSecurity({ ...security, trustedDevice: event.target.checked })} />
             </label>
             <label className="toggle-row">
               <span>
                 <ShieldCheck size={16} />
-                Risk alerts
+                {t('settings.riskAlerts')}
               </span>
               <input type="checkbox" checked={security.alerts} onChange={(event) => setSecurity({ ...security, alerts: event.target.checked })} />
             </label>
             <label className="toggle-row">
               <span>
                 <KeyRound size={16} />
-                API keys remain server-side
+                {t('settings.apiServerSide')}
               </span>
               <input type="checkbox" checked={security.apiAccess} onChange={(event) => setSecurity({ ...security, apiAccess: event.target.checked })} />
             </label>
           </div>
           {security.mfa && !mfaVerified ? (
             <div className="mfa-step">
-              <strong>Complete two-step verification</strong>
-              <span>Enter the 6-digit verification code for {maskEmail(form.email)}.</span>
+               <strong>{t('settings.completeTwoStep')}</strong>
+               <span>{t('settings.twoStepHint').replace('{email}', maskEmail(form.email))}</span>
               <div className="field-row">
-                <input inputMode="numeric" maxLength={6} placeholder="000000" value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ''))} />
-                <button type="button" className="btn btn--primary" onClick={verifyMfa}>Verify and enable</button>
+                 <input inputMode="numeric" maxLength={6} placeholder={t('settings.codePlaceholder')} value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, ''))} />
+                 <button type="button" className="btn btn--primary" onClick={verifyMfa}>{t('settings.verifyEnable')}</button>
               </div>
             </div>
           ) : null}
           <div className="inline-meta">
-            <span>Two-step verification: {security.mfa ? 'Enabled' : 'Off'}</span>
-            <span>Trusted device: {security.trustedDevice ? 'Enabled' : 'Off'}</span>
-            <span>API access: {security.apiAccess ? 'Enabled' : 'Off'}</span>
+             <span>{t('settings.twoStepStatus').replace('{status}', security.mfa ? t('ui.enabled') : t('ui.off'))}</span>
+             <span>{t('settings.trustedStatus').replace('{status}', security.trustedDevice ? t('ui.enabled') : t('ui.off'))}</span>
+             <span>{t('settings.apiStatus').replace('{status}', security.apiAccess ? t('ui.enabled') : t('ui.off'))}</span>
           </div>
           {securityNotice ? <div className="notice-banner">{securityNotice}</div> : null}
         </article>

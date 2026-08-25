@@ -1,5 +1,6 @@
 import type { MarketAsset } from '@/types';
 import { getMarketProduct } from '@/data/assets';
+import { useLanguage } from '@/context/language-context';
 
 function quote(value: number) {
   if (value >= 1000) return `$${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
@@ -8,14 +9,15 @@ function quote(value: number) {
 }
 
 export function MarketTicker({ assets }: { assets: MarketAsset[] }) {
+  const { t } = useLanguage();
   const preferred = ['BTC', 'XAU', 'CL', 'BRN', 'NG', 'RB', 'XAG', 'EURUSD', 'SPX'];
   const items = preferred.map((symbol) => assets.find((asset) => asset.symbol === symbol)).filter(Boolean) as MarketAsset[];
   return (
-    <section className="ticker-strip" aria-label="Today’s market movement">
+    <section className="ticker-strip" aria-label={t('ticker.todayMarket')}>
       <div className="ticker-strip__intro">
         <span className="status-dot status-dot--live" />
-        <strong>Today’s market</strong>
-        <span>24h</span>
+        <strong>{t('ticker.todayMarket')}</strong>
+        <span>{t('ticker.day24')}</span>
       </div>
       <div className="ticker-strip__viewport">
         <div className="ticker-strip__track">

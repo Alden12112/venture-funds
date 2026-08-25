@@ -17,6 +17,13 @@ export function formatPercent(value: number) {
   return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 
+export function getUiLocale() {
+  if (typeof document === 'undefined') return 'zh-CN';
+  if (document.documentElement.lang === 'zh-CN') return 'zh-CN';
+  if (document.documentElement.lang === 'ms') return 'ms-MY';
+  return 'en-GB';
+}
+
 export function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 4,
@@ -24,7 +31,7 @@ export function formatNumber(value: number) {
 }
 
 export function formatDateTime(input: string | number | Date) {
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(getUiLocale(), {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -34,7 +41,7 @@ export function formatDateTime(input: string | number | Date) {
 }
 
 export function formatLongDate(input: string | number | Date) {
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(getUiLocale(), {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

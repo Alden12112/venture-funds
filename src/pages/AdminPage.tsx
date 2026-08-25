@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, HandCoins, Languages, PlusCircle, Trash2, UserPlus } from 'lucide-react';
+import { ArrowRight, HandCoins, Languages, MinusCircle, PlusCircle, Trash2, UserPlus } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, LoadingState, StatCard, StatusPill, EmptyState } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
@@ -14,6 +14,7 @@ import { buildInternationalPhone, countryDirectory, getCountryOption, isValidCou
 import { isValidEmail } from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
 import { SupportCenter } from '@/components/SupportCenter';
+import { labelCountry, labelNewsCategory, labelNewsSentiment } from '@/lib/news-labels';
 
 const tabs = ['Accounts', 'Registration Review', 'U Management', 'Monthly Report', 'Trade Audit', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
 type AdminTab = (typeof tabs)[number];
@@ -65,6 +66,25 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
 
+  const statusLabel = (status: string) => {
+    if (status === 'approved') return t('status.approved');
+    if (status === 'settled') return t('status.settled');
+    if (status === 'pending') return t('status.pending');
+    if (status === 'rejected') return t('status.rejected');
+    if (status === 'active') return t('settings.active');
+    if (status === 'read') return t('admin.read');
+    if (status === 'unread') return t('admin.unread');
+    return status;
+  };
+  const tradeActionLabel = (action: string) => {
+    if (action === 'open') return t('ledger.open');
+    if (action === 'close') return t('ledger.close');
+    if (action === 'partial-close') return t('ledger.partialClose');
+    if (action === 'risk-update') return t('ledger.riskUpdate');
+    return action;
+  };
+  const sideLabel = (side: string) => side === 'long' ? t('market.long') : t('market.short');
+
   const selectTab = (nextTab: AdminTab) => {
     setTab(nextTab);
     saveAdminTab(nextTab);
@@ -109,16 +129,16 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     return (
       <div className="page-stack">
         <PageHeader
-          eyebrow="ACCESS CONTROL"
-          title="Administrator Console"
-          description="This session does not have administrator access. Use the independent /admin/login entry point."
+          eyebrow={t('admin.accessControl')}
+          title={t('admin.consoleTitle')}
+          description={t('admin.accessRequiredHint')}
         />
         <EmptyState
-          title="Administrator access required"
-          text="The administrative workspace is separated from the client-facing platform."
+          title={t('admin.accessRequired')}
+          text={t('admin.accessRequiredHint')}
           action={
             <Link to="/admin/login" className="btn btn--primary">
-              Sign in <ArrowRight size={16} />
+              {t('auth.login')} <ArrowRight size={16} />
             </Link>
           }
         />
@@ -127,7 +147,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   }
 
   if (admin.status === 'loading') {
-    return <LoadingState label="Loading administrator console" />;
+    return <LoadingState label={t('admin.loading')} />;
   }
 
   if (admin.status === 'error' && admin.error === 'unauthorized') {
@@ -140,13 +160,13 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   if (admin.status === 'error') {
     return (
       <div className="page-stack">
-        <PageHeader eyebrow="ADMINISTRATOR STATUS" title="Console is temporarily unavailable" description="The protected account API or admin session did not return valid data." />
+        <PageHeader eyebrow={t('admin.statusEyebrow')} title={t('admin.unavailableTitle')} description={t('admin.unavailableHint')} />
         <div className="state-block state-block--error">
-          <strong>Administrator data is unavailable</strong>
-          <p>{admin.error || 'The shared administrator API is temporarily unavailable. Please retry shortly.'}</p>
+          <strong>{t('admin.unavailableTitle')}</strong>
+          <p>{admin.error || t('admin.sharedApiError')}</p>
           <div className="state-block__action">
-            <button type="button" className="btn btn--ghost" onClick={() => setRefreshKey((value) => value + 1)}>Reload</button>
-            <button type="button" className="btn btn--primary" onClick={() => { signOut(); navigate('/admin/login'); }}>Sign in again</button>
+          <button type="button" className="btn btn--ghost" onClick={() => setRefreshKey((value) => value + 1)}>{t('admin.reload')}</button>
+            <button type="button" className="btn btn--primary" onClick={() => { signOut(); navigate('/admin/login'); }}>{t('auth.login')}</button>
           </div>
         </div>
       </div>
@@ -193,11 +213,16 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const accountCountry = getCountryOption(accountForm.country);
   const accountPhoneMaxLength = Array.isArray(accountCountry.digits) ? accountCountry.digits[1] : accountCountry.digits;
 
-  const grantToTarget = async () => {
+  const adjustUForTarget = async (delta: number) => {
     const target = grantAccount ?? (grantUser ? { userId: grantUser.id, userName: grantUser.name, email: grantUser.email } : null);
     if (!target || grantAmount <= 0) return;
-    await grantRemoteCredits({ id: target.userId, name: target.userName, email: target.email }, Math.round(grantAmount));
-    setRefreshKey((value) => value + 1);
+    try {
+      await grantRemoteCredits({ id: target.userId, name: target.userName, email: target.email }, Math.round(delta * grantAmount));
+      setAccountMessage(t('admin.adjustmentSuccess'));
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : t('admin.selectAccount'));
+    }
   };
 
   const approveRequest = async (id: string) => {
@@ -207,7 +232,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
 
   const createAccount = async () => {
     if (!accountForm.name.trim() || !isValidEmail(accountForm.email) || !isValidCountryPhone(accountCountry, accountForm.phone) || accountForm.password.length < 8) {
-      setAccountMessage(`Complete all fields: valid email, ${phoneDigitsHint(accountCountry)} phone digits and a password of at least 8 characters.`);
+      setAccountMessage(t('admin.completeAccountFields').replace('{digits}', phoneDigitsHint(accountCountry)));
       return;
     }
     try {
@@ -216,11 +241,11 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         body: JSON.stringify({ name: accountForm.name.trim(), email: accountForm.email.trim(), phone: buildInternationalPhone(accountCountry, accountForm.phone), country: accountCountry.name, password: accountForm.password, role: accountForm.role }),
       });
       setAccountForm({ name: '', email: '', phone: '', country: accountCountry.name, password: '', role: 'user' });
-      setAccountMessage('Account created, automatically approved and synchronized to the server.');
+      setAccountMessage(t('admin.accountCreated'));
       setRefreshKey((value) => value + 1);
       return;
     } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : 'Account creation failed.');
+      setAccountMessage(error instanceof Error ? error.message : t('admin.accountCreationFailed'));
       return;
     }
   };
@@ -228,15 +253,15 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const deleteAccount = async (id: string) => {
     const target = admin.data.users.find((user) => user.id === id);
     if (!target || target.role === 'admin' || !admin.data.registrations.some((item) => item.id === id)) return;
-    if (!window.confirm(`Delete account “${target.name}”?`)) return;
-    if (!window.confirm('Confirm again: the registration record will be removed from this workspace.')) return;
+    if (!window.confirm(t('admin.deleteConfirm').replace('{name}', target.name))) return;
+    if (!window.confirm(t('admin.deleteConfirmAgain'))) return;
     try {
       await apiFetch(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      setAccountMessage(`Deleted account: ${target.name}`);
+      setAccountMessage(t('admin.deletedAccount').replace('{name}', target.name));
       setRefreshKey((value) => value + 1);
       return;
     } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : 'Account deletion failed.');
+      setAccountMessage(error instanceof Error ? error.message : t('admin.accountDeletionFailed'));
       return;
     }
   };
@@ -244,20 +269,20 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const blacklistAccount = async (id: string) => {
     try {
       await apiFetch(`/api/admin/users/${encodeURIComponent(id)}/blacklist`, { method: 'POST', body: JSON.stringify({ reason: 'Registration review declined' }) });
-      setAccountMessage('Account is blacklisted; the same email or phone cannot register again.');
+      setAccountMessage(t('admin.blacklistSuccess'));
       setRefreshKey((value) => value + 1);
     } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : 'Unable to blacklist this account.');
+      setAccountMessage(error instanceof Error ? error.message : t('admin.blacklistFailed'));
     }
   };
 
   const restoreBlacklist = async (id: string) => {
     try {
       await apiFetch(`/api/admin/blacklist/${encodeURIComponent(id)}/restore`, { method: 'POST' });
-      setAccountMessage('Blacklist removed. This account can sign in or register again.');
+      setAccountMessage(t('admin.restoreSuccess'));
       setRefreshKey((value) => value + 1);
     } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : 'Unable to restore this account.');
+      setAccountMessage(error instanceof Error ? error.message : t('admin.restoreFailed'));
     }
   };
 
@@ -294,11 +319,11 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         <StatCard label={t('admin.metricAccounts')} value={String(report.totalAccounts)} note={t('admin.metricAccountsNote')} />
         <StatCard label={t('admin.metricNew')} value={String(report.monthlyRegistrations)} note={report.monthLabel} />
         <StatCard label={t('admin.metricLedger')} value={String(report.monthlyLedgerEntries)} note={`${t('admin.metricDeposit')} ${formatCurrency(report.monthlyInflow)}`} />
-        <StatCard label="U balance" value={String(totalCredits)} note={`${pendingCredits} U pending`} />
-        <StatCard
-          label="Market synchronization"
-          value={admin.data.marketStatus.status === 'healthy' ? 'Healthy' : admin.data.marketStatus.status === 'degraded' ? 'Monitoring' : 'Offline'}
-          note={`${admin.data.marketStatus.quoteCount} instruments · ${admin.data.marketStatus.ageSeconds ?? '—'}s ago`}
+         <StatCard label={t('admin.uBalance')} value={String(totalCredits)} note={`${pendingCredits}${t('admin.uPending')}`} />
+         <StatCard
+           label={t('admin.marketSync')}
+           value={admin.data.marketStatus.status === 'healthy' ? t('admin.healthy') : admin.data.marketStatus.status === 'degraded' ? t('admin.monitoring') : t('admin.offline')}
+           note={`${admin.data.marketStatus.quoteCount}${t('admin.instrumentsAgo').replace('{age}', String(admin.data.marketStatus.ageSeconds ?? '—')).replace(/^\d+/, '')}`}
         />
       </section>
 
@@ -328,25 +353,25 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <div className="admin-account-create__intro">
               <UserPlus size={20} />
               <div>
-                <strong>Create account from admin</strong>
-                <span>New accounts are approved automatically and share the same account pool as client registration.</span>
+                <strong>{t('admin.createAccount')}</strong>
+                <span>{t('admin.createAccountHint')}</span>
               </div>
             </div>
             <div className="form-grid">
-              <label className="field"><span>Full name</span><input value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} /></label>
-              <label className="field"><span>Email</span><input type="email" value={accountForm.email} onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })} /></label>
-              <label className="field"><span>Country / region</span><select value={accountForm.country} onChange={(event) => setAccountForm({ ...accountForm, country: event.target.value, phone: '' })}>{countryDirectory.map((country) => <option key={`${country.code}-${country.name}`} value={country.name}>{country.name} (+{country.dialCode})</option>)}</select></label>
-              <label className="field"><span>Phone ({phoneDigitsHint(accountCountry)} digits)</span><div className="phone-input"><span className="phone-input__prefix">+{accountCountry.dialCode}</span><input type="tel" inputMode="numeric" maxLength={accountPhoneMaxLength} value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value.replace(/\D/g, '').slice(0, accountPhoneMaxLength) })} /></div></label>
-              <label className="field"><span>Initial password</span><input type="password" autoComplete="new-password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} /></label>
-              <label className="field"><span>Account role</span><select value={accountForm.role} onChange={(event) => setAccountForm({ ...accountForm, role: event.target.value as 'user' | 'admin' })}><option value="user">Client</option><option value="admin">Administrator</option></select></label>
+              <label className="field"><span>{t('admin.fullName')}</span><input value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} /></label>
+              <label className="field"><span>{t('admin.email')}</span><input type="email" value={accountForm.email} onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })} /></label>
+              <label className="field"><span>{t('admin.countryRegion')}</span><select value={accountForm.country} onChange={(event) => setAccountForm({ ...accountForm, country: event.target.value, phone: '' })}>{countryDirectory.map((country) => <option key={`${country.code}-${country.name}`} value={country.name}>{country.name} (+{country.dialCode})</option>)}</select></label>
+              <label className="field"><span>{t('admin.phoneDigits').replace('{digits}', phoneDigitsHint(accountCountry))}</span><div className="phone-input"><span className="phone-input__prefix">+{accountCountry.dialCode}</span><input type="tel" inputMode="numeric" maxLength={accountPhoneMaxLength} value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value.replace(/\D/g, '').slice(0, accountPhoneMaxLength) })} /></div></label>
+              <label className="field"><span>{t('admin.initialPassword')}</span><input type="password" autoComplete="new-password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} /></label>
+              <label className="field"><span>{t('admin.accountRole')}</span><select value={accountForm.role} onChange={(event) => setAccountForm({ ...accountForm, role: event.target.value as 'user' | 'admin' })}><option value="user">{t('admin.client')}</option><option value="admin">{t('admin.administrator')}</option></select></label>
             </div>
-            <div className="admin-account-create__actions"><button type="button" className="btn btn--primary" onClick={createAccount}><UserPlus size={16} />Create and approve</button>{accountMessage ? <span className="field-hint">{accountMessage}</span> : null}</div>
+            <div className="admin-account-create__actions"><button type="button" className="btn btn--primary" onClick={createAccount}><UserPlus size={16} />{t('admin.createAndApprove')}</button>{accountMessage ? <span className="field-hint">{accountMessage}</span> : null}</div>
           </div>
           <div className="table-wrap">
             <table className="table table--interactive">
               <thead>
                 <tr>
-                  <th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Region</th><th>Tier</th><th className="text-end">U balance</th><th>Joined</th><th>Action</th>
+                  <th>{t('admin.fullName')}</th><th>{t('admin.email')}</th><th>{t('admin.role')}</th><th>{t('admin.status')}</th><th>{t('admin.region')}</th><th>{t('admin.tier')}</th><th className="text-end">{t('admin.balance')}</th><th>{t('admin.joined')}</th><th>{t('admin.action')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -356,16 +381,16 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                     <tr key={user.id}>
                       <td><strong>{user.name}</strong></td>
                       <td>{user.email}</td>
-                      <td>{user.role}</td>
-                      <td><StatusPill tone={user.status === 'active' ? 'success' : user.status === 'pending' ? 'warning' : 'critical'}>{user.status}</StatusPill></td>
-                      <td>{user.country}</td>
+                      <td>{user.role === 'admin' ? t('admin.administrator') : t('admin.client')}</td>
+                      <td><StatusPill tone={user.status === 'active' ? 'success' : user.status === 'pending' ? 'warning' : 'critical'}>{statusLabel(user.status)}</StatusPill></td>
+                       <td>{labelCountry(user.country ?? '', t)}</td>
                       <td>{user.tier}</td>
                       <td className="text-end">{credit?.balance ?? 0} U</td>
                       <td>{formatDateTime(user.joinedAt)}</td>
-                      <td>{user.role !== 'admin' ? <button type="button" className="btn btn--danger btn--sm" onClick={() => deleteAccount(user.id)}><Trash2 size={14} />Delete</button> : <span className="text-muted">Administrator protected</span>}</td>
+                      <td>{user.role !== 'admin' ? <button type="button" className="btn btn--danger btn--sm" onClick={() => deleteAccount(user.id)}><Trash2 size={14} />{t('admin.delete')}</button> : <span className="text-muted">{t('admin.adminProtected')}</span>}</td>
                     </tr>
                   );
-                }) : <tr><td colSpan={9}><div className="empty-inline"><span>No accounts yet. Client registration and admin-created accounts synchronize here.</span></div></td></tr>}
+                }) : <tr><td colSpan={9}><div className="empty-inline"><span>{t('admin.noAccounts')}</span></div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -385,13 +410,13 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Full name</th>
-                  <th>Gmail</th>
-                  <th>Phone</th>
-                  <th>Region</th>
-                  <th>Status</th>
-                  <th>Submitted</th>
-                  <th>Action</th>
+                  <th>{t('admin.fullName')}</th>
+                  <th>{t('admin.gmail')}</th>
+                  <th>{t('auth.phone')}</th>
+                  <th>{t('admin.region')}</th>
+                  <th>{t('admin.status')}</th>
+                  <th>{t('admin.submitted')}</th>
+                  <th>{t('admin.action')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -400,12 +425,12 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                     <td><strong>{item.fullName}</strong></td>
                     <td>{item.gmail}</td>
                     <td>{item.phone}</td>
-                    <td>{item.country}</td>
-                    <td><StatusPill tone={item.status === 'approved' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{item.status}</StatusPill></td>
+                     <td>{labelCountry(item.country, t)}</td>
+                    <td><StatusPill tone={item.status === 'approved' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{statusLabel(item.status)}</StatusPill></td>
                     <td>{formatDateTime(item.submittedAt)}</td>
-                    <td>{item.status === 'rejected' ? <span className="text-muted">Blacklisted</span> : <button type="button" className="btn btn--danger btn--sm" onClick={() => void blacklistAccount(item.id)}>Decline and blacklist</button>}</td>
+                    <td>{item.status === 'rejected' ? <span className="text-muted">{t('admin.blacklisted')}</span> : <button type="button" className="btn btn--danger btn--sm" onClick={() => void blacklistAccount(item.id)}>{t('admin.declineBlacklist')}</button>}</td>
                   </tr>
-                )) : <tr><td colSpan={7}><div className="empty-inline"><span>No registration records.</span></div></td></tr>}
+                )) : <tr><td colSpan={7}><div className="empty-inline"><span>{t('admin.noRegistrations')}</span></div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -417,30 +442,35 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
           <article className="panel credit-admin">
             <div className="panel__head">
               <div>
-                <h2>U allocation</h2>
-                <p>Search by account or email, then assign a paper U amount.</p>
+                <h2>{t('admin.uAllocation')}</h2>
+                <p>{t('admin.uAllocationHint')}</p>
               </div>
-              <StatusPill tone={grantAccount || grantUser ? 'success' : 'warning'}>{grantAccount || grantUser ? 'Account selected' : 'Select an account'}</StatusPill>
+              <StatusPill tone={grantAccount || grantUser ? 'success' : 'warning'}>{grantAccount || grantUser ? t('admin.accountSelected') : t('admin.selectAccount')}</StatusPill>
             </div>
             <div className="form-grid">
               <label className="field">
-                <span>Account / email / name</span>
-                <input value={grantTarget} onChange={(event) => setGrantTarget(event.target.value)} placeholder="Search account or select below" />
+                <span>{t('admin.accountEmailName')}</span>
+                <input value={grantTarget} onChange={(event) => setGrantTarget(event.target.value)} placeholder={t('admin.searchAccount')} />
               </label>
               <label className="field">
-                <span>Allocate U</span>
+                <span>{t('admin.adjustU')}</span>
                 <input type="number" min="1" step="1" value={grantAmount} onChange={(event) => setGrantAmount(Number(event.target.value))} />
               </label>
             </div>
-            <button type="button" className="btn btn--primary" onClick={() => void grantToTarget()} disabled={!grantLookup || (!grantAccount && !grantUser) || grantAmount <= 0}>
-              <PlusCircle size={16} />
-              Allocate U
-            </button>
+            <p className="field-hint">{t('admin.adjustUHint')}</p>
+            <div className="admin-u-actions">
+              <button type="button" className="btn btn--primary" onClick={() => void adjustUForTarget(1)} disabled={!grantLookup || (!grantAccount && !grantUser) || grantAmount <= 0}>
+                <PlusCircle size={16} /> {t('admin.increaseU')}
+              </button>
+              <button type="button" className="btn btn--danger" onClick={() => void adjustUForTarget(-1)} disabled={!grantLookup || (!grantAccount && !grantUser) || grantAmount <= 0}>
+                <MinusCircle size={16} /> {t('admin.decreaseU')}
+              </button>
+            </div>
             <div className="table-wrap">
               <table className="table table--interactive">
                 <thead>
                   <tr>
-                    <th>Account</th><th>Email</th><th className="text-end">Balance</th><th className="text-end">Available</th><th className="text-end">Pending</th><th>Action</th>
+                    <th>{t('admin.accountEmailName')}</th><th>{t('auth.email')}</th><th className="text-end">{t('admin.balance')}</th><th className="text-end">{t('admin.available')}</th><th className="text-end">{t('admin.pending')}</th><th>{t('admin.select')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -453,7 +483,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                       <td className="text-end">{account.pending}</td>
                       <td>
                         <button type="button" className="btn btn--ghost btn--sm" onClick={() => setGrantTarget(account.email)}>
-                          Select
+                           {t('admin.select')}
                         </button>
                       </td>
                     </tr>
@@ -466,10 +496,10 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
           <article className="panel">
             <div className="panel__head">
               <div>
-                <h2>U allocation review</h2>
-                <p>Client-submitted requests wait here for administrator approval.</p>
+                <h2>{t('admin.uReview')}</h2>
+                <p>{t('admin.uReviewHint')}</p>
               </div>
-              <StatusPill tone={pendingCreditRequests.length ? 'warning' : 'muted'}>{pendingCreditRequests.length} pending</StatusPill>
+              <StatusPill tone={pendingCreditRequests.length ? 'warning' : 'muted'}>{pendingCreditRequests.length} {t('admin.pending')}</StatusPill>
             </div>
             {admin.data.creditRequests.length ? (
               <div className="stack-list">
@@ -481,11 +511,11 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                       <span>{request.reason}</span>
                     </div>
                     <div className="stack-list__meta">
-                      <StatusPill tone={request.status === 'approved' ? 'success' : request.status === 'pending' ? 'warning' : 'critical'}>{request.status}</StatusPill>
+                       <StatusPill tone={request.status === 'approved' ? 'success' : request.status === 'pending' ? 'warning' : 'critical'}>{statusLabel(request.status)}</StatusPill>
                       {request.status === 'pending' ? (
                         <button type="button" className="btn btn--ghost btn--sm" onClick={() => void approveRequest(request.id)}>
                           <HandCoins size={14} />
-                          Approve
+                           {t('admin.approve')}
                         </button>
                       ) : (
                         <span>{request.reviewedAt ? formatDateTime(request.reviewedAt) : formatDateTime(request.requestedAt)}</span>
@@ -496,8 +526,8 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               </div>
             ) : (
               <div className="state-block">
-                <strong>No U requests</strong>
-                <p>Client-submitted requests will appear here for review.</p>
+                <strong>{t('admin.noURequests')}</strong>
+                <p>{t('admin.noURequestsHint')}</p>
               </div>
             )}
           </article>
@@ -517,7 +547,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <StatCard label={t('admin.reportApproved')} value={String(report.monthlyApproved)} note={t('admin.reportRegistrations')} />
               <StatCard label={t('admin.reportPositions')} value={String(report.monthlyPositions)} note={t('admin.reportMarket')} />
               <StatCard label={t('admin.reportUnread')} value={String(report.unreadNotifications)} note={t('admin.reportMonthScope')} />
-              <StatCard label="Trade events" value={String(visibleTradeEvents.length)} note="Cross-device audit records" />
+               <StatCard label={t('admin.tradeEvents')} value={String(visibleTradeEvents.length)} note={t('admin.crossDeviceAudit')} />
             </section>
           </article>
           <article className="panel">
@@ -567,27 +597,27 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         <section className="content-grid content-grid--two">
           <article className="panel">
             <div className="panel__head">
-              <div><h2>Trade audit records</h2><p>Client paper opens, closes and risk updates synchronize here.</p></div>
-              <StatusPill tone={visibleTradeEvents.length ? 'info' : 'muted'}>{visibleTradeEvents.length} events</StatusPill>
+               <div><h2>{t('admin.tradeAuditTitleShort')}</h2><p>{t('admin.tradeAuditHintShort')}</p></div>
+               <StatusPill tone={visibleTradeEvents.length ? 'info' : 'muted'}>{visibleTradeEvents.length}{t('admin.events')}</StatusPill>
             </div>
             <div className="stack-list">
               {visibleTradeEvents.length ? visibleTradeEvents.map((item) => (
                 <div key={item.id} className="stack-list__row">
                   <div>
-                    <strong>{item.userName ?? item.userEmail ?? item.userId} / {item.symbol} {item.side.toUpperCase()}</strong>
-                    <span>{item.action} · {item.lots} lots · {formatCurrency(item.price)}</span>
+                     <strong>{item.userName ?? item.userEmail ?? item.userId} / {item.symbol} {sideLabel(item.side)}</strong>
+                     <span>{tradeActionLabel(item.action)} · {item.lots} {t('ledger.lots')} · {formatCurrency(item.price)}</span>
                   </div>
-                  <div className="stack-list__meta"><StatusPill tone={item.action === 'open' ? 'success' : item.action === 'risk-update' ? 'info' : 'warning'}>{item.action}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div>
+                   <div className="stack-list__meta"><StatusPill tone={item.action === 'open' ? 'success' : item.action === 'risk-update' ? 'info' : 'warning'}>{tradeActionLabel(item.action)}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div>
                 </div>
-              )) : <div className="state-block"><strong>No cross-device trade events</strong><p>Events appear here after a client performs a paper action.</p></div>}
+               )) : <div className="state-block"><strong>{t('admin.noCrossDeviceTradeEvents')}</strong><p>{t('admin.noCrossDeviceTradeEventsHint')}</p></div>}
             </div>
           </article>
           <article className="panel">
-            <div className="panel__head"><div><h2>Current paper positions</h2><p>A shared position snapshot for risk oversight.</p></div></div>
+             <div className="panel__head"><div><h2>{t('admin.currentPaperPositions')}</h2><p>{t('admin.currentPaperPositionsHint')}</p></div></div>
             <div className="stack-list">
               {visiblePositions.map((item) => (
-                <div key={item.id} className="stack-list__row">
-                  <div><strong>{item.userName ?? item.userId ?? 'Unknown'} / {item.symbol} {item.side.toUpperCase()}</strong><span>{item.lots} lots / leverage {item.leverage}x / entry {formatCurrency(item.entryPrice)}</span></div>
+                 <div key={item.id} className="stack-list__row">
+                   <div><strong>{item.userName ?? item.userId ?? t('ui.unknown')} / {item.symbol} {sideLabel(item.side)}</strong><span>{item.lots} {t('ledger.lots')} / {t('market.leverage')} {item.leverage}x / {t('market.entry')} {formatCurrency(item.entryPrice)}</span></div>
                   <div className="stack-list__meta"><StatusPill tone={item.margin < 1000 ? 'success' : item.margin < 3000 ? 'warning' : 'critical'}>{formatCurrency(item.margin)}</StatusPill><span>{formatDateTime(item.openedAt)}</span></div>
                 </div>
               ))}
@@ -599,14 +629,14 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       {tab === 'Activity & Alerts' ? (
         <section className="content-grid content-grid--two">
           <article className="panel">
-            <div className="panel__head"><div><h2>{t('admin.ledgerTitle')}</h2><p>Funding activity across all accounts is centralized here; search by email to find an applicant.</p></div></div>
+            <div className="panel__head"><div><h2>{t('admin.ledgerTitle')}</h2><p>{t('admin.fundingHint')}</p></div></div>
             <div className="stack-list">
               {visibleLedger.length ? visibleLedger.map((item) => (
                 <div key={item.id} className="stack-list__row">
-                  <div><strong>{item.userEmail ?? 'Deleted account'}</strong><span>{item.userName ?? '—'} · {item.note || item.type}</span></div>
-                  <div className="stack-list__meta"><StatusPill tone={item.status === 'approved' || item.status === 'settled' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{item.status}</StatusPill><span>{item.amount.toFixed(2)} {item.currency}</span></div>
+                   <div><strong>{item.userEmail ?? t('admin.deletedAccountLabel')}</strong><span>{item.userName ?? '—'} · {item.note || item.type}</span></div>
+                   <div className="stack-list__meta"><StatusPill tone={item.status === 'approved' || item.status === 'settled' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{statusLabel(item.status)}</StatusPill><span>{item.amount.toFixed(2)} {item.currency}</span></div>
                 </div>
-              )) : <div className="state-block"><strong>No funding activity</strong><p>Funding or withdrawal events appear here under the client email.</p></div>}
+               )) : <div className="state-block"><strong>{t('admin.noFunding')}</strong><p>{t('admin.noFundingHint')}</p></div>}
             </div>
           </article>
           <article className="panel">
@@ -615,7 +645,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               {visibleNotifications.map((item) => (
                 <div key={item.id} className="stack-list__row">
                   <div><strong>{item.title}</strong><span>{item.body}</span></div>
-                  <div className="stack-list__meta"><StatusPill tone={item.read ? 'muted' : 'warning'}>{item.read ? 'read' : 'unread'}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div>
+                   <div className="stack-list__meta"><StatusPill tone={item.read ? 'muted' : 'warning'}>{item.read ? t('admin.read') : t('admin.unread')}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div>
                 </div>
               ))}
             </div>
@@ -639,10 +669,10 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <div key={item.id} className="stack-list__row">
                 <div>
                   <strong>{item.title}</strong>
-                  <span>{item.category} / {item.source}</span>
+                   <span>{labelNewsCategory(item.category, t)} / {item.source}</span>
                 </div>
                 <div className="stack-list__meta">
-                  <StatusPill tone={item.tone === 'positive' ? 'success' : item.tone === 'alert' ? 'critical' : 'info'}>{item.tone}</StatusPill>
+                   <StatusPill tone={item.tone === 'positive' ? 'success' : item.tone === 'alert' ? 'critical' : 'info'}>{labelNewsSentiment(item.tone, t)}</StatusPill>
                   <span>{formatDateTime(item.publishedAt)}</span>
                 </div>
               </div>
@@ -652,14 +682,14 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Key</th><th>Value</th><th>Scope</th>
+                  <th>{t('admin.key')}</th><th>{t('admin.value')}</th><th>{t('admin.scope')}</th>
                 </tr>
               </thead>
               <tbody>
                 {admin.data.configs.map((config) => (
                   <tr key={config.key}>
                     <td>{config.key}</td>
-                    <td>{config.value.includes('://') || config.value.startsWith('http') ? 'Configured server-side' : config.value}</td>
+                     <td>{config.value.includes('://') || config.value.startsWith('http') ? t('admin.configuredServerSide') : config.value}</td>
                     <td>{config.scope}</td>
                   </tr>
                 ))}
@@ -672,21 +702,21 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       {tab === 'Approval Flow' ? (
         <section className="content-grid content-grid--two">
           <article className="panel">
-            <div className="panel__head"><div><h2>{t('admin.approvalTitle')}</h2><p>Client registrations are auto-approved; admission time and follow-up review state remain visible here.</p></div></div>
+            <div className="panel__head"><div><h2>{t('admin.approvalTitle')}</h2><p>{t('admin.approvalFlowHint')}</p></div></div>
             <div className="stack-list">
               {admin.data.approvals.length ? admin.data.approvals.map((approval) => (
                 <div key={approval.id} className="stack-list__row">
                   <div><strong>{approval.subject}</strong><span>{approval.owner}</span></div>
-                  <div className="stack-list__meta"><StatusPill tone={approval.status === 'approved' ? 'success' : approval.status === 'pending' ? 'warning' : 'critical'}>{approval.status === 'approved' ? 'Auto-approved' : approval.status === 'rejected' ? 'Blacklisted' : 'Pending'}</StatusPill><span>{formatDateTime(approval.updatedAt)}</span></div>
+                  <div className="stack-list__meta"><StatusPill tone={approval.status === 'approved' ? 'success' : approval.status === 'pending' ? 'warning' : 'critical'}>{approval.status === 'approved' ? t('admin.autoApproved') : approval.status === 'rejected' ? t('admin.blacklisted') : t('admin.pendingStatus')}</StatusPill><span>{formatDateTime(approval.updatedAt)}</span></div>
                 </div>
-              )) : <div className="state-block"><strong>No approval records</strong><p>Client registration records synchronize here automatically.</p></div>}
+              )) : <div className="state-block"><strong>{t('admin.noApproval')}</strong><p>{t('admin.noApprovalHint')}</p></div>}
             </div>
           </article>
           <article className="panel">
-            <div className="panel__head"><div><h2>Blacklist records</h2><p>Use the dedicated tab for the full list and restoration controls.</p></div><StatusPill tone={admin.data.blacklist.length ? 'critical' : 'muted'}>{admin.data.blacklist.length} records</StatusPill></div>
+            <div className="panel__head"><div><h2>{t('admin.blacklistTitle')}</h2><p>{t('admin.blacklistHint')}</p></div><StatusPill tone={admin.data.blacklist.length ? 'critical' : 'muted'}>{admin.data.blacklist.length}{t('admin.records')}</StatusPill></div>
             <div className="stack-list">
-              {admin.data.blacklist.slice(0, 5).map((entry) => <div key={entry.id} className="stack-list__row"><div><strong>{entry.name}</strong><span>{entry.email}</span></div><div className="stack-list__meta"><StatusPill tone="critical">Blacklisted</StatusPill><span>{formatDateTime(entry.blacklistedAt)}</span></div></div>)}
-              {!admin.data.blacklist.length ? <div className="state-block"><strong>No blacklist records</strong><p>Records appear here after a registration is declined and blacklisted.</p></div> : null}
+              {admin.data.blacklist.slice(0, 5).map((entry) => <div key={entry.id} className="stack-list__row"><div><strong>{entry.name}</strong><span>{entry.email}</span></div><div className="stack-list__meta"><StatusPill tone="critical">{t('admin.blacklisted')}</StatusPill><span>{formatDateTime(entry.blacklistedAt)}</span></div></div>)}
+              {!admin.data.blacklist.length ? <div className="state-block"><strong>{t('admin.noBlacklist')}</strong><p>{t('admin.blacklistHint')}</p></div> : null}
             </div>
           </article>
         </section>
@@ -694,12 +724,12 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
 
       {tab === 'Blacklist' ? (
         <article className="panel">
-          <div className="panel__head"><div><h2>Blacklist records</h2><p>After blacklisting, the same email or phone cannot register again. Restore access here when appropriate.</p></div><StatusPill tone={visibleBlacklist.length ? 'critical' : 'muted'}>{visibleBlacklist.length} records</StatusPill></div>
+          <div className="panel__head"><div><h2>{t('admin.blacklistTitle')}</h2><p>{t('admin.blacklistFullHint')}</p></div><StatusPill tone={visibleBlacklist.length ? 'critical' : 'muted'}>{visibleBlacklist.length}{t('admin.records')}</StatusPill></div>
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Region</th><th>Reason</th><th>Blacklisted</th><th>Action</th></tr></thead>
+              <thead><tr><th>{t('admin.name')}</th><th>{t('admin.email')}</th><th>{t('admin.phone')}</th><th>{t('admin.region')}</th><th>{t('admin.reason')}</th><th>{t('admin.blacklistColumn')}</th><th>{t('admin.action')}</th></tr></thead>
               <tbody>
-                {visibleBlacklist.length ? visibleBlacklist.map((entry) => <tr key={entry.id}><td><strong>{entry.name}</strong></td><td>{entry.email}</td><td>{entry.phone}</td><td>{entry.country}</td><td>{entry.reason}</td><td>{formatDateTime(entry.blacklistedAt)}</td><td><button type="button" className="btn btn--ghost btn--sm" onClick={() => void restoreBlacklist(entry.id)}>Restore access</button></td></tr>) : <tr><td colSpan={7}><div className="empty-inline"><span>No blacklist records.</span></div></td></tr>}
+                 {visibleBlacklist.length ? visibleBlacklist.map((entry) => <tr key={entry.id}><td><strong>{entry.name}</strong></td><td>{entry.email}</td><td>{entry.phone}</td><td>{labelCountry(entry.country, t)}</td><td>{entry.reason}</td><td>{formatDateTime(entry.blacklistedAt)}</td><td><button type="button" className="btn btn--ghost btn--sm" onClick={() => void restoreBlacklist(entry.id)}>{t('admin.restoreAccess')}</button></td></tr>) : <tr><td colSpan={7}><div className="empty-inline"><span>{t('admin.noBlacklist')}</span></div></td></tr>}
               </tbody>
             </table>
           </div>

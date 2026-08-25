@@ -8,14 +8,15 @@ import { loadNotificationBundle } from '@/adapters/notification-adapter';
 import { formatDateTime } from '@/lib/format';
 import type { NotificationItem } from '@/types';
 import { writeStorage } from '@/lib/storage';
+import { useLanguage } from '@/context/language-context';
 
 const categories = ['All', 'system', 'market', 'task', 'fund'] as const;
 const categoryLabels: Record<(typeof categories)[number], string> = {
-  All: 'All alerts',
-  system: 'System',
-  market: 'Market',
-  task: 'Task',
-  fund: 'Funding',
+  All: 'ui.all',
+  system: 'ui.system',
+  market: 'ui.market',
+  task: 'ui.task',
+  fund: 'ui.funding',
 };
 
 function NotificationIcon({ category, level }: Pick<NotificationItem, 'category' | 'level'>) {
@@ -27,6 +28,7 @@ function NotificationIcon({ category, level }: Pick<NotificationItem, 'category'
 }
 
 export function NotificationsPage() {
+  const { t } = useLanguage();
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const bundle = useAsyncResource(() => loadNotificationBundle(), [refreshKey]);
@@ -60,11 +62,11 @@ export function NotificationsPage() {
   const unread = filtered.filter((item) => !item.read).length;
 
   if (bundle.status === 'loading') {
-    return <LoadingState label="Loading workspace alerts" />;
+    return <LoadingState label={t('alerts.loading')} />;
   }
 
   if (bundle.status === 'error') {
-    return <div className="state-block state-block--error"><strong>Workspace alerts are temporarily unavailable</strong><p>{bundle.error}</p><button type="button" className="btn btn--ghost" onClick={refreshNotifications}><RefreshCw size={15} /> Reconnect alerts</button></div>;
+    return <div className="state-block state-block--error"><strong>{t('alerts.unavailable')}</strong><p>{bundle.error}</p><button type="button" className="btn btn--ghost" onClick={refreshNotifications}><RefreshCw size={15} /> {t('alerts.reconnect')}</button></div>;
   }
 
   const markAll = () => {
@@ -102,18 +104,18 @@ export function NotificationsPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        eyebrow="WORKSPACE SIGNALS"
-        title="Alerts Center"
-        description="System, market, task and funding alerts with clear unread state and direct next actions."
+        eyebrow={t('alerts.eyebrow')}
+        title={t('alerts.title')}
+        description={t('alerts.description')}
         actions={
           <>
             <button type="button" className="btn btn--ghost" onClick={markAll}>
               <MailOpen size={16} />
-              Mark all read
+              {t('alerts.markAll')}
             </button>
             <button type="button" className={`btn btn--ghost ${refreshing ? 'is-busy' : ''}`} onClick={refreshNotifications} disabled={refreshing}>
               <RefreshCw size={16} />
-              {refreshing ? 'Synchronizing…' : 'Refresh'}
+              {refreshing ? t('news.syncing') : t('alerts.refresh')}
             </button>
           </>
         }
@@ -122,24 +124,24 @@ export function NotificationsPage() {
       <section className="notification-overview">
         <div className="notification-overview__icon"><BellRing size={20} /></div>
         <div>
-          <strong>{unread ? `${unread} alerts need review` : 'All alerts are handled'}</strong>
-          <p>Selecting an alert updates its read state; use the linked action only when you want to leave this page.</p>
+          <strong>{unread ? `${unread}${t('alerts.needReview')}` : t('alerts.handled')}</strong>
+          <p>{t('alerts.overviewHint')}</p>
         </div>
-        <StatusPill tone={unread ? 'warning' : 'success'}>{unread ? 'Review needed' : 'All clear'}</StatusPill>
+        <StatusPill tone={unread ? 'warning' : 'success'}>{unread ? t('ui.reviewNeeded') : t('ui.allClear')}</StatusPill>
       </section>
 
       <section className="metric-grid metric-grid--compact">
-        <StatCard label="Unread now" value={String(unread)} note="Filtered view" />
-        <StatCard label="Total alerts" value={String(filtered.length)} note="Current selection" />
-        <StatCard label="System signals" value={String(items.filter((item) => item.category === 'system').length)} />
-        <StatCard label="Funding signals" value={String(items.filter((item) => item.category === 'fund').length)} />
+        <StatCard label={t('alerts.unreadNow')} value={String(unread)} note={t('alerts.filteredView')} />
+        <StatCard label={t('alerts.total')} value={String(filtered.length)} note={t('alerts.currentSelection')} />
+        <StatCard label={t('alerts.systemSignals')} value={String(items.filter((item) => item.category === 'system').length)} />
+        <StatCard label={t('alerts.fundingSignals')} value={String(items.filter((item) => item.category === 'fund').length)} />
       </section>
 
       <section className="panel panel--controls">
         <div className="chip-row">
           {categories.map((item) => (
             <button key={item} type="button" className={`chip ${category === item ? 'is-active' : ''}`} onClick={() => setCategory(item)}>
-              {categoryLabels[item]}
+              {t(categoryLabels[item])}
             </button>
           ))}
         </div>
@@ -156,13 +158,13 @@ export function NotificationsPage() {
                 <div className="notification-item__title">
                   <span className={`notification-item__icon notification-item__icon--${item.level}`}><NotificationIcon category={item.category} level={item.level} /></span>
                   <div>
-                    <span className="eyebrow">{categoryLabels[item.category]}</span>
+              <span className="eyebrow">{t(categoryLabels[item.category])}</span>
                     <h2>{item.title}</h2>
                   </div>
                 </div>
                 <div className="notification-item__controls">
-                  <StatusPill tone={item.read ? 'muted' : 'warning'}>{item.read ? 'Read' : 'Unread'}</StatusPill>
-                  <button type="button" className="icon-button icon-button--small" onClick={() => toggleRead(item.id)} aria-label={item.read ? 'Mark as unread' : 'Mark as read'}>
+                  <StatusPill tone={item.read ? 'muted' : 'warning'}>{item.read ? t('ui.read') : t('ui.unread')}</StatusPill>
+                  <button type="button" className="icon-button icon-button--small" onClick={() => toggleRead(item.id)} aria-label={item.read ? t('alerts.markUnread') : t('alerts.markRead')}>
                     {item.read ? <MailOpen size={15} /> : <CheckCheck size={15} />}
                   </button>
                 </div>
@@ -170,18 +172,18 @@ export function NotificationsPage() {
               <p className="notification-item__body">{item.body}</p>
               <div className="notification-item__footer">
                 <div className="news-item__meta">
-                  <span>{categoryLabels[item.category]}</span>
+                  <span>{t(categoryLabels[item.category])}</span>
                   <span>{formatDateTime(item.createdAt)}</span>
                 </div>
                 <Link className="link-action link-action--inline notification-item__open" to={targetFor(item)} onClick={() => markRead(item.id)}>
-                  Open related workspace <ExternalLink size={13} />
+                  {t('alerts.openRelated')} <ExternalLink size={13} />
                 </Link>
               </div>
             </article>
           ))}
         </section>
       ) : (
-        <EmptyState title="No matching alerts" text="Switch category or clear the current filtering choice." />
+        <EmptyState title={t('alerts.noMatches')} text={t('alerts.noMatchesHint')} />
       )}
     </div>
   );

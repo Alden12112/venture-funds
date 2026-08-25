@@ -17,12 +17,18 @@ import { AdminAuthPage } from '@/pages/AdminAuthPage';
 import { LegalPage } from '@/pages/LegalPage';
 import { useAuth } from '@/context/auth-context';
 import { isAdminSurface } from '@/lib/surface';
+import { useLanguage } from '@/context/language-context';
+
+function PageLoading({ admin = false }: { admin?: boolean }) {
+  const { t } = useLanguage();
+  return <div className="page-loading">{admin ? t('ui.loadingAdminSession') : t('ui.loadingSecureSession')}</div>;
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, ready } = useAuth();
 
   if (!ready) {
-    return <div className="page-loading">Preparing secure session…</div>;
+    return <PageLoading />;
   }
 
   if (!session) {
@@ -35,7 +41,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { session, ready } = useAuth();
 
-  if (!ready) return <div className="page-loading">Preparing administrator session…</div>;
+  if (!ready) return <PageLoading admin />;
   if (!session || session.role !== 'admin') return <Navigate to="/admin/login" replace />;
   return <>{children}</>;
 }

@@ -4,6 +4,7 @@ import { useAuth } from '@/context/auth-context';
 import { apiFetch, ApiError, isApiUnavailable } from '@/lib/api';
 import { readStorage, writeStorage } from '@/lib/storage';
 import { formatDateTime } from '@/lib/format';
+import { useLanguage } from '@/context/language-context';
 import type { SupportMessage } from '@/types';
 
 const whatsappUrl = 'https://wa.me/60178541111';
@@ -11,6 +12,7 @@ const telegramUrl = 'https://t.me/Alden_1022';
 
 export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
   const { session } = useAuth();
+  const { t } = useLanguage();
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [activeThreadId, setActiveThreadId] = useState('');
@@ -25,7 +27,7 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
       writeStorage(`supportMessages.${adminMode ? 'admin' : session.id}`, remote, { sync: false });
     } catch (error) {
       if (!(error instanceof ApiError) || !isApiUnavailable(error)) {
-        setStatus(error instanceof Error ? error.message : 'Support messages are temporarily unavailable');
+        setStatus(error instanceof Error ? error.message : t('support.unavailable'));
         return;
       }
       const local = readStorage<SupportMessage[]>(`supportMessages.${adminMode ? 'admin' : session.id}`, []);
@@ -62,10 +64,10 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
       setMessages((current) => [...current, created]);
       setActiveThreadId(created.threadId);
       setDraft('');
-      setStatus('Sent securely');
+      setStatus(t('support.sent'));
     } catch (error) {
       if (!(error instanceof ApiError) || !isApiUnavailable(error)) {
-        setStatus(error instanceof Error ? error.message : 'Message delivery failed');
+        setStatus(error instanceof Error ? error.message : t('support.deliveryFailed'));
         return;
       }
       const created: SupportMessage = {
@@ -84,7 +86,7 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
       setActiveThreadId(created.threadId);
       writeStorage(`supportMessages.${adminMode ? 'admin' : session.id}`, next, { sync: false });
       setDraft('');
-      setStatus('Saved to this local workspace');
+      setStatus(t('support.sent'));
     }
   };
 
@@ -94,56 +96,56 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
         <div className="support-console__title">
           <span className="support-console__icon"><Headphones size={18} /></span>
           <div>
-            <span className="eyebrow">{adminMode ? 'Operations desk' : 'Client care'}</span>
-            <h2>{adminMode ? 'Support inbox' : 'Contact AD88 Support'}</h2>
-            <p>{adminMode ? 'Respond to client messages from one synchronized operations inbox.' : 'Your message reaches the administrator inbox and replies appear in this thread.'}</p>
-            <small className="support-console__retention">Conversation retention: 1 year · Direct channels are available on the right</small>
+            <span className="eyebrow">{adminMode ? t('support.operationsDesk') : t('support.clientCare')}</span>
+            <h2>{adminMode ? t('support.inbox') : t('support.contact')}</h2>
+            <p>{adminMode ? t('support.adminDescription') : t('support.clientDescription')}</p>
+            <small className="support-console__retention">{t('support.retention')}</small>
           </div>
         </div>
         <div className="support-console__actions">
-          <a className="support-channel support-channel--whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer" aria-label="Open WhatsApp">
+          <a className="support-channel support-channel--whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer" aria-label={t('support.openWhatsApp')}>
             <MessageCircle size={16} /> WhatsApp
           </a>
-          <a className="support-channel support-channel--telegram" href={telegramUrl} target="_blank" rel="noreferrer" aria-label="Open Telegram">
+          <a className="support-channel support-channel--telegram" href={telegramUrl} target="_blank" rel="noreferrer" aria-label={t('support.openTelegram')}>
             <Send size={16} /> Telegram
           </a>
-          <button type="button" className="icon-button icon-button--small" onClick={() => void loadMessages()} aria-label="Refresh support messages"><RefreshCw size={15} /></button>
+          <button type="button" className="icon-button icon-button--small" onClick={() => void loadMessages()} aria-label={t('support.refresh')}><RefreshCw size={15} /></button>
         </div>
       </div>
 
       <div className="support-console__body">
         {adminMode ? (
-          <aside className="support-threads" aria-label="Support thread list">
+          <aside className="support-threads" aria-label={t('support.inbox')}>
             {threads.length ? threads.map((thread) => (
               <button type="button" key={thread.threadId} className={`support-thread ${selectedThread?.threadId === thread.threadId ? 'is-active' : ''}`} onClick={() => setActiveThreadId(thread.threadId)}>
                 <span className="support-thread__avatar">{thread.latest.userName.slice(0, 1).toUpperCase()}</span>
-                <span><strong>{thread.latest.userName}</strong><small>{thread.latest.userEmail} · {thread.latest.userPhone || 'No phone recorded'}</small><small>{thread.latest.body}</small></span>
+                <span><strong>{thread.latest.userName}</strong><small>{thread.latest.userEmail} · {thread.latest.userPhone || t('support.noPhone')}</small><small>{thread.latest.body}</small></span>
                 <time>{formatDateTime(thread.latest.createdAt)}</time>
-                {thread.unread ? <span className="support-thread__unread">{thread.unread} new</span> : null}
+                {thread.unread ? <span className="support-thread__unread">{t('support.unreadCount').replace('{count}', String(thread.unread))}</span> : null}
               </button>
-            )) : <div className="support-empty">No new client messages.</div>}
+            )) : <div className="support-empty">{t('support.noNewMessages')}</div>}
           </aside>
         ) : null}
 
         <div className="support-chat">
           <div className="support-chat__meta">
-            <span><ShieldCheck size={14} /> {adminMode ? `${selectedThread?.latest.userEmail ?? 'Select a thread'} · ${selectedThread?.latest.userPhone || 'No phone recorded'}` : 'Protected support channel'}</span>
+            <span><ShieldCheck size={14} /> {adminMode ? `${selectedThread?.latest.userEmail ?? t('support.selectThread')} · ${selectedThread?.latest.userPhone || t('support.noPhone')}` : t('support.protectedChannel')}</span>
             {status ? <span className="support-chat__status">{status}</span> : null}
           </div>
           <div className="support-chat__messages">
             {visibleMessages.length ? visibleMessages.map((message) => (
               <div key={message.id} className={`support-message support-message--${message.senderRole}`}>
                 <div className="support-message__bubble">
-                  <strong>{message.senderRole === 'admin' ? 'AD88 Support' : message.userName}</strong>
+                   <strong>{message.senderRole === 'admin' ? `AD88 ${t('support.clientCare')}` : message.userName}</strong>
                   <p>{message.body}</p>
                   <time>{formatDateTime(message.createdAt)}</time>
                 </div>
               </div>
-            )) : <div className="support-empty support-empty--large"><MessageCircle size={24} /><strong>{adminMode ? 'Waiting for client messages' : 'Need assistance?'}</strong><span>{adminMode ? 'New messages will appear automatically in the inbox.' : 'Send a message and the operations team will reply here.'}</span></div>}
+            )) : <div className="support-empty support-empty--large"><MessageCircle size={24} /><strong>{adminMode ? t('support.waiting') : t('support.needHelp')}</strong><span>{adminMode ? t('support.waitingHint') : t('support.needHelpHint')}</span></div>}
           </div>
           <div className="support-composer">
-            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={adminMode ? 'Reply to this client…' : 'Describe your question…'} rows={2} />
-            <button type="button" className="btn btn--primary" onClick={() => void sendMessage()} disabled={!draft.trim() || (adminMode && !selectedThread)}><Send size={16} /> Send</button>
+            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={adminMode ? t('support.replyPlaceholder') : t('support.questionPlaceholder')} rows={2} />
+            <button type="button" className="btn btn--primary" onClick={() => void sendMessage()} disabled={!draft.trim() || (adminMode && !selectedThread)}><Send size={16} /> {t('support.send')}</button>
           </div>
         </div>
       </div>

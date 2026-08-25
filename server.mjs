@@ -808,12 +808,22 @@ async function handleAdminCredits(req, res, requestUrl) {
     const input = await readBody(req);
     const amount = Math.round(Number(input.amount));
     const targetId = String(input.userId || '').trim();
-    if (!targetId || !Number.isFinite(amount) || amount <= 0 || amount > 1_000_000) return sendJson(res, 400, { error: 'invalid grant' });
+    if (!targetId || !Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 1_000_000) return sendJson(res, 400, { error: 'invalid U adjustment' });
     const target = await findAccountById(targetId);
     if (!target) return sendJson(res, 404, { error: 'account not found' });
     const account = await getOrCreateCreditAccount({ sub: target.id, name: target.name, email: target.email });
-    const updated = await updateCreditAccount({ ...account, userName: target.name, email: target.email, balance: account.balance + amount, available: account.available + amount, grantedTotal: account.grantedTotal + amount, updatedAt: new Date().toISOString() });
-    await createNotification(target.id, 'fund', 'U balance updated', `${amount} U has been allocated to your paper account.`, 'success', '/app/dashboard');
+    if (amount < 0 && Math.abs(amount) > account.available) return sendJson(res, 409, { error: 'U reduction exceeds available balance', account });
+    const updated = await updateCreditAccount({
+      ...account,
+      userName: target.name,
+      email: target.email,
+      balance: Number((account.balance + amount).toFixed(2)),
+      available: Number((account.available + amount).toFixed(2)),
+      grantedTotal: Number((account.grantedTotal + Math.max(amount, 0)).toFixed(2)),
+      updatedAt: new Date().toISOString(),
+    });
+    const direction = amount > 0 ? 'allocated' : 'removed';
+    await createNotification(target.id, 'fund', 'U balance updated', `${Math.abs(amount)} U has been ${direction} from your paper account.`, amount > 0 ? 'success' : 'warning', '/app/dashboard');
     return sendJson(res, 200, updated);
   }
   if (req.method === 'POST' && requestUrl.pathname === '/api/admin/credits/approve') {
@@ -934,9 +944,9 @@ function normalizeSupportMessage(row) {
 }
 
 async function pruneSupportMessages() {
-  const cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
   if (pool) {
-    await pool.query("DELETE FROM ad88_support_messages WHERE created_at < NOW() - INTERVAL '1 year'");
+    await pool.query("DELETE FROM ad88_support_messages WHERE created_at < NOW() - INTERVAL '7 days'");
     return;
   }
   const retained = memorySupportMessages.filter((item) => new Date(item.createdAt).getTime() >= cutoff);
@@ -1125,11 +1135,12 @@ async function handleSupport(req, res, requestUrl) {
 }
 
 const twelveDataSymbols = {
-  // Twelve Data supports FX and digital assets well on its free plan. Its
-  // WTI/NatGas aliases are not valid quote symbols, so energy and metals stay
-  // on the validated public market snapshot below instead of becoming stale
-  // or falling back to a fabricated price.
-  'GC=F': 'XAU/USD', 'SI=F': 'XAG/USD', 'BTC-USD': 'BTC/USD', 'ETH-USD': 'ETH/USD', 'SOL-USD': 'SOL/USD',
+  // Twelve Data symbols are kept as a server-side adapter map. The public
+  // market snapshot remains the first quote path, while these mappings give
+  // the selected chart a real time-series provider when the account plan
+  // supports the instrument.
+  'GC=F': 'XAU/USD', 'SI=F': 'XAG/USD', 'CL=F': 'WTI/USD', 'BZ=F': 'BRENT/USD', 'NG=F': 'NATGAS/USD', 'HG=F': 'COPPER/USD',
+  'PL=F': 'XPT/USD', 'PA=F': 'XPD/USD', 'BTC-USD': 'BTC/USD', 'ETH-USD': 'ETH/USD', 'SOL-USD': 'SOL/USD',
   'XRP-USD': 'XRP/USD', 'LINK-USD': 'LINK/USD', 'AVAX-USD': 'AVAX/USD', 'EURUSD=X': 'EUR/USD',
   'GBPUSD=X': 'GBP/USD', 'JPY=X': 'USD/JPY', 'AUDUSD=X': 'AUD/USD', 'CAD=X': 'USD/CAD',
 };
@@ -1402,11 +1413,14 @@ async function loadTradingViewSnapshot() {
   return output;
 }
 
-function buildSpotMetalChart(symbol, quote) {
+function buildIndicativeReferenceChart(symbol, quote, interval = '15m') {
   const now = Math.floor(Date.now() / 1000);
   const base = quote.price;
-  const timestamps = Array.from({ length: 48 }, (_, index) => now - (47 - index) * 900);
-  const rawCloses = timestamps.map((_, index) => base * (1 - (47 - index) * 0.00008 + Math.sin(index * 0.65) * 0.00035));
+  const intervalSeconds = { '1m': 60, '5m': 300, '15m': 900, '30m': 1800, '60m': 3600, '1h': 3600, '4h': 14400, '1d': 86400, '1wk': 604800, '1mo': 2592000 }[interval] || 900;
+  const timestamps = Array.from({ length: 64 }, (_, index) => now - (63 - index) * intervalSeconds);
+  const change = Number(quote.change24h) || 0;
+  const drift = Math.max(-0.035, Math.min(0.035, change / 100));
+  const rawCloses = timestamps.map((_, index) => base * (1 - (63 - index) * drift / 63 + Math.sin(index * 0.65) * 0.00035));
   const anchor = rawCloses.at(-1) || base;
   // Keep the indicative candle shape while making the last close exactly the
   // same reference price used by the quote snapshot and execution ticket.
@@ -1416,9 +1430,14 @@ function buildSpotMetalChart(symbol, quote) {
     ad88Fallback: false,
     ad88Source: quote.provider,
     ad88Cache: 'fresh',
-    ad88Lineage: 'spot metal quote → AD88 server proxy → market workspace',
+    ad88ChartMode: 'indicative',
+    ad88Lineage: `${quote.provider} snapshot → AD88 indicative chart → market workspace`,
     chart: { result: [{ meta: { regularMarketPrice: base, regularMarketTime: Math.floor(new Date(quote.quoteUpdatedAt).getTime() / 1000), previousClose, chartPreviousClose: previousClose, regularMarketDayHigh: Math.max(...closes), regularMarketDayLow: Math.min(...closes), regularMarketVolume: 0 }, timestamp: timestamps, indicators: { quote: [{ open: closes, high: closes.map((value) => value * 1.0005), low: closes.map((value) => value * 0.9995), close: closes, volume: closes.map(() => 0) }] } }] },
   };
+}
+
+function buildSpotMetalChart(symbol, quote) {
+  return buildIndicativeReferenceChart(symbol, quote, '15m');
 }
 
 async function loadYahooQuote(providerSymbol) {
@@ -1724,6 +1743,32 @@ async function proxyMarket(res, requestUrl) {
       return;
     } catch {
       // Fall through to the configured API or public futures fallback.
+    }
+  }
+
+  // The normalized snapshot is the authoritative live quote for commodities,
+  // FX, indices and equities. When a free chart upstream cannot provide a
+  // historical series, keep the chart anchored to that same live quote rather
+  // than falling back to an unrelated stale contract price. The resulting
+  // candles are explicitly marked indicative; they are not presented as a
+  // fabricated exchange order book or a live execution feed.
+  const snapshotEntry = Object.entries(marketQuoteCatalogue).find(([, providerSymbol]) => providerSymbol === symbol);
+  if (snapshotEntry && !cryptoQuoteSymbols.has(snapshotEntry[0])) {
+    try {
+      const snapshot = overlayMt5Quotes(await getMarketQuoteSnapshot());
+      const quote = snapshot[snapshotEntry[0]];
+      if (quote && !quote.fallback) {
+        const body = JSON.stringify(buildIndicativeReferenceChart(symbol, quote, interval));
+        marketProxyCache.set(cacheKey, { expiresAt: Date.now() + cacheTtlMs, body, provider: 'market-snapshot' });
+        res.statusCode = 200;
+        res.setHeader('content-type', 'application/json; charset=utf-8');
+        res.setHeader('x-ad88-cache', 'fresh');
+        res.setHeader('x-ad88-provider', quote.provider || 'market-snapshot');
+        res.end(body);
+        return;
+      }
+    } catch {
+      // Continue to Twelve Data/Yahoo if the synchronized snapshot is not ready.
     }
   }
 

@@ -6,10 +6,27 @@ import { loadLedgerBundle } from '@/adapters/ledger-adapter';
 import { formatDateTime } from '@/lib/format';
 import { apiFetch } from '@/lib/api';
 import type { TradeAuditEvent } from '@/types';
+import { useLanguage } from '@/context/language-context';
 
 const filters = ['All', 'deposit', 'withdraw', 'transfer', 'review'] as const;
 
+const ledgerTypeKeys: Record<(typeof filters)[number], string> = {
+  All: 'ledger.allActivity',
+  deposit: 'ledger.deposit',
+  withdraw: 'ledger.withdraw',
+  transfer: 'ledger.transfer',
+  review: 'ledger.review',
+};
+
+const statusKeys: Record<string, string> = {
+  approved: 'status.approved',
+  settled: 'status.settled',
+  pending: 'status.pending',
+  rejected: 'status.rejected',
+};
+
 export function LedgerPage() {
+  const { t } = useLanguage();
   const bundle = useAsyncResource(() => loadLedgerBundle(), []);
   const trades = useAsyncResource(() => apiFetch<TradeAuditEvent[]>('/api/trades'), []);
   const [filter, setFilter] = useState<(typeof filters)[number]>('All');
@@ -20,14 +37,14 @@ export function LedgerPage() {
   }, [bundle, filter]);
 
   if (bundle.status === 'loading' || trades.status === 'loading') {
-    return <LoadingState label="Loading account activity" />;
+    return <LoadingState label={t('ledger.loading')} />;
   }
 
   if (bundle.status === 'error' || trades.status === 'error') {
-    return <div className="state-block state-block--error"><strong>Account activity is temporarily unavailable</strong><p>{bundle.error}</p></div>;
+    return <div className="state-block state-block--error"><strong>{t('ledger.error')}</strong><p>{bundle.error}</p></div>;
   }
 
-  if (bundle.status !== 'success' || trades.status !== 'success') return <LoadingState label="Loading account records" />;
+  if (bundle.status !== 'success' || trades.status !== 'success') return <LoadingState label={t('ledger.loading')} />;
 
   const approved = bundle.data.entries.filter((entry) => entry.status === 'approved' || entry.status === 'settled');
   const pending = bundle.data.entries.filter((entry) => entry.status === 'pending');
@@ -37,23 +54,23 @@ export function LedgerPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        eyebrow="ACCOUNT ACTIVITY"
-        title="Funding & Trade Audit"
-        description="A clean account-level record of paper funding requests, withdrawals and trade events."
+        eyebrow={t('ledger.eyebrow')}
+        title={t('ledger.title')}
+        description={t('ledger.description')}
       />
 
       <section className="metric-grid metric-grid--compact">
-        <StatCard label="Total funding" value={`${inflow.toFixed(2)} U`} note="Recorded account inflows" />
-        <StatCard label="Total withdrawals" value={`${outflow.toFixed(2)} U`} note="Recorded account outflows" />
-        <StatCard label="Approved / settled" value={String(approved.length)} note="Completed review outcomes" />
-        <StatCard label="In review" value={String(pending.length)} note="Awaiting administrator review" />
+        <StatCard label={t('ledger.totalFunding')} value={`${inflow.toFixed(2)} U`} note={t('ledger.totalFundingHint')} />
+        <StatCard label={t('ledger.totalWithdrawals')} value={`${outflow.toFixed(2)} U`} note={t('ledger.totalWithdrawalsHint')} />
+        <StatCard label={t('ledger.approvedSettled')} value={String(approved.length)} note={t('ledger.approvedSettledHint')} />
+        <StatCard label={t('ledger.inReview')} value={String(pending.length)} note={t('ledger.inReviewHint')} />
       </section>
 
       <section className="panel panel--controls">
         <div className="chip-row">
           {filters.map((item) => (
             <button key={item} type="button" className={`chip ${filter === item ? 'is-active' : ''}`} onClick={() => setFilter(item)}>
-              {item === 'All' ? 'All activity' : item}
+              {t(ledgerTypeKeys[item])}
             </button>
           ))}
         </div>
@@ -65,29 +82,29 @@ export function LedgerPage() {
             <table className="table table--interactive">
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Type</th>
-                  <th className="text-end">Amount</th>
-                  <th>Status</th>
-                  <th>Note</th>
-                  <th>Reference ID</th>
+                  <th>{t('ledger.time')}</th>
+                  <th>{t('ledger.type')}</th>
+                  <th className="text-end">{t('ledger.amount')}</th>
+                  <th>{t('ledger.status')}</th>
+                  <th>{t('ledger.note')}</th>
+                  <th>{t('ledger.referenceId')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length ? filtered.map((entry) => (
                   <tr key={entry.id}>
                     <td>{formatDateTime(entry.time)}</td>
-                    <td>{entry.type}</td>
+                    <td>{ledgerTypeKeys[entry.type as (typeof filters)[number]] ? t(ledgerTypeKeys[entry.type as (typeof filters)[number]]) : entry.type}</td>
                     <td className="text-end">{entry.amount.toFixed(2)} {entry.currency}</td>
                     <td>
                       <StatusPill tone={entry.status === 'approved' || entry.status === 'settled' ? 'success' : entry.status === 'pending' ? 'warning' : 'critical'}>
-                        {entry.status}
+                        {statusKeys[entry.status] ? t(statusKeys[entry.status]) : entry.status}
                       </StatusPill>
                     </td>
                     <td>{entry.note}</td>
                     <td>{entry.refId}</td>
                   </tr>
-                )) : <tr><td colSpan={6}><div className="empty-inline"><span>No funding activity yet. Events appear here only after they are initiated.</span></div></td></tr>}
+                )) : <tr><td colSpan={6}><div className="empty-inline"><span>{t('ledger.noFunding')}</span></div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -96,25 +113,25 @@ export function LedgerPage() {
         <article className="panel">
           <div className="panel__head">
             <div>
-              <h2>Trade audit</h2>
-              <p>Open, partial-close and close events remain synchronized here.</p>
+              <h2>{t('ledger.tradeAudit')}</h2>
+              <p>{t('ledger.tradeAuditHint')}</p>
             </div>
           </div>
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Time</th><th>Instrument</th><th>Action</th><th>Lots</th><th className="text-end">Reference price</th><th className="text-end">PnL (U)</th></tr></thead>
+              <thead><tr><th>{t('ledger.time')}</th><th>{t('ledger.instrument')}</th><th>{t('ledger.action')}</th><th>{t('ledger.lots')}</th><th className="text-end">{t('ledger.referencePrice')}</th><th className="text-end">{t('ledger.pnl')}</th></tr></thead>
               <tbody>
                 {trades.data.length ? trades.data.map((trade) => {
                   const closed = trade.action === 'close' || trade.action === 'partial-close';
                   return <tr key={trade.id}>
                     <td>{formatDateTime(trade.createdAt)}</td>
-                    <td><strong>{trade.symbol}</strong><div className="text-small text-muted">{trade.side === 'long' ? 'Long' : 'Short'}</div></td>
-                    <td><StatusPill tone={closed ? 'info' : 'success'}>{trade.action === 'open' ? 'Open' : trade.action === 'partial-close' ? 'Partial close' : trade.action === 'close' ? 'Close' : 'Risk update'}</StatusPill></td>
+                     <td><strong>{trade.symbol}</strong><div className="text-small text-muted">{trade.side === 'long' ? t('market.long') : t('market.short')}</div></td>
+                     <td><StatusPill tone={closed ? 'info' : 'success'}>{trade.action === 'open' ? t('ledger.open') : trade.action === 'partial-close' ? t('ledger.partialClose') : trade.action === 'close' ? t('ledger.close') : t('ledger.riskUpdate')}</StatusPill></td>
                     <td>{trade.lots.toFixed(2)}</td>
                     <td className="text-end">{trade.price.toFixed(4)}</td>
                     <td className={`text-end ${trade.pnl == null ? 'text-muted' : trade.pnl >= 0 ? 'trend trend--up' : 'trend trend--down'}`}>{trade.pnl == null ? '—' : `${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)} U`}</td>
                   </tr>;
-                }) : <tr><td colSpan={6}><div className="empty-inline"><span>No trade audit events yet. Opening or closing a paper position records an event here.</span></div></td></tr>}
+                 }) : <tr><td colSpan={6}><div className="empty-inline"><span>{t('ledger.noTrades')}</span></div></td></tr>}
               </tbody>
             </table>
           </div>

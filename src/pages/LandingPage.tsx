@@ -7,6 +7,7 @@ import { formatCurrency, formatPercent, formatCompact } from '@/lib/format';
 import { LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { Sparkline } from '@/components/Charts';
 import { useLanguage } from '@/context/language-context';
+import { assetNameKey } from '@/data/assets';
 
 export function LandingPage() {
   const { language, setLanguage, t } = useLanguage();
@@ -44,7 +45,7 @@ export function LandingPage() {
 
       <main className="landing-grid">
         <section className="hero-copy">
-          <div className="eyebrow">MARKET OPERATING SYSTEM</div>
+          <div className="eyebrow">{t('landing.eyebrow')}</div>
           <h1>{t('landing.title')}</h1>
           <p>{t('landing.claim')}</p>
 
@@ -60,7 +61,7 @@ export function LandingPage() {
           </div>
 
           <figure className="media-hero media-hero--compact">
-            <img src="/assets/trading-workstation-hero.png" alt="AD88 trading workstation preview" />
+            <img src="/assets/trading-workstation-hero.png" alt={t('landing.imageAlt')} />
           </figure>
 
           <div className="hero-markers">
@@ -82,24 +83,24 @@ export function LandingPage() {
             <div className="preview-shell__head">
               <div>
                 <span className="preview-shell__label">{t('landing.preview')}</span>
-                <strong>Market and account synchronization</strong>
+                <strong>{t('landing.syncTitle')}</strong>
               </div>
               {selected ? <StatusPill tone={selected.change24h >= 0 ? 'success' : 'critical'}>{formatPercent(selected.change24h)}</StatusPill> : null}
             </div>
 
             {market.status === 'loading' ? (
-              <LoadingState label="Loading market snapshot" />
+              <LoadingState label={t('landing.loading')} />
             ) : market.status === 'error' ? (
               <div className="state-block state-block--error">
-                <strong>Market snapshot is unavailable</strong>
+                <strong>{t('landing.unavailable')}</strong>
                 <p>{market.error}</p>
               </div>
             ) : (
               <>
                 <div className="preview-metrics">
-                  <StatCard label="BTC price" value={formatCurrency(btc?.price ?? 0)} delta={btc ? formatPercent(btc.change24h) : undefined} />
-                  <StatCard label="ETH price" value={formatCurrency(eth?.price ?? 0)} delta={eth ? formatPercent(eth.change24h) : undefined} />
-                  <StatCard label="Active liquidity" value={formatCompact(selected?.volume24h ?? 0)} note="24h volume" />
+                  <StatCard label={t('landing.btcPrice')} value={formatCurrency(btc?.price ?? 0)} delta={btc ? formatPercent(btc.change24h) : undefined} />
+                  <StatCard label={t('landing.ethPrice')} value={formatCurrency(eth?.price ?? 0)} delta={eth ? formatPercent(eth.change24h) : undefined} />
+                  <StatCard label={t('landing.activeLiquidity')} value={formatCompact(selected?.volume24h ?? 0)} note={t('landing.volume24h')} />
                 </div>
 
                 <div className="preview-chart">
@@ -111,7 +112,7 @@ export function LandingPage() {
                     <div key={asset.symbol} className="preview-list__row">
                       <div>
                         <strong>{asset.symbol}</strong>
-                        <span>{asset.name}</span>
+                        <span>{t(assetNameKey(asset.symbol))}</span>
                       </div>
                       <div className="preview-list__value">
                         <strong>{formatCurrency(asset.price)}</strong>
@@ -129,16 +130,16 @@ export function LandingPage() {
       <footer className="landing-trustbar">
         <div>
           <span className="status-dot status-dot--live" />
-          <strong>Public market data connected</strong>
-          <span>Live status is surfaced in every workspace</span>
+          <strong>{t('landing.publicConnected')}</strong>
+          <span>{t('landing.statusSurfaced')}</span>
         </div>
         <div>
-          <strong>Sandbox by design</strong>
-          <span>No live orders or fund movement in this workspace</span>
+          <strong>{t('landing.sandbox')}</strong>
+          <span>{t('landing.noLiveOrders')}</span>
         </div>
         <div>
-          <strong>Risk-first workflow</strong>
-          <span>SL / TP, position controls and audit-friendly records</span>
+          <strong>{t('landing.riskFirst')}</strong>
+          <span>{t('landing.riskFirstText')}</span>
         </div>
       </footer>
     </div>

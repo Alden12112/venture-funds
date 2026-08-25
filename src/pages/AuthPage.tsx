@@ -77,11 +77,11 @@ export function AuthPage() {
         return;
       }
       if (!isValidEmail(form.gmail)) {
-        setError('Enter a valid email address.');
+        setError('auth.validEmail');
         return;
       }
       if (!isValidCountryPhone(selectedCountry, form.phone)) {
-        setError(`Enter a complete ${selectedCountry.name} phone number: +${selectedCountry.dialCode} followed by ${phoneDigitsHint(selectedCountry)} digits.`);
+        setError(t('auth.completePhone').replace('{country}', selectedCountry.name).replace('{dialCode}', String(selectedCountry.dialCode)).replace('{digits}', phoneDigitsHint(selectedCountry)));
         return;
       }
       if (form.password.length < 8) {
@@ -103,10 +103,10 @@ export function AuthPage() {
             password: form.password,
           }),
         });
-        setSuccess('Your account is created. You can sign in now.');
+        setSuccess('auth.accountCreated');
         return;
       } catch (error) {
-        setError(error instanceof Error ? error.message : 'Registration failed. Please try again.');
+        setError(error instanceof Error ? error.message : 'auth.registrationFailed');
         return;
       }
     }
@@ -116,11 +116,11 @@ export function AuthPage() {
       return;
     }
     if (delivery === 'email' && !isValidEmail(form.identifier)) {
-      setError('Enter a valid email address.');
+      setError('auth.validEmail');
       return;
     }
     if (delivery === 'phone' && !isValidInternationalPhone(form.identifier)) {
-      setError('Enter a valid phone number including its country code.');
+      setError('auth.validPhone');
       return;
     }
     try {
@@ -129,14 +129,14 @@ export function AuthPage() {
         body: JSON.stringify({ identifier: form.identifier, password: form.password }),
       });
       if (result.session.role === 'admin') {
-        setError('Administrator accounts must use the separate AD88 Admin sign-in.');
+        setError('auth.adminSeparate');
         return;
       }
       signIn({ ...result.session, token: result.token });
       navigate('/app/dashboard');
       return;
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Sign-in failed. Please try again.');
+      setError(error instanceof Error ? error.message : 'auth.signInFailed');
       return;
     }
   };
@@ -221,16 +221,16 @@ export function AuthPage() {
                   <input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
                 </label>
                 <label className="field">
-                  <span>Email</span>
+                  <span>{t('auth.email')}</span>
                   <input autoComplete="off" required type="email" value={form.gmail} placeholder="name@company.com" onChange={(event) => setForm({ ...form, gmail: event.target.value })} />
                 </label>
                 <label className="field">
                   <span>{t('auth.phone')}</span>
                   <div className="phone-input">
                     <span className="phone-input__prefix">+{selectedCountry.dialCode}</span>
-                    <input required type="tel" inputMode="numeric" maxLength={phoneMaxLength} value={form.phone} placeholder={`Enter ${phoneDigitsHint(selectedCountry)} digits`} onChange={(event) => setForm({ ...form, phone: event.target.value.replace(/\D/g, '').slice(0, phoneMaxLength) })} />
+                   <input required type="tel" inputMode="numeric" maxLength={phoneMaxLength} value={form.phone} placeholder={t('auth.phoneDigitsPlaceholder').replace('{digits}', phoneDigitsHint(selectedCountry))} onChange={(event) => setForm({ ...form, phone: event.target.value.replace(/\D/g, '').slice(0, phoneMaxLength) })} />
                   </div>
-                  <small className="field-hint">The country code is added automatically; enter the remaining {phoneDigitsHint(selectedCountry)} digits.</small>
+                   <small className="field-hint">{t('auth.phoneDigitsHint').replace('{digits}', phoneDigitsHint(selectedCountry))}</small>
                 </label>
                 <label className="field">
                   <span>{t('auth.country')}</span>
@@ -271,7 +271,7 @@ export function AuthPage() {
             <button type="button" className="btn btn--primary btn--block" onClick={handleSubmit}>
               {submitLabel} <ArrowRight size={16} />
             </button>
-            {currentMode === 'login' ? <p className="auth-helper">New to AD88? Create a client account first. Sign-in accepts active registered accounts only.</p> : null}
+             {currentMode === 'login' ? <p className="auth-helper">{t('auth.newTo')}</p> : null}
             {status ? <div className={`notice-banner notice-banner--${statusKind}`}><CheckCircle2 size={16} />{t(status)}</div> : null}
           </div>
         )}

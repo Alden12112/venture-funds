@@ -13,7 +13,7 @@ import { useIndicativeQuotePulse, useLiveTickers } from '@/lib/useLiveTicker';
 import { readStorage, writeStorage } from '@/lib/storage';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
-import { getExecutionQuote, getMarketProduct, getTradeSpec, marketProducts } from '@/data/assets';
+import { assetClassKey, assetNameKey, getExecutionQuote, getMarketProduct, getTradeSpec, marketProducts } from '@/data/assets';
 import { marketFilters } from '@/data/navigation';
 import { apiFetch } from '@/lib/api';
 import { loadRemoteCreditAccount, readCreditAccounts, reserveRemoteMargin, settleRemoteMargin, writeCreditAccounts } from '@/lib/credits';
@@ -50,6 +50,7 @@ export function MarketPage() {
   const [side, setSide] = useState<TradeSide>('long');
   const initialTradeSpec = getTradeSpec('XAU');
   const [lots, setLots] = useState(initialTradeSpec.minimumLots);
+  const [lotsInput, setLotsInput] = useState(String(initialTradeSpec.minimumLots));
   const [contractSize, setContractSize] = useState(initialTradeSpec.contractSize);
   const [leverage, setLeverage] = useState(initialTradeSpec.defaultLeverage);
   const [stopLoss, setStopLoss] = useState('');
@@ -82,7 +83,17 @@ export function MarketPage() {
     setContractSize(spec.contractSize);
     setLeverage(spec.defaultLeverage);
     setLots((current) => Math.max(spec.minimumLots, current));
+    setLotsInput((current) => {
+      const parsed = Number(current);
+      return String(Math.max(spec.minimumLots, Number.isFinite(parsed) && parsed > 0 ? parsed : spec.minimumLots));
+    });
   }, [symbol]);
+
+  const updateLots = (value: string) => {
+    setLotsInput(value);
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= tradeSpec.minimumLots) setLots(parsed);
+  };
 
   const refreshMarkets = () => {
     setRefreshing(true);
@@ -388,27 +399,27 @@ export function MarketPage() {
   };
 
   if (market.status === 'loading') {
-    return <LoadingState label="Loading the trading workspace" />;
+    return <LoadingState label={t('ui.loadingWorkspace')} />;
   }
 
   if (market.status === 'error') {
-    return <div className="state-block state-block--error"><strong>Market workspace is unavailable</strong><p>{market.error}</p><button type="button" className="btn btn--ghost" onClick={refreshMarkets}><RefreshCw size={15} /> Reconnect market data</button></div>;
+    return <div className="state-block state-block--error"><strong>{t('ui.marketDataUnavailable')}</strong><p>{market.error}</p><button type="button" className="btn btn--ghost" onClick={refreshMarkets}><RefreshCw size={15} /> {t('ui.reconnectMarketData')}</button></div>;
   }
 
   const selectedIsCrypto = selectedAsset?.assetClass === 'crypto';
   const selectedFeedState = selectedAsset?.dataState ?? (selectedIsCrypto && live.lastTickAt[symbol] ? 'live' : quotePulse.dataStates[symbol] ?? (quotePulse.status === 'stale' ? 'fallback' : 'live'));
   const liveTone = selectedFeedState === 'broker' || selectedFeedState === 'live' ? 'success' : selectedFeedState === 'fallback' ? 'warning' : 'info';
-  const liveLabel = selectedFeedState === 'broker' ? 'Broker Feed' : selectedFeedState === 'cached' ? 'Verified cache' : selectedFeedState === 'fallback' ? 'Reference fallback' : 'Live API';
+  const liveLabel = selectedFeedState === 'broker' ? t('market.feedBroker') : selectedFeedState === 'cached' ? t('market.feedCache') : selectedFeedState === 'fallback' ? t('market.feedFallback') : t('market.feedLive');
   return (
     <div className="page-stack">
       <PageHeader
-        eyebrow="Markets"
+        eyebrow={t('market.headerEyebrow')}
         title={t('nav.market')}
-        description="A full-width paper trading workstation with transparent market-data state, margin controls and audited position risk."
+        description={t('market.headerDescription')}
         actions={
           <button type="button" className={`btn btn--ghost ${refreshing ? 'is-busy' : ''}`} onClick={refreshMarkets} disabled={refreshing}>
             <RefreshCw size={16} />
-            {refreshing ? 'Synchronizing…' : 'Refresh workspace'}
+            {refreshing ? t('ui.synchronizing') : t('ui.refreshWorkspace')}
           </button>
         }
       />
@@ -417,14 +428,14 @@ export function MarketPage() {
 
       <section className="market-integrity-rail">
         <DataMeta source={{ ...market.data.source, dataState: selectedFeedState, updatedAt: selectedUpdatedAt }} />
-        <span className={`market-integrity-rail__stream market-integrity-rail__stream--${quotePulse.streamStatus === 'open' ? 'healthy' : 'monitoring'}`}>Price stream {quotePulse.streamStatus === 'open' ? 'connected' : 'monitoring'}</span>
+        <span className={`market-integrity-rail__stream market-integrity-rail__stream--${quotePulse.streamStatus === 'open' ? 'healthy' : 'monitoring'}`}>{quotePulse.streamStatus === 'open' ? t('market.streamConnected') : t('market.streamMonitoring')}</span>
       </section>
 
       <section className="metric-grid metric-grid--compact">
         <StatCard label={`${selectedAsset?.symbol ?? 'BTC'} ${t('market.price')}`} value={formatCurrency(livePrice)} delta={formatPercent(selectedChange)} />
-        <StatCard label={t('market.change24h')} value={formatPercent(selectedChange)} note={`${selectedAsset?.name ?? ''}`} />
-        <StatCard label={t('market.volume24h')} value={formatCompact(selectedAsset?.volume24h ?? 0)} note="USD" />
-        <StatCard label="Available margin" value={formatCurrency(availableMargin)} note="Paper U buying power" />
+        <StatCard label={t('market.change24h')} value={formatPercent(selectedChange)} note={selectedAsset ? t(assetNameKey(selectedAsset.symbol)) : ''} />
+        <StatCard label={t('market.volume24h')} value={formatCompact(selectedAsset?.volume24h ?? 0)} note={t('market.volumeUsd')} />
+        <StatCard label={t('market.availableMargin')} value={formatCurrency(availableMargin)} note={t('market.paperBuyingPower')} />
       </section>
 
       <section className="content-grid content-grid--two market-workbench">
@@ -440,7 +451,7 @@ export function MarketPage() {
             <div className="market-filter-row">
               {marketFilters.map((filter) => (
                 <button key={filter} type="button" className={`chip ${assetClassFilter === filter ? 'is-active' : ''}`} onClick={() => { setAssetClassFilter(filter); setShowAllInstruments(false); }}>
-                  {filter === 'All' ? 'All instruments' : filter === 'crypto' ? 'Crypto' : filter === 'commodity' ? 'Commodities' : filter === 'forex' ? 'FX' : filter === 'equity' ? 'Equities' : 'Indices'}
+                  {filter === 'All' ? t('market.allInstruments') : filter === 'crypto' ? t('market.crypto') : filter === 'commodity' ? t('market.commodities') : filter === 'forex' ? t('market.fx') : filter === 'equity' ? t('market.equities') : t('market.indices')}
                 </button>
               ))}
             </div>
@@ -469,11 +480,11 @@ export function MarketPage() {
                         <AssetLogo symbol={asset.symbol} />
                         <div>
                           <strong>{asset.symbol}</strong>
-                          <div className="text-small text-muted">{asset.name}</div>
+                          <div className="text-small text-muted">{t(assetNameKey(asset.symbol))}</div>
                         </div>
                       </div>
                     </td>
-                    <td className={`text-end price-cell price-cell--${live.directions[asset.symbol] ?? 'flat'}`}>{formatCurrency(asset.price)}</td>
+                    <td className={`text-end price-cell price-cell--${quotePulse.directions[asset.symbol] ?? live.directions[asset.symbol] ?? 'flat'}`}>{formatCurrency(asset.price)}</td>
                     <td className="text-end">
                       <span className={asset.change24h >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(asset.change24h)}</span>
                     </td>
@@ -486,12 +497,12 @@ export function MarketPage() {
           {filteredRows.length > 10 ? (
             <div className="instrument-disclosure">
               <div>
-                <strong>{showAllInstruments ? `${filteredRows.length} instruments visible` : 'First view keeps 10 priority instruments'}</strong>
-                <span>{showAllInstruments ? 'Use the filters above to focus the view.' : `${filteredRows.length - 10} additional instruments are available below.`}</span>
+                <strong>{showAllInstruments ? `${filteredRows.length}${t('market.instrumentsVisible')}` : t('market.firstView')}</strong>
+                <span>{showAllInstruments ? t('market.useFilters') : `${filteredRows.length - 10}${t('market.additionalInstruments')}`}</span>
               </div>
               <button type="button" className="btn btn--ghost btn--sm" onClick={() => setShowAllInstruments((value) => !value)}>
                 {showAllInstruments ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                {showAllInstruments ? 'Show fewer instruments' : 'Show more instruments'}
+                {showAllInstruments ? t('market.showFewer') : t('market.showMore')}
               </button>
             </div>
           ) : null}
@@ -501,29 +512,29 @@ export function MarketPage() {
           <div className="panel__head">
             <div>
               <h2>{selectedAsset?.symbol} {t('market.chart')}</h2>
-              <p>{timeframe} chart · zoom, pan and draw with a focused market view</p>
+              <p>{timeframe} {t('market.chartSubtitle')}</p>
             </div>
             <StatusPill tone={selectedChange >= 0 ? 'success' : 'critical'}>{formatPercent(selectedChange)}</StatusPill>
           </div>
           <div className="instrument-banner">
             <AssetLogo symbol={selectedAsset?.symbol ?? symbol} size="lg" />
             <div className="instrument-banner__copy">
-              <span className="eyebrow">Selected instrument</span>
-              <strong>{selectedAsset?.name ?? symbol}</strong>
-              <span>{selectedFeedState === 'broker' ? 'Broker reference price' : 'Verified market reference'} · {selectedAsset?.assetClass ?? 'market'}</span>
+              <span className="eyebrow">{t('market.selectedInstrument')}</span>
+              <strong>{selectedAsset ? t(assetNameKey(selectedAsset.symbol)) : symbol}</strong>
+              <span>{selectedFeedState === 'broker' ? t('market.brokerReference') : t('market.verifiedReference')} · {selectedAsset?.assetClass ? t(assetClassKey(selectedAsset.assetClass)) : t('market.marketReference')}</span>
             </div>
             <div className="instrument-banner__quote">
               <strong>{formatNumber(livePrice)}</strong>
               <span className={selectedChange >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(selectedChange)}</span>
             </div>
           </div>
-          <div className="trading-chart__toolbar" aria-label="Chart tools">
-            <span className="chart-toolbar__label">CHART TOOLS</span>
-            <button type="button" className={`chart-tool ${chartTool === 'cursor' ? 'is-active' : ''}`} onClick={() => setChartTool('cursor')} title="Select"><Crosshair size={15} /> Select</button>
-            <button type="button" className={`chart-tool ${chartTool === 'trendline' ? 'is-active' : ''}`} onClick={() => setChartTool('trendline')} title="Trend line"><Ruler size={15} /> Trend line</button>
-            <button type="button" className={`chart-tool ${chartTool === 'horizontal' ? 'is-active' : ''}`} onClick={() => setChartTool('horizontal')} title="Horizontal line"><Minus size={15} /> Horizontal</button>
-            <button type="button" className={`chart-tool ${chartTool === 'vertical' ? 'is-active' : ''}`} onClick={() => setChartTool('vertical')} title="Vertical line"><Plus size={15} /> Vertical</button>
-            <button type="button" className="chart-tool" onClick={() => setDrawings([])} title="Clear drawings"><Undo2 size={15} /> Clear</button>
+          <div className="trading-chart__toolbar" aria-label={t('market.chartTools')}>
+            <span className="chart-toolbar__label">{t('market.chartTools')}</span>
+            <button type="button" className={`chart-tool ${chartTool === 'cursor' ? 'is-active' : ''}`} onClick={() => setChartTool('cursor')} title={t('market.select')}><Crosshair size={15} /> {t('market.select')}</button>
+            <button type="button" className={`chart-tool ${chartTool === 'trendline' ? 'is-active' : ''}`} onClick={() => setChartTool('trendline')} title={t('market.trendLine')}><Ruler size={15} /> {t('market.trendLine')}</button>
+            <button type="button" className={`chart-tool ${chartTool === 'horizontal' ? 'is-active' : ''}`} onClick={() => setChartTool('horizontal')} title={t('market.horizontalLine')}><Minus size={15} /> {t('market.horizontalLine')}</button>
+            <button type="button" className={`chart-tool ${chartTool === 'vertical' ? 'is-active' : ''}`} onClick={() => setChartTool('vertical')} title={t('market.verticalLine')}><Plus size={15} /> {t('market.verticalLine')}</button>
+            <button type="button" className="chart-tool" onClick={() => setDrawings([])} title={t('market.clearDrawings')}><Undo2 size={15} /> {t('market.clearDrawings')}</button>
           </div>
           <div className="timeframe-row">
             {timeframes.map((item) => (
@@ -535,15 +546,15 @@ export function MarketPage() {
           <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={livePrice} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           <div className="execution-bar">
             <button type="button" className="execution-quote execution-quote--sell" onClick={() => openPosition('short', sellPrice)} disabled={!canOpen}>
-              <span>SELL · BID</span><strong>{formatNumber(sellPrice)}</strong><small>Open short</small>
+              <span>{t('market.sellBid')}</span><strong>{formatNumber(sellPrice)}</strong><small>{t('market.openShort')}</small>
             </button>
             <div className="execution-bar__middle">
-              <span className="execution-bar__label">Reference midpoint</span>
+              <span className="execution-bar__label">{t('market.midpoint')}</span>
               <strong>{formatNumber(livePrice)}</strong>
-              <label><span>Order lots</span><input type="number" min={tradeSpec.minimumLots} step="0.01" value={lots} onChange={(event) => setLots(Math.max(tradeSpec.minimumLots, Number(event.target.value) || tradeSpec.minimumLots))} /></label>
+              <label><span>{t('market.orderLots')}</span><input type="number" min={tradeSpec.minimumLots} step="0.01" value={lotsInput} onChange={(event) => updateLots(event.target.value)} onBlur={() => { if (!Number.isFinite(Number(lotsInput)) || Number(lotsInput) < tradeSpec.minimumLots) { setLots(tradeSpec.minimumLots); setLotsInput(String(tradeSpec.minimumLots)); } }} /></label>
             </div>
             <button type="button" className="execution-quote execution-quote--buy" onClick={() => openPosition('long', buyPrice)} disabled={!canOpen}>
-              <span>BUY · ASK</span><strong>{formatNumber(buyPrice)}</strong><small>Open long</small>
+              <span>{t('market.buyAsk')}</span><strong>{formatNumber(buyPrice)}</strong><small>{t('market.openLong')}</small>
             </button>
           </div>
         </article>
@@ -556,7 +567,7 @@ export function MarketPage() {
               <h2>{t('market.orderTicket')}</h2>
               <p>{t('market.orderHint')}</p>
             </div>
-            <StatusPill tone={canOpen ? 'success' : 'warning'}>{canOpen ? 'Ready for paper order' : !session ? 'Sign in required' : !hasAssetMargin ? 'Margin requirement not met' : 'Review required'}</StatusPill>
+              <StatusPill tone={canOpen ? 'success' : 'warning'}>{canOpen ? t('market.readyForPaperOrder') : !session ? t('market.signInRequired') : !hasAssetMargin ? t('market.marginRequirementNotMet') : t('market.reviewRequired')}</StatusPill>
           </div>
 
           <div className="trade-side-control">
@@ -573,7 +584,7 @@ export function MarketPage() {
           <div className="form-grid">
             <label className="field">
               <span>{t('market.lots')}</span>
-              <input type="number" min={tradeSpec.minimumLots} step="0.01" value={lots} onChange={(event) => setLots(Math.max(tradeSpec.minimumLots, Number(event.target.value) || tradeSpec.minimumLots))} />
+              <input type="number" min={tradeSpec.minimumLots} step="0.01" value={lotsInput} onChange={(event) => updateLots(event.target.value)} onBlur={() => { if (!Number.isFinite(Number(lotsInput)) || Number(lotsInput) < tradeSpec.minimumLots) { setLots(tradeSpec.minimumLots); setLotsInput(String(tradeSpec.minimumLots)); } }} />
             </label>
             <label className="field">
               <span>{t('market.contractSize')}</span>
@@ -599,7 +610,7 @@ export function MarketPage() {
 
           <div className="risk-strip">
             <div><span>{t('market.notional')}</span><strong>{formatCurrency(notional)}</strong></div>
-            <div><span>Required margin</span><strong>{formatCurrency(margin)}</strong></div>
+              <div><span>{t('market.margin')}</span><strong>{formatCurrency(margin)}</strong></div>
             <div><span>{t('market.units')}</span><strong>{formatNumber(units)}</strong></div>
             <div><span>{t('market.pnlPerMove')}</span><strong>{formatCurrency(pnlForOneQuoteMove)}</strong><small>{t('market.pnlPerMoveHint')}</small></div>
           </div>
@@ -609,7 +620,7 @@ export function MarketPage() {
           </button>
           <div className="risk-note">
             <AlertTriangle size={16} />
-            {!session ? 'Sign in to use your available paper U balance for an order estimate.' : !hasAssetMargin ? `Available margin ${formatCurrency(availableMargin)} is below the ${symbol} requirement of ${formatCurrency(margin)}.` : 'Paper execution only. No live order, fund movement or broker command is created.'}
+            {!session ? t('market.signInOrderNote') : !hasAssetMargin ? `${t('market.marginShortfall')} ${formatCurrency(availableMargin)} < ${formatCurrency(margin)}.` : t('market.paperReadyNote')}
           </div>
         </article>
 
@@ -617,14 +628,14 @@ export function MarketPage() {
           <div className="panel__head">
             <div>
               <h2>{t('market.positions')}</h2>
-              <p>Positions are revalued with the latest executable reference: long positions use bid and short positions use ask.</p>
+              <p>{t('market.positionDescription')}</p>
             </div>
             <div className="panel__actions">
               <StatusPill tone={totalPnl >= 0 ? 'success' : 'critical'}>{formatCurrency(totalPnl)}</StatusPill>
               {livePositions.length ? (
-                <button type="button" className="btn btn--ghost btn--sm" onClick={closeAllPositions}>
+                  <button type="button" className="btn btn--danger btn--sm" onClick={closeAllPositions}>
                   <Ban size={14} />
-                  Close all
+                  {t('market.closeAll')}
                 </button>
               ) : null}
             </div>
@@ -651,23 +662,23 @@ export function MarketPage() {
                         <strong>
                           <AssetLogo symbol={position.symbol} size="sm" />
                           {position.symbol}
-                          <span className={`side-badge side-badge--${position.side}`}>{position.side === 'long' ? 'Long' : 'Short'}</span>
+                <span className={`side-badge side-badge--${position.side}`}>{position.side === 'long' ? t('market.long') : t('market.short')}</span>
                         </strong>
-                        <span>{t('market.entry')} {formatCurrency(position.entryPrice)} / Exit reference {formatCurrency(position.markPrice)}</span>
-                        <span>Open {remaining.toFixed(2)} / Closed {Number(position.closedLots ?? 0).toFixed(2)} lots</span>
+                        <span>{t('market.entry')} {formatCurrency(position.entryPrice)} / {t('market.exitReference')} {formatCurrency(position.markPrice)}</span>
+                        <span>{t('market.openLots')} {remaining.toFixed(2)} / {t('market.closedLots')} {Number(position.closedLots ?? 0).toFixed(2)} {t('market.lots')}</span>
                       </div>
                       <div className="position-row__meta">
                         <StatusPill tone={pnl >= 0 ? 'success' : 'critical'}>{formatCurrency(pnl)}</StatusPill>
                         <span>{formatDateTime(position.openedAt)}</span>
                         <button
                           type="button"
-                          className="btn btn--ghost btn--sm"
+                          className="btn btn--danger btn--sm"
                           onClick={(event) => {
                             event.stopPropagation();
                             closePosition(position.id);
                           }}
                         >
-                          Close position
+                           {t('market.closePosition')}
                         </button>
                       </div>
                     </div>
@@ -679,24 +690,24 @@ export function MarketPage() {
                 <div className="position-editor">
                   <div className="panel__head">
                     <div>
-                      <h2><Settings2 size={16} /> {selectedPosition.symbol} position controls</h2>
-                      <p>Adjust SL/TP or close from 0.01 lots upward.</p>
+                      <h2><Settings2 size={16} /> {selectedPosition.symbol} {t('market.positionControls')}</h2>
+                      <p>{t('market.adjustRisk')}</p>
                     </div>
                     <StatusPill tone={selectedPosition.side === 'long' ? 'success' : 'critical'}>
-                      {selectedPosition.side === 'long' ? 'Long' : 'Short'}
+                      {selectedPosition.side === 'long' ? t('market.long') : t('market.short')}
                     </StatusPill>
                   </div>
                   <div className="form-grid">
                     <label className="field">
-                      <span>Stop Loss</span>
+                      <span>{t('market.stopLoss')}</span>
                       <input type="number" value={editStopLoss} onChange={(event) => setEditStopLoss(event.target.value)} />
                     </label>
                     <label className="field">
-                      <span>Take Profit</span>
+                      <span>{t('market.takeProfit')}</span>
                       <input type="number" value={editTakeProfit} onChange={(event) => setEditTakeProfit(event.target.value)} />
                     </label>
                     <label className="field">
-                      <span>Partial close lots</span>
+                      <span>{t('market.partialCloseLots')}</span>
                       <input
                         type="number"
                         min="0.01"
@@ -707,20 +718,20 @@ export function MarketPage() {
                       />
                     </label>
                     <label className="field">
-                      <span>Open lots</span>
+                      <span>{t('market.openLots')} {t('market.lots')}</span>
                       <input value={Number(selectedPosition.remainingLots ?? selectedPosition.lots).toFixed(2)} readOnly />
                     </label>
                   </div>
                   <div className="position-editor__actions">
                     <button type="button" className="btn btn--ghost" onClick={() => saveRiskSettings(selectedPosition.id)}>
-                      Save SL / TP
+                       {t('market.saveRisk')}
                     </button>
-                    <button type="button" className="btn btn--ghost" onClick={() => closePartialPosition(selectedPosition.id)}>
-                      Close {partialLots.toFixed(2)}
+                    <button type="button" className="btn btn--danger" onClick={() => closePartialPosition(selectedPosition.id)}>
+                       {t('market.closePartial')} {partialLots.toFixed(2)}
                     </button>
-                    <button type="button" className="btn btn--primary" onClick={() => closePosition(selectedPosition.id)}>
+                    <button type="button" className="btn btn--danger" onClick={() => closePosition(selectedPosition.id)}>
                       <Trash2 size={16} />
-                      Close full position
+                       {t('market.closeFull')}
                     </button>
                   </div>
                 </div>

@@ -23,6 +23,13 @@ function initialLanguage() {
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguageState] = useState<LanguageCode>(initialLanguage);
 
+  const setLanguage = (next: LanguageCode) => {
+    // Update the document locale before descendants render so date/number
+    // formatters and chart axis labels switch in the same paint as the copy.
+    if (typeof document !== 'undefined') document.documentElement.lang = next === 'zh' ? 'zh-CN' : next;
+    setLanguageState(next);
+  };
+
   useEffect(() => {
     document.documentElement.lang = language === 'zh' ? 'zh-CN' : language;
     // A display preference belongs to this browser. Do not push it into the
@@ -33,7 +40,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<LanguageContextValue>(
     () => ({
       language,
-      setLanguage: setLanguageState,
+      setLanguage,
       t: (key) => translations[language][key] ?? key,
     }),
     [language],

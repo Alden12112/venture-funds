@@ -1,13 +1,15 @@
 import { useMemo, useState, type MouseEvent, type WheelEvent } from 'react';
 import type { Candle } from '@/types';
 import { useElementSize } from '@/lib/useElementSize';
-import { formatNumber } from '@/lib/format';
+import { formatNumber, getUiLocale } from '@/lib/format';
+import { useLanguage } from '@/context/language-context';
 
 function pathFromPoints(points: Array<[number, number]>) {
   return points.map(([x, y], index) => `${index === 0 ? 'M' : 'L'} ${x} ${y}`).join(' ');
 }
 
 export function Sparkline({ values, positive = true }: { values: number[]; positive?: boolean }) {
+  const { t } = useLanguage();
   const { ref, size } = useElementSize<HTMLDivElement>();
   const width = Math.max(size.width, 120);
   const height = Math.max(size.height, 56);
@@ -25,7 +27,7 @@ export function Sparkline({ values, positive = true }: { values: number[]; posit
 
   return (
     <div className="sparkline" ref={ref}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Price trend">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('chart.priceTrend')}>
         <path d={d} fill="none" stroke="currentColor" strokeWidth="2" className={positive ? 'sparkline__line sparkline__line--up' : 'sparkline__line sparkline__line--down'} />
         <circle cx={points.at(-1)?.[0] ?? width - 8} cy={points.at(-1)?.[1] ?? height / 2} r="3.5" className={positive ? 'sparkline__dot sparkline__dot--up' : 'sparkline__dot sparkline__dot--down'} />
       </svg>
@@ -53,6 +55,7 @@ export function CandleChart({
   drawings?: ChartDrawing[];
   onAddDrawing?: (drawing: ChartDrawing) => void;
 }) {
+  const { t, language } = useLanguage();
   const { ref, size } = useElementSize<HTMLDivElement>();
   const [pendingPoint, setPendingPoint] = useState<[number, number] | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -104,12 +107,12 @@ export function CandleChart({
     const latest = points.at(-1);
     const timeTicks = [0, Math.floor((visibleCandles.length - 1) / 2), visibleCandles.length - 1]
       .filter((value, index, all) => all.indexOf(value) === index)
-      .map((index) => ({ index, label: new Intl.DateTimeFormat('en-GB', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(visibleCandles[index].time)) }));
+       .map((index) => ({ index, label: new Intl.DateTimeFormat(getUiLocale(), { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(visibleCandles[index].time)) }));
     return { points, candles: visibleCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY: latest?.close ?? height / 2, timeTicks };
-  }, [displayCandles, height, maxOffset, offset, visibleCandleCount, width]);
+  }, [displayCandles, height, language, maxOffset, offset, visibleCandleCount, width]);
 
   if (!chart) {
-    return <div className="chart-empty">Insufficient candle history for this interval.</div>;
+    return <div className="chart-empty">{t('chart.insufficient')}</div>;
   }
 
   const { points, candles: chartCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY, timeTicks } = chart;
@@ -151,14 +154,14 @@ export function CandleChart({
 
   return (
     <div className="chart-frame" ref={ref}>
-      <div className="chart-viewport__controls" aria-label="Chart zoom controls">
-        <button type="button" onClick={() => shiftWindow(1)} disabled={!maxOffset} aria-label="Show earlier candles">‹</button>
-        <button type="button" onClick={() => changeZoom(-1)} disabled={zoom <= 1} aria-label="Zoom out">−</button>
+      <div className="chart-viewport__controls" aria-label={t('chart.zoomControls')}>
+        <button type="button" onClick={() => shiftWindow(1)} disabled={!maxOffset} aria-label={t('chart.earlier')}>‹</button>
+        <button type="button" onClick={() => changeZoom(-1)} disabled={zoom <= 1} aria-label={t('chart.zoomOut')}>−</button>
         <span>{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={() => changeZoom(1)} disabled={zoom >= 6} aria-label="Zoom in">＋</button>
-        <button type="button" onClick={() => { setOffset(0); setZoom(1); }} aria-label="Return to latest candles">Latest</button>
+        <button type="button" onClick={() => changeZoom(1)} disabled={zoom >= 6} aria-label={t('chart.zoomIn')}>＋</button>
+        <button type="button" onClick={() => { setOffset(0); setZoom(1); }} aria-label={t('chart.latest')}>{t('chart.latest')}</button>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className={`chart chart--candle chart--draw-${drawTool}`} role="img" aria-label="Interactive candlestick chart" onClick={handleChartClick} onWheel={handleWheel} onDoubleClick={() => { setOffset(0); setZoom(1); }}>
+      <svg viewBox={`0 0 ${width} ${height}`} className={`chart chart--candle chart--draw-${drawTool}`} role="img" aria-label={t('chart.candlestick')} onClick={handleChartClick} onWheel={handleWheel} onDoubleClick={() => { setOffset(0); setZoom(1); }}>
         <defs>
           <linearGradient id="candleGlow" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="currentColor" stopOpacity="0.16" />
@@ -226,6 +229,7 @@ export function DepthChart({
   bids: Array<{ price: number; cumulative: number }>;
   asks: Array<{ price: number; cumulative: number }>;
 }) {
+  const { t } = useLanguage();
   const { ref, size } = useElementSize<HTMLDivElement>();
   const width = Math.max(size.width, 320);
   const height = Math.max(size.height, 240);
@@ -250,14 +254,14 @@ export function DepthChart({
   }, [asks, bids, height, width]);
 
   if (!chart) {
-    return <div className="chart-empty">Depth data is unavailable for this instrument.</div>;
+    return <div className="chart-empty">{t('chart.depthUnavailable')}</div>;
   }
 
   const { minPrice, maxPrice, maxDepth, bidsPath, asksPath } = chart;
 
   return (
     <div className="chart-frame" ref={ref}>
-      <svg viewBox={`0 0 ${width} ${height}`} className="chart chart--depth" role="img" aria-label="Market depth chart">
+      <svg viewBox={`0 0 ${width} ${height}`} className="chart chart--depth" role="img" aria-label={t('market.depth')}>
         <defs>
           <linearGradient id="bidDepthFill" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="currentColor" stopOpacity="0.22" />

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Outlet, NavLink, Link, useLocation } from 'react-router-dom';
+import { Outlet, NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity,
   Bell,
@@ -57,6 +57,7 @@ export function AppShell() {
   const { language, setLanguage, t } = useLanguage();
   const online = useOnlineStatus();
   const location = useLocation();
+  const navigate = useNavigate();
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
   useEffect(() => {
@@ -87,11 +88,10 @@ export function AppShell() {
         className={`nav-chip ${active ? 'nav-chip--active' : ''}`}
         onClick={() => {
           setMobileMoreOpen(false);
-          // A full route handoff keeps the workspace deterministic on narrow
-          // devices even when a long-running market refresh is mounted in the
-          // current outlet. The server serves the same app shell for every
-          // route, so the protected session continues without a blank overlay.
-          window.location.href = link.to;
+          // Keep navigation inside the protected router. A full document
+          // reload here could race the session restore while MarketPage is
+          // streaming quotes, leaving the user stuck on the trade route.
+          navigate(link.to);
         }}
       >
         <Icon size={17} aria-hidden="true" />
@@ -109,16 +109,16 @@ export function AppShell() {
         </Link>
         <div className="app-shell__status">
           <span className={`status-pill status-pill--${online ? 'success' : 'warning'}`}>{online ? t('status.online') : t('status.offline')}</span>
-          <span className="status-pill status-pill--muted">{location.pathname.replace('/app/', '') || 'dashboard'}</span>
+          <span className="status-pill status-pill--muted">{t(navKeyByPath[location.pathname] ?? 'nav.dashboard')}</span>
         </div>
         <div className="app-shell__actions">
           <label className="theme-switch">
-            <span className="sr-only">Theme</span>
+            <span className="sr-only">{t('ui.theme')}</span>
             <MoonStar size={16} aria-hidden="true" />
-            <select value={theme} onChange={(event) => setTheme(event.target.value as typeof theme)} aria-label="Theme">
-              <option value="linen">Day</option>
-              <option value="graphite">Graphite</option>
-              <option value="midnight">Midnight</option>
+            <select value={theme} onChange={(event) => setTheme(event.target.value as typeof theme)} aria-label={t('ui.theme')}>
+              <option value="linen">{t('ui.day')}</option>
+              <option value="graphite">{t('ui.graphite')}</option>
+              <option value="midnight">{t('ui.midnight')}</option>
             </select>
           </label>
           <label className="locale-picker app-shell__locale">
@@ -131,10 +131,10 @@ export function AppShell() {
             </select>
           </label>
           <div className="session-chip">
-            <span className="session-chip__name">{session?.name ?? 'Guest workspace'}</span>
-            <span className="session-chip__role">{session?.role === 'admin' ? 'Administrator' : 'Client'}</span>
+            <span className="session-chip__name">{session?.name ?? t('ui.guestWorkspace')}</span>
+            <span className="session-chip__role">{session?.role === 'admin' ? t('ui.administrator') : t('ui.client')}</span>
           </div>
-          <button type="button" className="icon-button" onClick={signOut} aria-label="Sign out">
+          <button type="button" className="icon-button" onClick={signOut} aria-label={t('ui.signOut')}>
             <LogOut size={16} />
           </button>
         </div>
@@ -142,17 +142,17 @@ export function AppShell() {
 
       <div className="app-shell__body">
         <aside className="app-shell__sidebar">
-          <div className="sidebar-kicker">Workspace</div>
-          <nav className="app-shell__nav app-shell__nav--desktop" aria-label="Primary navigation">
+          <div className="sidebar-kicker">{t('ui.workspace')}</div>
+          <nav className="app-shell__nav app-shell__nav--desktop" aria-label={t('ui.workspace')}>
             {shellLinks.map((link) => renderNavLink(link))}
           </nav>
           <div className="mobile-workspace">
             {mobileMoreOpen ? (
-              <nav id="mobile-workspace-menu" className="mobile-workspace__menu" aria-label="More workspace navigation">
+              <nav id="mobile-workspace-menu" className="mobile-workspace__menu" aria-label={t('ui.moreNavigation')}>
                 {secondaryShellLinks.map((link) => renderMobileNavButton(link))}
               </nav>
             ) : null}
-            <nav className="mobile-workspace__bar" aria-label="Mobile primary navigation">
+            <nav className="mobile-workspace__bar" aria-label={t('ui.mobileNavigation')}>
               {primaryShellLinks.map((link) => renderMobileNavButton(link))}
               <button
                 type="button"
@@ -169,20 +169,20 @@ export function AppShell() {
           <div className="sidebar-trust-card">
             <div className="sidebar-trust-card__head">
               <span className="status-dot status-dot--live" />
-              <span>System health</span>
+              <span>{t('ui.systemHealth')}</span>
             </div>
-            <strong>{online ? 'All systems operational' : 'Connection degraded'}</strong>
-            <span>Paper execution and risk checks are active.</span>
+            <strong>{online ? t('ui.allSystemsOperational') : t('ui.connectionDegraded')}</strong>
+            <span>{t('ui.paperExecutionActive')}</span>
           </div>
         </aside>
 
         <div className="app-shell__main">
-          <div className="market-statusbar" aria-label="Platform assurance">
-            <span><Activity size={14} /> Market data monitored</span>
-            <span><ShieldCheck size={14} /> Paper execution only</span>
-            <span><Clock3 size={14} /> Asia/Kuala Lumpur session</span>
+          <div className="market-statusbar" aria-label={t('ui.workspace')}>
+            <span><Activity size={14} /> {t('ui.marketDataMonitored')}</span>
+            <span><ShieldCheck size={14} /> {t('ui.paperExecutionOnly')}</span>
+            <span><Clock3 size={14} /> {t('ui.asiaSession')}</span>
             <span className="market-statusbar__spacer" />
-            <span className="market-statusbar__secure"><span className="status-dot status-dot--live" /> Encrypted workspace</span>
+            <span className="market-statusbar__secure"><span className="status-dot status-dot--live" /> {t('ui.encryptedWorkspace')}</span>
           </div>
           <main className="app-shell__content">
             <Outlet />

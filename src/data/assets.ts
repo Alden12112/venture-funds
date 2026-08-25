@@ -32,6 +32,16 @@ export const marketProducts = [
 
 export type MarketProductSymbol = (typeof marketProducts)[number]['symbol'];
 
+// Provider payloads stay normalized in English; the interface resolves the
+// same stable symbol into the language selected by the user.
+export function assetNameKey(symbol: string) {
+  return `asset.${symbol.toUpperCase()}`;
+}
+
+export function assetClassKey(assetClass: string) {
+  return `market.class.${assetClass}`;
+}
+
 type ExecutionSpec = {
   /** Total sandbox bid/ask spread in the instrument quote currency. */
   spread: number;

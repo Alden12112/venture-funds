@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Activity, Clock3, ShieldCheck, Wifi } from 'lucide-react';
 import type { SourceMeta } from '@/types';
 import { formatDateTime } from '@/lib/format';
+import { useLanguage } from '@/context/language-context';
 
 export function StatCard({
   label,
@@ -25,21 +26,26 @@ export function StatCard({
 }
 
 export function DataMeta({ source }: { source: SourceMeta }) {
+  const { t } = useLanguage();
   const state = source.dataState ?? (source.mode === 'broker' ? 'broker' : source.mode === 'mock' ? 'fallback' : source.cacheState === 'cached' ? 'cached' : 'live');
   const stateMeta = {
-    broker: { label: 'Broker Feed', tone: 'success' as const, description: 'Read-only reference prices are arriving from the connected terminal.' },
-    live: { label: 'Live API', tone: 'success' as const, description: 'Normalized market data is available for this workspace.' },
-    cached: { label: 'Cached', tone: 'warning' as const, description: 'The most recent verified market snapshot is being retained.' },
-    fallback: { label: 'Fallback', tone: 'warning' as const, description: 'A resilient reference is in use while an upstream source recovers.' },
-    paper: { label: 'Paper Environment', tone: 'info' as const, description: 'Orders, margin and PnL remain simulated.' },
+    broker: { label: t('data.brokerFeed'), tone: 'success' as const, description: t('data.brokerDescription') },
+    live: { label: t('data.liveApi'), tone: 'success' as const, description: t('data.liveDescription') },
+    cached: { label: t('data.cached'), tone: 'warning' as const, description: t('data.cachedDescription') },
+    fallback: { label: t('data.fallback'), tone: 'warning' as const, description: t('data.fallbackDescription') },
+    paper: { label: t('data.paperEnvironment'), tone: 'info' as const, description: t('data.paperDescription') },
   }[state];
-  const healthTone = source.health === 'offline' ? 'critical' : stateMeta.tone;
+  // A live quote snapshot can remain healthy while an optional historical
+  // candle provider is unavailable. Keep the trust signal tied to the data
+  // driving the ticket; chart fallback state is still shown separately.
+  const effectiveHealth = source.health === 'offline' && (state === 'live' || state === 'broker') ? 'healthy' : source.health;
+  const healthTone = effectiveHealth === 'offline' ? 'critical' : stateMeta.tone;
   return (
-    <section className="data-integrity" aria-label="Market data integrity">
+    <section className="data-integrity" aria-label={t('data.marketIntegrity')}>
       <span className={`data-integrity__state data-integrity__state--${stateMeta.tone}`} title={stateMeta.description}><Activity size={14} /> {stateMeta.label}</span>
-      <span className="data-integrity__item"><Clock3 size={14} /><span><small>Last verified</small><strong>{formatDateTime(source.updatedAt)}</strong></span></span>
-      <span className="data-integrity__item"><Wifi size={14} /><span><small>Connection</small><strong className={`data-meta__status data-meta__status--${healthTone}`}>{source.health === 'offline' ? 'Review needed' : source.health === 'degraded' ? 'Monitoring' : 'Stable'}</strong></span></span>
-      <span className="data-integrity__item"><ShieldCheck size={14} /><span><small>Execution</small><strong>Paper safeguarded</strong></span></span>
+      <span className="data-integrity__item"><Clock3 size={14} /><span><small>{t('data.lastVerified')}</small><strong>{formatDateTime(source.updatedAt)}</strong></span></span>
+      <span className="data-integrity__item"><Wifi size={14} /><span><small>{t('data.connection')}</small><strong className={`data-meta__status data-meta__status--${healthTone}`}>{effectiveHealth === 'offline' ? t('data.reviewNeeded') : effectiveHealth === 'degraded' ? t('data.monitoring') : t('data.stable')}</strong></span></span>
+      <span className="data-integrity__item"><ShieldCheck size={14} /><span><small>{t('data.execution')}</small><strong>{t('data.paperSafeguarded')}</strong></span></span>
     </section>
   );
 }

@@ -1,6 +1,7 @@
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { PageHeader } from '@/components/PageHeader';
 import { legalPages } from '@/data/navigation';
+import { useLanguage } from '@/context/language-context';
 
 const copy = {
   terms: {
@@ -14,6 +15,7 @@ const copy = {
 } as const;
 
 export function LegalPage() {
+  const { t } = useLanguage();
   const { page } = useParams();
   const current = page && page in copy ? copy[page as keyof typeof copy] : null;
 
@@ -23,13 +25,13 @@ export function LegalPage() {
 
   return (
     <div className="legal-page">
-      <PageHeader eyebrow="LEGAL & COMPLIANCE" title={current.title} description={current.text} />
+      <PageHeader eyebrow={t('legal.eyebrow')} title={page === 'terms' ? t('legal.terms') : t('legal.privacy')} description={page === 'terms' ? t('legal.termsDescription') : t('legal.privacyDescription')} />
       <article className="panel">
-        <p>This section is reserved for approved legal text and is not a substitute for a final compliance review.</p>
-        <p>It can be replaced with versioned copy, approval records and electronic acceptance state.</p>
+        <p>{t('legal.reservedHint')}</p>
+        <p>{t('legal.versioned')}</p>
         <div className="auth-footer__links">
-          <Link to="/auth/login">Return to sign-in</Link>
-          <Link to="/">Return to home</Link>
+          <Link to="/auth/login">{t('legal.returnSignIn')}</Link>
+          <Link to="/">{t('legal.returnHome')}</Link>
           {legalPages.map((item) => (
             <Link key={item.key} to={`/legal/${item.key}`}>{item.label}</Link>
           ))}

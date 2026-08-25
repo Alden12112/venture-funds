@@ -207,6 +207,10 @@ export async function grantRemoteCredits(identity: CreditIdentity, amount: numbe
   return account;
 }
 
+export async function adjustRemoteCredits(identity: CreditIdentity, amount: number) {
+  return grantRemoteCredits(identity, amount);
+}
+
 export async function approveRemoteCreditRequest(requestId: string, reviewer: string) {
   const request = await apiFetch<CreditRequest>('/api/admin/credits/approve', { method: 'POST', body: JSON.stringify({ id: requestId }) });
   const requests = readCreditRequests().map((item) => item.id === request.id ? request : item);
