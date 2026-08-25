@@ -1259,6 +1259,30 @@ async function handleAdminCredits(req, res, requestUrl) {
     await createNotification(target.userId, 'fund', 'U request approved', `Your ${target.amount} U paper-margin request has been approved.`, 'success', '/app/dashboard');
     return sendJson(res, 200, { ...target, status: 'approved', reviewedAt, reviewer: session.name });
   }
+  if (req.method === 'POST' && requestUrl.pathname === '/api/admin/credits/reject') {
+    const input = await readBody(req);
+    const id = String(input.id || '').trim();
+    let target;
+    if (pool) {
+      const result = await pool.query('SELECT * FROM ad88_credit_requests WHERE id = $1 LIMIT 1', [id]);
+      target = result.rows[0] ? normalizeCreditRequest(result.rows[0]) : null;
+    } else {
+      target = memoryCreditRequests.get(id) ? normalizeCreditRequest(memoryCreditRequests.get(id)) : null;
+    }
+    if (!target || target.status !== 'pending') return sendJson(res, 404, { error: 'credit request not found' });
+    const account = await getOrCreateCreditAccount({ sub: target.userId, name: target.userName, email: target.email });
+    // A rejected request releases only its pending hold. It never changes the
+    // spendable balance, which keeps review outcomes separate from allocation.
+    await updateCreditAccount({ ...account, pending: Math.max(0, account.pending - target.amount), updatedAt: new Date().toISOString() });
+    const reviewedAt = new Date().toISOString();
+    if (pool) {
+      await pool.query('UPDATE ad88_credit_requests SET status=$2, reviewed_at=$3, reviewer=$4 WHERE id=$1', [id, 'rejected', reviewedAt, session.name]);
+    } else {
+      memoryCreditRequests.set(id, { ...target, status: 'rejected', reviewedAt, reviewer: session.name });
+    }
+    await createNotification(target.userId, 'fund', 'U request declined', `Your ${target.amount} U paper-margin request was declined.`, 'warning', '/app/dashboard');
+    return sendJson(res, 200, { ...target, status: 'rejected', reviewedAt, reviewer: session.name });
+  }
   return sendJson(res, 404, { error: 'admin credits route not found' });
 }
 
@@ -1493,6 +1517,40 @@ async function listLedgerEntries(session, all = false) {
 async function handleLedger(req, res, requestUrl) {
   const session = requireSession(req, res);
   if (!session) return true;
+  const deleteMatch = requestUrl.pathname.match(/^\/api\/ledger\/([^/]+)$/);
+  if (req.method === 'DELETE' && deleteMatch) {
+    if (session.role !== 'admin') return sendJson(res, 403, { error: 'administrator access required' });
+    const id = decodeURIComponent(deleteMatch[1]);
+    if (pool) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const existing = await client.query('SELECT id FROM ad88_ledger_entries WHERE id = $1 FOR UPDATE', [id]);
+        if (!existing.rowCount) {
+          await client.query('ROLLBACK');
+          return sendJson(res, 404, { error: 'ledger entry not found' });
+        }
+        // Keep the funding request and its review outcome intact. Only detach
+        // the optional visual ledger link before removing the ledger row.
+        await client.query('UPDATE ad88_funding_requests SET ledger_entry_id = NULL WHERE ledger_entry_id = $1', [id]);
+        await client.query('DELETE FROM ad88_ledger_entries WHERE id = $1', [id]);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+      return sendJson(res, 200, { ok: true, id });
+    }
+    const index = memoryLedgerEntries.findIndex((entry) => entry.id === id);
+    if (index < 0) return sendJson(res, 404, { error: 'ledger entry not found' });
+    memoryLedgerEntries.splice(index, 1);
+    for (const [requestId, request] of memoryFundingRequests.entries()) {
+      if (request.ledgerEntryId === id) memoryFundingRequests.set(requestId, { ...request, ledgerEntryId: undefined });
+    }
+    return sendJson(res, 200, { ok: true, id });
+  }
   if (req.method !== 'GET' || requestUrl.pathname !== '/api/ledger') return sendJson(res, 404, { error: 'ledger route not found' });
   const all = session.role === 'admin' && requestUrl.searchParams.get('scope') === 'all';
   return sendJson(res, 200, await listLedgerEntries(session, all));
@@ -1507,8 +1565,8 @@ function buildFundingRate(baseRate, source, cacheState = 'fresh') {
   const normalizedBase = roundFundingAmount(baseRate, 4);
   return {
     baseRate: normalizedBase,
-    depositRate: roundFundingAmount(normalizedBase + 0.05, 4),
-    withdrawalRate: roundFundingAmount(Math.max(0.01, normalizedBase - 0.05), 4),
+    depositRate: roundFundingAmount(normalizedBase + 0.03, 4),
+    withdrawalRate: roundFundingAmount(Math.max(0.01, normalizedBase - 0.03), 4),
     source,
     updatedAt: new Date().toISOString(),
     cacheState,

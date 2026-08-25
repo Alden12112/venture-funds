@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-label="Abstract energy market artwork">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#17131b"/><stop offset="1" stop-color="#3c1c1c"/></linearGradient>
+    <linearGradient id="flow" x1="0" x2="1"><stop stop-color="#e05a36"/><stop offset=".45" stop-color="#ffbe63"/><stop offset="1" stop-color="#c94338"/></linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="18"/></filter>
+  </defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <circle cx="930" cy="150" r="220" fill="#f1663f" opacity=".16" filter="url(#blur)"/>
+  <g fill="none" stroke="#ffcf82" opacity=".18"><path d="M0 180C230 310 360 110 580 240s360 50 620-110"/><path d="M0 270C230 400 390 190 600 320s350 30 600-90"/><path d="M0 360C220 490 410 270 650 400s310 10 550-60"/></g>
+  <g fill="none" stroke="url(#flow)" stroke-linecap="round">
+    <path d="M-40 560C180 360 300 610 500 420s340-45 760-265" stroke-width="54"/>
+    <path d="M-25 640C200 455 330 665 540 495s350-30 700-210" stroke-width="20" opacity=".9"/>
+  </g>
+  <g fill="#f9d58b"><circle cx="700" cy="350" r="7"/><circle cx="855" cy="270" r="5"/><circle cx="1040" cy="180" r="4"/></g>
+</svg>

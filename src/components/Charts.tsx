@@ -44,6 +44,8 @@ export type ChartDrawing = {
 export function CandleChart({
   candles,
   latestPrice,
+  bid,
+  ask,
   drawTool = 'cursor',
   drawings = [],
   onAddDrawing,
@@ -51,6 +53,9 @@ export function CandleChart({
   candles: Candle[];
   /** Current normalized quote; it updates the in-progress final candle. */
   latestPrice?: number;
+  /** Optional paper-workspace bid/ask guides derived from the same quote. */
+  bid?: number;
+  ask?: number;
   drawTool?: 'cursor' | 'trendline' | 'horizontal' | 'vertical';
   drawings?: ChartDrawing[];
   onAddDrawing?: (drawing: ChartDrawing) => void;
@@ -90,8 +95,9 @@ export function CandleChart({
     const normalizedOffset = Math.min(offset, maxOffset);
     const end = Math.max(visibleCandleCount, displayCandles.length - normalizedOffset);
     const visibleCandles = displayCandles.slice(Math.max(0, end - visibleCandleCount), end);
-    const min = Math.min(...visibleCandles.map((item) => item.low));
-    const max = Math.max(...visibleCandles.map((item) => item.high));
+    const quoteValues = [bid, ask].filter((value): value is number => Number.isFinite(value));
+    const min = Math.min(...visibleCandles.map((item) => item.low), ...quoteValues);
+    const max = Math.max(...visibleCandles.map((item) => item.high), ...quoteValues);
     const pad = (max - min || 1) * 0.12;
     const domainMin = min - pad;
     const domainMax = max + pad;
@@ -110,14 +116,25 @@ export function CandleChart({
         bullish: candle.close >= candle.open,
       };
     });
+    const makeEma = (period: number) => {
+      const alpha = 2 / (period + 1);
+      let previous = visibleCandles[0].close;
+      return visibleCandles.map((candle, index) => {
+        previous = index === 0 ? candle.close : candle.close * alpha + previous * (1 - alpha);
+        return [38 + (index / Math.max(visibleCandles.length - 1, 1)) * plotWidth, 18 + (1 - (previous - domainMin) / (domainMax - domainMin)) * plotHeight] as [number, number];
+      });
+    };
     const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => domainMin + (domainMax - domainMin) * ratio);
     const closeLine = pathFromPoints(points.map((point) => [point.x, point.close]));
+    const fastEmaLine = pathFromPoints(makeEma(9));
+    const slowEmaLine = pathFromPoints(makeEma(21));
     const latest = points.at(-1);
     const timeTicks = [0, Math.floor((visibleCandles.length - 1) / 2), visibleCandles.length - 1]
       .filter((value, index, all) => all.indexOf(value) === index)
        .map((index) => ({ index, label: new Intl.DateTimeFormat(getUiLocale(), { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(visibleCandles[index].time)) }));
-    return { points, candles: visibleCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY: latest?.close ?? height / 2, timeTicks };
-  }, [displayCandles, height, language, maxOffset, offset, visibleCandleCount, width]);
+    const mapQuoteY = (value?: number) => Number.isFinite(value) ? 18 + (1 - ((value as number) - domainMin) / (domainMax - domainMin)) * plotHeight : undefined;
+    return { points, candles: visibleCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, fastEmaLine, slowEmaLine, latestCloseY: latest?.close ?? height / 2, bidY: mapQuoteY(bid), askY: mapQuoteY(ask), timeTicks };
+  }, [ask, bid, displayCandles, height, language, maxOffset, offset, visibleCandleCount, width]);
 
   useEffect(() => {
     if (!chartNode) return undefined;
@@ -153,7 +170,7 @@ export function CandleChart({
     return <div className="chart-empty">{t('chart.insufficient')}</div>;
   }
 
-  const { points, candles: chartCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY, timeTicks } = chart;
+  const { points, candles: chartCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, fastEmaLine, slowEmaLine, latestCloseY, bidY, askY, timeTicks } = chart;
   const mapDrawingPoint = ([xRatio, yRatio]: [number, number]) => ({ x: 38 + xRatio * (width - 52), y: 18 + yRatio * (height - 54) });
   const handleChartClick = (event: MouseEvent<SVGSVGElement>) => {
     if (drawTool === 'cursor' || !onAddDrawing) return;
@@ -233,7 +250,13 @@ export function CandleChart({
         </g>
         <path d={`${closeLine} L ${width - 16} ${height - 36} L 38 ${height - 36} Z`} className="chart-trend-area" fill="url(#candleGlow)" />
         <path d={closeLine} className="chart-trend-line" fill="none" />
+        <path d={slowEmaLine} className="chart-indicator-line chart-indicator-line--slow" fill="none" />
+        <path d={fastEmaLine} className="chart-indicator-line chart-indicator-line--fast" fill="none" />
         <line x1="38" x2={width - 16} y1={latestCloseY} y2={latestCloseY} className="chart-price-guide" />
+        {bidY !== undefined ? <line x1="38" x2={width - 16} y1={bidY} y2={bidY} className="chart-price-guide chart-price-guide--bid" /> : null}
+        {askY !== undefined ? <line x1="38" x2={width - 16} y1={askY} y2={askY} className="chart-price-guide chart-price-guide--ask" /> : null}
+        {bidY !== undefined ? <text x={width - 20} y={bidY - 5} textAnchor="end" className="chart-quote-label chart-quote-label--bid">BID</text> : null}
+        {askY !== undefined ? <text x={width - 20} y={askY - 5} textAnchor="end" className="chart-quote-label chart-quote-label--ask">ASK</text> : null}
         <g className="chart-drawings">
           {drawings.map((drawing, index) => {
             const start = mapDrawingPoint(drawing.start);

@@ -63,20 +63,25 @@ function inferTone(item: YahooNewsItem): NewsItem['tone'] {
 function upcomingEvents() {
   const now = Date.now();
   const events = [
-    ['US CPI release', 'Macro / FX / Gold', 'United States', 1, 'Inflation data can reshape rate expectations, the US dollar and gold direction.', 'high'],
-    ['EIA crude oil inventories', 'Crude Oil / Natural Gas', 'United States', 2, 'Inventory changes commonly move energy curves and inflation trades.', 'medium'],
-    ['ECB policy remarks', 'EUR / USD', 'European Union', 3, 'European rate language can shift relative EUR and USD strength.', 'high'],
-    ['China manufacturing PMI', 'Copper / Southern Copper', 'China', 4, 'Manufacturing momentum is a leading signal for industrial-metal demand.', 'medium'],
-    ['US employment report', 'Equities / FX / Gold', 'United States', 6, 'Employment data is a core weekly event for risk assets and rate markets.', 'high'],
+    ['US CPI release', 'Macro / FX / Gold', 'United States', 'USD', 1, 'Inflation data can reshape rate expectations, the US dollar and gold direction.', 'high', '3.0%', '2.9%'],
+    ['EIA crude oil inventories', 'Crude Oil / Natural Gas', 'United States', 'USD', 2, 'Inventory changes commonly move energy curves and inflation trades.', 'medium', '-4.2M', '-2.1M'],
+    ['ECB policy remarks', 'EUR / USD', 'European Union', 'EUR', 3, 'European rate language can shift relative EUR and USD strength.', 'high', 'Hold', 'Hold'],
+    ['China manufacturing PMI', 'Copper / Southern Copper', 'China', 'CNY', 4, 'Manufacturing momentum is a leading signal for industrial-metal demand.', 'medium', '49.7', '50.1'],
+    ['US employment report', 'Equities / FX / Gold', 'United States', 'USD', 6, 'Employment data is a core weekly event for risk assets and rate markets.', 'high', '177K', '185K'],
   ] as const;
-  return events.map(([title, market, country, days, description, impact], index) => ({
+  return events.map(([title, market, country, currency, days, description, impact, previous, forecast], index) => ({
     id: `calendar-${index + 1}`,
     title,
     market,
     country,
+    currency,
     scheduledAt: new Date(now + days * 86_400_000).toISOString(),
     description,
     impact,
+    previous,
+    forecast,
+    actual: undefined,
+    status: 'scheduled' as const,
   }));
 }
 

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-label="Abstract foreign exchange market artwork">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#0d1b26"/><stop offset="1" stop-color="#173b47"/></linearGradient>
+    <linearGradient id="line" x1="0" x2="1"><stop stop-color="#67d6c0"/><stop offset=".5" stop-color="#d2f1df"/><stop offset="1" stop-color="#4d9ed2"/></linearGradient>
+  </defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <g fill="none" stroke="#9bd7d2" opacity=".2"><ellipse cx="820" cy="280" rx="360" ry="150" transform="rotate(-18 820 280)"/><ellipse cx="820" cy="280" rx="270" ry="105" transform="rotate(-18 820 280)"/><circle cx="820" cy="280" r="150"/></g>
+  <path d="M-30 560L135 520l90 42 92-112 94 58 110-155 120 74 112-132 108 34 130-116 130 40" fill="none" stroke="url(#line)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#baf5dd"><circle cx="311" cy="450" r="7"/><circle cx="639" cy="389" r="7"/><circle cx="1039" cy="209" r="7"/></g>
+  <path d="M0 610h1200" stroke="#baf5dd" opacity=".16"/><path d="M0 120h1200" stroke="#baf5dd" opacity=".1"/>
+</svg>

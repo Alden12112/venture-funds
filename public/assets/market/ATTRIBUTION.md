@@ -9,3 +9,8 @@ not as official exchange, bank, wallet, broker, or payment-provider branding.
 - `secure-banking-vault.png` — Unsplash photo `1582139329536-e7284fece509`
 
 Source: https://unsplash.com/license
+
+The abstract category artwork (`metals-luminous.svg`, `energy-current.svg`,
+`fx-orbit.svg`, and `index-signal.svg`) is original AD88 code-native artwork,
+created for this project and not copied from a broker, exchange or trading
+terminal.

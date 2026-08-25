@@ -38,9 +38,33 @@ export type MarketProductSymbol = (typeof marketProducts)[number]['symbol'];
 // to scan. The images are locally bundled rather than fetched from a third
 // party at runtime.
 const marketVisuals: Partial<Record<MarketProductSymbol, string>> = {
+  // The hero artwork uses local editorial imagery for the two instruments
+  // users scan first. Small row marks remain vector-like for fast scanning.
   XAU: '/assets/market/gold-bullion.png',
+  XAG: '/assets/market/metals-luminous.svg',
+  HG: '/assets/market/metals-luminous.svg',
+  SCCO: '/assets/market/metals-luminous.svg',
+  PL: '/assets/market/metals-luminous.svg',
+  PA: '/assets/market/metals-luminous.svg',
   CL: '/assets/market/crude-pumpjack.png',
+  NG: '/assets/market/energy-current.svg',
   BRN: '/assets/market/crude-pumpjack.png',
+  HO: '/assets/market/energy-current.svg',
+  RB: '/assets/market/energy-current.svg',
+  EURUSD: '/assets/market/fx-orbit.svg',
+  GBPUSD: '/assets/market/fx-orbit.svg',
+  USDJPY: '/assets/market/fx-orbit.svg',
+  AUDUSD: '/assets/market/fx-orbit.svg',
+  USDCAD: '/assets/market/fx-orbit.svg',
+  USDCHF: '/assets/market/fx-orbit.svg',
+  EURJPY: '/assets/market/fx-orbit.svg',
+  SPX: '/assets/market/index-signal.svg',
+  NAS100: '/assets/market/index-signal.svg',
+  DAX: '/assets/market/index-signal.svg',
+  FTSE: '/assets/market/index-signal.svg',
+  NIKKEI: '/assets/market/index-signal.svg',
+  HSI: '/assets/market/index-signal.svg',
+  DJ30: '/assets/market/index-signal.svg',
 };
 
 // Crisp coin marks are used throughout the live table, ticker and positions.

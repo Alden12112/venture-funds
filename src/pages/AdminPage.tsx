@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, HandCoins, Languages, MinusCircle, PlusCircle, Trash2, UserPlus } from 'lucide-react';
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpFromLine, CalendarDays, ClipboardCheck, FileText, HandCoins, Languages, LayoutDashboard, MessageCircle, MinusCircle, Newspaper, PlusCircle, ReceiptText, ShieldBan, Trash2, UserPlus, Users, WalletCards, type LucideIcon } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, LoadingState, StatCard, StatusPill, EmptyState } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
@@ -9,16 +9,17 @@ import { formatCurrency, formatDateTime } from '@/lib/format';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { approveRemoteCreditRequest, grantRemoteCredits } from '@/lib/credits';
+import { approveRemoteCreditRequest, grantRemoteCredits, rejectRemoteCreditRequest } from '@/lib/credits';
 import { buildInternationalPhone, countryDirectory, getCountryOption, isValidCountryPhone, phoneDigitsHint } from '@/data/countries';
 import { isValidEmail } from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
 import { SupportCenter } from '@/components/SupportCenter';
 import { labelCountry, labelNewsCategory, labelNewsSentiment } from '@/lib/news-labels';
 import { clearFundingHistory, deleteFundingHistoryItem, reviewFundingRequest } from '@/lib/funding';
+import { deleteRemoteLedgerEntry } from '@/adapters/ledger-adapter';
 import type { FundingRequest } from '@/types';
 
-const tabs = ['Accounts', 'Registration Review', 'Deposit Review', 'Withdrawal Review', 'U Management', 'Monthly Report', 'Trade Audit', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
+const tabs = ['Accounts', 'Registration Review', 'Deposit Review', 'Withdrawal Review', 'U Management', 'Ledger', 'Monthly Report', 'Trade Audit', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
 type AdminTab = (typeof tabs)[number];
 
 const tabTranslationKey: Record<AdminTab, string> = {
@@ -27,6 +28,7 @@ const tabTranslationKey: Record<AdminTab, string> = {
   'Deposit Review': 'admin.tab.depositReview',
   'Withdrawal Review': 'admin.tab.withdrawalReview',
   'U Management': 'admin.tab.uManagement',
+  Ledger: 'admin.tab.ledger',
   'Monthly Report': 'admin.tab.monthlyReport',
   'Trade Audit': 'admin.tab.tradeAudit',
   'Activity & Alerts': 'admin.tab.activityAlerts',
@@ -34,6 +36,22 @@ const tabTranslationKey: Record<AdminTab, string> = {
   Content: 'admin.tab.content',
   'Approval Flow': 'admin.tab.approvalFlow',
   Blacklist: 'admin.tab.blacklist',
+};
+
+const tabIcons: Record<AdminTab, LucideIcon> = {
+  Accounts: Users,
+  'Registration Review': ClipboardCheck,
+  'Deposit Review': ArrowDownToLine,
+  'Withdrawal Review': ArrowUpFromLine,
+  'U Management': WalletCards,
+  Ledger: ReceiptText,
+  'Monthly Report': CalendarDays,
+  'Trade Audit': Activity,
+  'Activity & Alerts': LayoutDashboard,
+  'Support Inbox': MessageCircle,
+  Content: Newspaper,
+  'Approval Flow': FileText,
+  Blacklist: ShieldBan,
 };
 
 function isAdminTab(value: string | null): value is AdminTab {
@@ -79,17 +97,17 @@ function FundingReviewPanel({
   const methodLabel = (request: FundingRequest) => request.method === 'tng' ? t('funding.tng') : request.bankName || t('funding.bankSupport');
 
   return (
-    <section className="content-grid content-grid--two funding-admin-grid">
-      <article className="panel">
+    <section className={`content-grid content-grid--two funding-admin-grid funding-admin-grid--${kind}`}>
+      <article className="panel funding-admin-queue-panel">
         <div className="panel__head"><div><span className="eyebrow">{kind === 'deposit' ? t('funding.deposit') : t('funding.withdraw')}</span><h2>{title}</h2><p>{t('admin.fundingReviewHint')}</p></div><StatusPill tone={queue.length ? 'warning' : 'muted'}>{queue.length} {t('admin.pending')}</StatusPill></div>
         {message ? <div className={`notice-banner ${message === t('admin.fundingReviewFailed') ? 'notice-banner--error' : ''}`}>{message}</div> : null}
-        <div className="table-wrap"><table className="table table--interactive funding-admin-table"><thead><tr><th>{t('admin.requester')}</th><th>{t('admin.fundingMethod')}</th><th className="text-end">{t('admin.myrValue')}</th><th className="text-end">{t('admin.paperUValue')}</th><th>{t('admin.fundingRate')}</th><th>{t('admin.submitted')}</th><th>{t('admin.action')}</th></tr></thead><tbody>
+        <div className="table-wrap admin-funding-queue-scroll"><table className="table table--interactive funding-admin-table"><thead><tr><th>{t('admin.requester')}</th><th>{t('admin.fundingMethod')}</th><th className="text-end">{t('admin.myrValue')}</th><th className="text-end">{t('admin.paperUValue')}</th><th>{t('admin.fundingRate')}</th><th>{t('admin.submitted')}</th><th>{t('admin.action')}</th></tr></thead><tbody>
           {queue.length ? queue.map((request) => <tr key={request.id}><td><strong>{request.userName}</strong><div className="text-small text-muted">{request.email}</div>{request.accountHolder ? <div className="text-small text-muted">{t('funding.accountHolder')}: {request.accountHolder}</div> : null}{request.accountReference ? <div className="text-small text-muted">{t('funding.accountNumber')}: {request.accountReference}</div> : null}</td><td>{methodLabel(request)}<div className="text-small text-muted">{request.supportRequired ? t('funding.supportReview') : t('funding.directReview')}</div></td><td className="text-end">{formatCurrency(request.amountMyr, 'MYR')}</td><td className="text-end"><strong>{request.amountU.toFixed(4)} U</strong></td><td>RM {request.rate.toFixed(4)} / U</td><td>{formatDateTime(request.createdAt)}</td><td><div className="admin-funding-actions"><button type="button" className="btn btn--primary btn--sm" onClick={() => void onReview(request.id, 'approve')}>{t('admin.approve')}</button><button type="button" className="btn btn--danger btn--sm" onClick={() => void onReview(request.id, 'reject')}>{t('admin.reject')}</button></div></td></tr>) : <tr><td colSpan={7}><div className="empty-inline"><span>{empty}</span></div></td></tr>}
         </tbody></table></div>
       </article>
-      <article className="panel">
+      <article className="panel funding-admin-history-panel">
         <div className="panel__head"><div><h2>{t('admin.fundingHistory')}</h2><p>{t('admin.fundingHistoryHint')}</p></div><div className="history-actions"><StatusPill tone={history.length ? 'info' : 'muted'}>{history.length} {t('admin.records')}</StatusPill><button type="button" className="btn btn--danger btn--sm" disabled={!history.length} onClick={() => void onClearHistory(kind)}><Trash2 size={14} />{t('admin.clearFundingHistory')}</button></div></div>
-        <div className="stack-list funding-history-scroll funding-history-scroll--stack" tabIndex={0}>
+        <div className="stack-list funding-history-scroll funding-history-scroll--stack admin-funding-history" tabIndex={0}>
           {history.length ? history.map((request) => <div key={request.id} className="stack-list__row"><div><strong>{request.email}</strong><span>{methodLabel(request)} · {formatCurrency(request.amountMyr, 'MYR')} · {request.amountU.toFixed(4)} U</span>{request.accountHolder ? <span>{t('funding.accountHolder')}: {request.accountHolder}</span> : null}{request.accountReference ? <span>{t('funding.accountNumber')}: {request.accountReference}</span> : null}<span>{request.reviewer ? `${t('admin.reviewedBy')}: ${request.reviewer}` : t('admin.review')}</span></div><div className="stack-list__meta"><StatusPill tone={request.status === 'approved' ? 'success' : 'critical'}>{statusLabel(request.status)}</StatusPill><span>{formatDateTime(request.reviewedAt ?? request.createdAt)}</span><button type="button" className="btn btn--ghost btn--sm" onClick={() => void onDelete(request.id)}><Trash2 size={14} />{t('admin.delete')}</button></div></div>) : <div className="state-block"><strong>{t('admin.fundingHistory')}</strong><p>{t('admin.fundingHistoryHint')}</p></div>}
         </div>
       </article>
@@ -111,6 +129,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [accountForm, setAccountForm] = useState({ name: '', email: '', phone: '', country: 'Malaysia', password: '', role: 'user' as 'user' | 'admin' });
   const [accountMessage, setAccountMessage] = useState('');
   const [fundingMessage, setFundingMessage] = useState('');
+  const [creditMessage, setCreditMessage] = useState('');
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
 
@@ -282,9 +301,29 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     }
   };
 
-  const approveRequest = async (id: string) => {
-    await approveRemoteCreditRequest(id, session?.name ?? 'AD88 Admin');
-    setRefreshKey((value) => value + 1);
+  const reviewCreditRequest = async (id: string, action: 'approve' | 'reject') => {
+    try {
+      if (action === 'approve') {
+        await approveRemoteCreditRequest(id, session?.name ?? 'AD88 Admin');
+      } else {
+        await rejectRemoteCreditRequest(id, session?.name ?? 'AD88 Admin');
+      }
+      setCreditMessage(action === 'approve' ? t('admin.uApproved') : t('admin.uRejected'));
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setCreditMessage(error instanceof Error ? error.message : t('admin.uReviewFailed'));
+    }
+  };
+
+  const deleteLedger = async (id: string) => {
+    if (!window.confirm(t('admin.deleteLedgerConfirm'))) return;
+    try {
+      await deleteRemoteLedgerEntry(id);
+      setCreditMessage(t('admin.ledgerDeleted'));
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setCreditMessage(error instanceof Error ? error.message : t('admin.ledgerDeleteFailed'));
+    }
   };
 
   const reviewFunding = async (id: string, action: 'approve' | 'reject') => {
@@ -423,10 +462,11 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         <label className="search-field admin-search">
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('admin.searchPlaceholder')} />
         </label>
-        <div className="chip-row">
+        <div className="admin-tab-grid">
           {tabs.map((item) => (
-            <button key={item} type="button" className={`chip ${tab === item ? 'is-active' : ''}`} onClick={() => selectTab(item)}>
-              {t(tabTranslationKey[item])}
+            <button key={item} type="button" className={`chip admin-tab-chip ${tab === item ? 'is-active' : ''}`} onClick={() => selectTab(item)}>
+              {(() => { const Icon = tabIcons[item]; return <Icon size={15} strokeWidth={1.8} aria-hidden="true" />; })()}
+              <span>{t(tabTranslationKey[item])}</span>
             </button>
           ))}
         </div>
@@ -554,7 +594,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       ) : null}
 
       {tab === 'U Management' ? (
-        <section className="content-grid content-grid--two">
+        <section className="content-grid content-grid--two admin-u-grid">
           <article className="panel credit-admin">
             <div className="panel__head">
               <div>
@@ -582,6 +622,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                 <MinusCircle size={16} /> {t('admin.decreaseU')}
               </button>
             </div>
+            {creditMessage ? <div className="notice-banner">{creditMessage}</div> : null}
             <div className="table-wrap">
               <table className="table table--interactive">
                 <thead>
@@ -609,7 +650,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             </div>
           </article>
 
-          <article className="panel">
+          <article className="panel admin-u-review-panel">
             <div className="panel__head">
               <div>
                 <h2>{t('admin.uReview')}</h2>
@@ -618,9 +659,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <StatusPill tone={pendingCreditRequests.length ? 'warning' : 'muted'}>{pendingCreditRequests.length} {t('admin.pending')}</StatusPill>
             </div>
             {admin.data.creditRequests.length ? (
-              <div className="stack-list">
+              <div className="stack-list admin-u-review-list">
                 {admin.data.creditRequests.map((request) => (
-                  <div key={request.id} className="stack-list__row">
+                  <div key={request.id} className="stack-list__row admin-u-review-row">
                     <div>
                       <strong>{request.userName} / {request.amount} U</strong>
                       <span>{request.email}</span>
@@ -629,10 +670,14 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                     <div className="stack-list__meta">
                        <StatusPill tone={request.status === 'approved' ? 'success' : request.status === 'pending' ? 'warning' : 'critical'}>{statusLabel(request.status)}</StatusPill>
                       {request.status === 'pending' ? (
-                        <button type="button" className="btn btn--ghost btn--sm" onClick={() => void approveRequest(request.id)}>
-                          <HandCoins size={14} />
-                           {t('admin.approve')}
-                        </button>
+                        <div className="admin-credit-actions">
+                          <button type="button" className="btn btn--primary btn--sm" onClick={() => void reviewCreditRequest(request.id, 'approve')}>
+                            <HandCoins size={14} /> {t('admin.approve')}
+                          </button>
+                          <button type="button" className="btn btn--danger btn--sm" onClick={() => void reviewCreditRequest(request.id, 'reject')}>
+                            {t('admin.reject')}
+                          </button>
+                        </div>
                       ) : (
                         <span>{request.reviewedAt ? formatDateTime(request.reviewedAt) : formatDateTime(request.requestedAt)}</span>
                       )}
@@ -648,6 +693,32 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             )}
           </article>
         </section>
+      ) : null}
+
+      {tab === 'Ledger' ? (
+        <article className="panel admin-ledger-panel">
+          <div className="panel__head">
+            <div><span className="eyebrow">{t('admin.ledgerEyebrow')}</span><h2>{t('admin.ledgerWorkspaceTitle')}</h2><p>{t('admin.ledgerWorkspaceHint')}</p></div>
+            <div className="history-actions"><StatusPill tone={visibleLedger.length ? 'info' : 'muted'}>{visibleLedger.length} {t('admin.records')}</StatusPill>{creditMessage ? <span className="field-hint">{creditMessage}</span> : null}</div>
+          </div>
+          <div className="table-wrap admin-ledger-scroll" tabIndex={0}>
+            <table className="table table--interactive admin-ledger-table">
+              <thead><tr><th>{t('admin.email')}</th><th>{t('admin.name')}</th><th>{t('ledger.type')}</th><th>{t('ledger.note')}</th><th>{t('ledger.time')}</th><th className="text-end">{t('ledger.amount')}</th><th>{t('ledger.status')}</th><th>{t('admin.action')}</th></tr></thead>
+              <tbody>
+                {visibleLedger.length ? visibleLedger.map((item) => <tr key={item.id}>
+                  <td><strong>{item.userEmail ?? t('admin.deletedAccountLabel')}</strong><div className="text-small text-muted">{item.refId}</div></td>
+                  <td>{item.userName ?? '—'}</td>
+                  <td>{item.type === 'deposit' ? t('ledger.deposit') : item.type === 'withdraw' ? t('ledger.withdraw') : item.type === 'review' ? t('ledger.review') : t('ledger.transfer')}</td>
+                  <td className="admin-ledger-table__note">{item.note || '—'}</td>
+                  <td>{formatDateTime(item.time)}</td>
+                  <td className="text-end"><strong>{item.amount.toFixed(2)} {item.currency}</strong></td>
+                  <td><StatusPill tone={item.status === 'approved' || item.status === 'settled' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{statusLabel(item.status)}</StatusPill></td>
+                  <td><button type="button" className="btn btn--danger btn--sm" onClick={() => void deleteLedger(item.id)}><Trash2 size={14} /> {t('admin.delete')}</button></td>
+                </tr>) : <tr><td colSpan={8}><div className="empty-inline"><span>{t('admin.noFunding')}</span></div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </article>
       ) : null}
 
       {tab === 'Monthly Report' ? (
@@ -745,25 +816,21 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       {tab === 'Activity & Alerts' ? (
         <section className="content-grid content-grid--two">
           <article className="panel">
-            <div className="panel__head"><div><h2>{t('admin.ledgerTitle')}</h2><p>{t('admin.fundingHint')}</p></div></div>
+            <div className="panel__head"><div><h2>{t('admin.notificationsTitle')}</h2><p>{t('admin.notificationsHint')}</p></div><StatusPill tone={visibleNotifications.length ? 'info' : 'muted'}>{visibleNotifications.length} {t('admin.records')}</StatusPill></div>
             <div className="stack-list">
-              {visibleLedger.length ? visibleLedger.map((item) => (
+              {visibleNotifications.length ? visibleNotifications.map((item) => (
                 <div key={item.id} className="stack-list__row">
-                   <div><strong>{item.userEmail ?? t('admin.deletedAccountLabel')}</strong><span>{item.userName ?? '—'} · {item.note || item.type}</span></div>
-                   <div className="stack-list__meta"><StatusPill tone={item.status === 'approved' || item.status === 'settled' ? 'success' : item.status === 'pending' ? 'warning' : 'critical'}>{statusLabel(item.status)}</StatusPill><span>{item.amount.toFixed(2)} {item.currency}</span></div>
+                  <div><strong>{item.title}</strong><span>{item.body}</span></div>
+                  <div className="stack-list__meta"><StatusPill tone={item.read ? 'muted' : 'warning'}>{item.read ? t('admin.read') : t('admin.unread')}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div>
                 </div>
-               )) : <div className="state-block"><strong>{t('admin.noFunding')}</strong><p>{t('admin.noFundingHint')}</p></div>}
+              )) : <div className="state-block"><strong>{t('admin.noNotifications')}</strong><p>{t('admin.notificationsHint')}</p></div>}
             </div>
           </article>
           <article className="panel">
-            <div className="panel__head"><div><h2>{t('admin.notificationsTitle')}</h2><p>{t('admin.notificationsHint')}</p></div></div>
+            <div className="panel__head"><div><h2>{t('admin.marketSync')}</h2><p>{t('admin.marketStatusHint')}</p></div></div>
             <div className="stack-list">
-              {visibleNotifications.map((item) => (
-                <div key={item.id} className="stack-list__row">
-                  <div><strong>{item.title}</strong><span>{item.body}</span></div>
-                   <div className="stack-list__meta"><StatusPill tone={item.read ? 'muted' : 'warning'}>{item.read ? t('admin.read') : t('admin.unread')}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div>
-                </div>
-              ))}
+              <div className="stack-list__row"><div><strong>{t('admin.marketSync')}</strong><span>{t('admin.marketStatusHint')}</span></div><div className="stack-list__meta"><StatusPill tone={admin.data.marketStatus.status === 'healthy' ? 'success' : admin.data.marketStatus.status === 'degraded' ? 'warning' : 'critical'}>{admin.data.marketStatus.status === 'healthy' ? t('admin.healthy') : admin.data.marketStatus.status === 'degraded' ? t('admin.monitoring') : t('admin.offline')}</StatusPill><span>{admin.data.marketStatus.quoteCount} {t('admin.instruments')}</span></div></div>
+              <div className="stack-list__row"><div><strong>{t('admin.dataPath')}</strong><span>{t('admin.dataPathHint')}</span></div><div className="stack-list__meta"><StatusPill tone="info">{t('admin.connected')}</StatusPill><span>{admin.data.marketStatus.cacheSeconds}s</span></div></div>
             </div>
           </article>
         </section>

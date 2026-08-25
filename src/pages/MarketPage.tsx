@@ -172,8 +172,18 @@ export function MarketPage() {
       ? live.prices[assetSymbol] ?? fallback
       : quotePulse.displayPrices[assetSymbol] ?? quotePulse.prices[assetSymbol] ?? fallback;
   };
+  // Keep the authority path separate from the visual cadence. The server
+  // recomputes the final paper quote too, but this raw value keeps the client
+  // preview and PnL honest when a quiet non-crypto row is visually pulsing.
+  const authoritativePriceFor = (assetSymbol: string, fallback: number) => {
+    const product = getMarketProduct(assetSymbol);
+    return product.productId
+      ? live.prices[assetSymbol] ?? quotePulse.prices[assetSymbol] ?? fallback
+      : quotePulse.prices[assetSymbol] ?? fallback;
+  };
   const fallbackPrice = selectedBaseAsset?.price ?? 0;
   const livePrice = displayPriceFor(symbol, fallbackPrice);
+  const authoritativePrice = authoritativePriceFor(symbol, fallbackPrice);
   const selectedUpdatedAt = getMarketProduct(symbol).productId && live.lastTickAt[symbol]
     ? new Date(live.lastTickAt[symbol]).toISOString()
     : quotePulse.quoteUpdatedAt[symbol]
@@ -187,14 +197,16 @@ export function MarketPage() {
     dataState: quotePulse.dataStates[symbol] ?? selectedBaseAsset.dataState,
     updatedAt: selectedUpdatedAt,
   } : null;
-  const calculatedExecutionQuote = getExecutionQuote(symbol, livePrice);
-  const executionQuote = selectedAsset?.bid && selectedAsset?.ask && selectedAsset.ask >= selectedAsset.bid
+  const calculatedExecutionQuote = getExecutionQuote(symbol, authoritativePrice);
+  const authoritativeBid = quotePulse.bids[symbol] ?? selectedBaseAsset?.bid;
+  const authoritativeAsk = quotePulse.asks[symbol] ?? selectedBaseAsset?.ask;
+  const executionQuote = authoritativeBid && authoritativeAsk && authoritativeAsk >= authoritativeBid
     ? {
-        bid: selectedAsset.bid,
-        ask: selectedAsset.ask,
-        spread: selectedAsset.ask - selectedAsset.bid,
+        bid: authoritativeBid,
+        ask: authoritativeAsk,
+        spread: authoritativeAsk - authoritativeBid,
         decimals: calculatedExecutionQuote.decimals,
-        spreadBps: livePrice ? ((selectedAsset.ask - selectedAsset.bid) / livePrice) * 10_000 : 0,
+        spreadBps: authoritativePrice ? ((authoritativeAsk - authoritativeBid) / authoritativePrice) * 10_000 : 0,
       }
     : calculatedExecutionQuote;
   const selectedChange = quotePulse.changes[symbol] ?? selectedAsset?.change24h ?? 0;
@@ -231,10 +243,10 @@ export function MarketPage() {
   const maxLots = orderPreviewPrice && contractSize ? (availableMargin * leverage) / (orderPreviewPrice * contractSize) : 0;
   const canOpen = Boolean(session) && hasAssetMargin && margin > 0 && lots >= tradeSpec.minimumLots && contractSize > 0 && leverage > 0;
   const livePositions = userPositions.map((position) => {
-    const referencePrice = displayPriceFor(position.symbol, position.markPrice);
+    const referencePrice = authoritativePriceFor(position.symbol, position.markPrice);
     const indicative = getExecutionQuote(position.symbol, referencePrice);
-    const bid = quotePulse.displayBids[position.symbol] ?? quotePulse.bids[position.symbol];
-    const ask = quotePulse.displayAsks[position.symbol] ?? quotePulse.asks[position.symbol];
+    const bid = quotePulse.bids[position.symbol];
+    const ask = quotePulse.asks[position.symbol];
     const quote = bid && ask && ask >= bid ? { ...indicative, bid, ask } : indicative;
     return { ...position, markPrice: position.side === 'long' ? quote.bid : quote.ask };
   });
@@ -392,6 +404,8 @@ export function MarketPage() {
   const selectedFeedState = selectedAsset?.dataState ?? (selectedIsCrypto && live.lastTickAt[symbol] ? 'live' : quotePulse.dataStates[symbol] ?? (quotePulse.status === 'stale' ? 'fallback' : 'live'));
   const liveTone = selectedFeedState === 'broker' || selectedFeedState === 'live' ? 'success' : selectedFeedState === 'fallback' ? 'warning' : 'info';
   const liveLabel = selectedFeedState === 'broker' ? t('market.feedBroker') : selectedFeedState === 'cached' ? t('market.feedCache') : selectedFeedState === 'fallback' ? t('market.feedFallback') : t('market.feedLive');
+  const displayMode = quotePulse.displayModes[symbol] ?? (selectedIsCrypto ? 'verified' : 'indicative');
+  const displayModeLabel = displayMode === 'interpolated' ? t('market.displayInterpolated') : displayMode === 'indicative' ? t('market.displayIndicative') : t('market.displayVerified');
   const selectedDirection = quotePulse.directions[symbol] ?? 'flat';
   const lastQuoteCheck = quotePulse.lastCheckedAt[symbol];
   // A moving UI should never claim a changing market when the numeric quote
@@ -416,6 +430,7 @@ export function MarketPage() {
 
       <section className="market-integrity-rail">
         <DataMeta source={{ ...market.data.source, dataState: selectedFeedState, updatedAt: selectedUpdatedAt }} />
+        <span className={`market-display-mode market-display-mode--${displayMode}`} title={t('market.displayModeHint')}>{displayModeLabel}</span>
         <span className={`market-integrity-rail__stream market-integrity-rail__stream--${quotePulse.streamStatus === 'open' ? 'healthy' : 'monitoring'}`}>{quotePulse.streamStatus === 'open' ? t('market.streamConnected') : t('market.streamMonitoring')}</span>
       </section>
 
@@ -511,7 +526,7 @@ export function MarketPage() {
             </div>
             <StatusPill tone={selectedChange >= 0 ? 'success' : 'critical'}>{formatPercent(selectedChange)}</StatusPill>
           </div>
-          <div key={`${symbol}-${lastQuoteCheck ?? selectedUpdatedAt}`} className={`instrument-banner instrument-banner--${selectedDirection} ${awaitingVerifiedQuote ? 'instrument-banner--monitoring' : 'instrument-banner--active'}`} data-quote-cycle={lastQuoteCheck ?? selectedUpdatedAt}>
+          <div key={`${symbol}-${lastQuoteCheck ?? selectedUpdatedAt}`} className={`instrument-banner instrument-banner--${selectedDirection} instrument-banner--${displayMode} ${awaitingVerifiedQuote ? 'instrument-banner--monitoring' : 'instrument-banner--active'}`} data-quote-cycle={lastQuoteCheck ?? selectedUpdatedAt}>
             <InstrumentArtwork symbol={selectedAsset?.symbol ?? symbol} />
             <div className="instrument-banner__copy">
               <span className="eyebrow">{t('market.selectedInstrument')}</span>
@@ -521,11 +536,12 @@ export function MarketPage() {
             <div className="instrument-banner__quote">
               <strong className="instrument-banner__price" aria-live="polite">{formatNumber(livePrice)}</strong>
               <span className={selectedChange >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(selectedChange)}</span>
-              <span className="instrument-banner__feed-state"><span className="instrument-banner__feed-dot" />{awaitingVerifiedQuote ? t('market.awaitingVerifiedQuote') : liveLabel}<span className="instrument-banner__signal-bars" aria-hidden="true"><i /><i /><i /></span></span>
+              <span className="instrument-banner__feed-state"><span className="instrument-banner__feed-dot" />{awaitingVerifiedQuote ? t('market.awaitingVerifiedQuote') : liveLabel}<span className={`instrument-banner__display-mode instrument-banner__display-mode--${displayMode}`}>{displayModeLabel}</span><span className="instrument-banner__signal-bars" aria-hidden="true"><i /><i /><i /></span></span>
             </div>
           </div>
           <div className="trading-chart__toolbar" aria-label={t('market.chartTools')}>
             <span className="chart-toolbar__label">{t('market.chartTools')}</span>
+            <span className="chart-indicator-legend" aria-label={t('market.indicatorLegend')}><span><i />{t('market.fastAverage')}</span><span><i />{t('market.slowAverage')}</span></span>
             <button type="button" className={`chart-tool ${chartTool === 'cursor' ? 'is-active' : ''}`} onClick={() => setChartTool('cursor')} title={t('market.select')}><Crosshair size={15} /> {t('market.select')}</button>
             <button type="button" className={`chart-tool ${chartTool === 'trendline' ? 'is-active' : ''}`} onClick={() => setChartTool('trendline')} title={t('market.trendLine')}><Ruler size={15} /> {t('market.trendLine')}</button>
             <button type="button" className={`chart-tool ${chartTool === 'horizontal' ? 'is-active' : ''}`} onClick={() => setChartTool('horizontal')} title={t('market.horizontalLine')}><Minus size={15} /> {t('market.horizontalLine')}</button>
@@ -545,7 +561,7 @@ export function MarketPage() {
               <span>{t('ui.synchronizing')}</span>
             </div>
           ) : (
-            <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={livePrice} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
+            <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={livePrice} bid={executionQuote.bid} ask={executionQuote.ask} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           )}
           <div className="execution-bar">
             <button type="button" className="execution-quote execution-quote--sell" onClick={() => void openPosition('short')} disabled={!canOpen || Boolean(busyAction)}>

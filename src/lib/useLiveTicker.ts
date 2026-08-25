@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getMarketProduct, marketProducts } from '@/data/assets';
+import { getExecutionQuote, getMarketProduct, marketProducts } from '@/data/assets';
 import { apiFetch } from '@/lib/api';
 import type { MarketDataState } from '@/types';
 
@@ -108,6 +108,7 @@ export function useLiveTicker(symbol: string, fallbackPrice: number) {
 
 type QuotePulseStatus = 'idle' | 'polling' | 'fresh' | 'stale';
 type StreamStatus = 'idle' | 'connecting' | 'open' | 'stale' | 'closed';
+export type QuoteDisplayMode = 'verified' | 'interpolated' | 'indicative';
 type QuotePulseItem = {
   symbol?: string;
   price?: number;
@@ -127,9 +128,9 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
   const [prices, setPrices] = useState<PriceMap>(fallbackPrices);
   const [bids, setBids] = useState<PriceMap>({});
   const [asks, setAsks] = useState<PriceMap>({});
-  // Display values only interpolate between two actual server references. They
-  // never invent a price outside that range, and order execution remains on
-  // the server's latest quote.
+  // Display values interpolate between server references and may receive a
+  // clearly-labelled, bounded UI cadence while a non-broker source is quiet.
+  // Order execution always remains on the server's latest raw quote.
   const [displayPrices, setDisplayPrices] = useState<PriceMap>(fallbackPrices);
   const [displayBids, setDisplayBids] = useState<PriceMap>({});
   const [displayAsks, setDisplayAsks] = useState<PriceMap>({});
@@ -139,6 +140,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
   const [quoteUpdatedAt, setQuoteUpdatedAt] = useState<TickMap>({});
   const [status, setStatus] = useState<QuotePulseStatus>('idle');
   const [dataStates, setDataStates] = useState<Record<string, MarketDataState>>({});
+  const [displayModes, setDisplayModes] = useState<Record<string, QuoteDisplayMode>>({});
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('idle');
   const pricesRef = useRef<PriceMap>(fallbackPrices);
   const bidsRef = useRef<PriceMap>({});
@@ -146,7 +148,10 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
   const displayPricesRef = useRef<PriceMap>(fallbackPrices);
   const displayBidsRef = useRef<PriceMap>({});
   const displayAsksRef = useRef<PriceMap>({});
+  const displayModesRef = useRef<Record<string, QuoteDisplayMode>>({});
+  const dataStatesRef = useRef<Record<string, MarketDataState>>({});
   const smoothingFrameRef = useRef<number | null>(null);
+  const transitionUntilRef = useRef(0);
   const directionsRef = useRef<DirectionMap>({});
   const inFlight = useRef(false);
   const symbolsKey = useMemo(
@@ -160,6 +165,60 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
     displayPricesRef.current = { ...fallbackPrices, ...displayPricesRef.current };
     setDisplayPrices((current) => ({ ...fallbackPrices, ...current }));
   }, [fallbackPrices]);
+
+  // This is deliberately a presentation-only cadence. It keeps a quiet
+  // non-crypto row visually alive between provider snapshots, but never
+  // changes `prices`, `bids` or `asks` (the values used by the server-owned
+  // paper order path). Broker/MT5 quotes are always shown without this layer.
+  useEffect(() => {
+    const stableOffset = (value: string) => {
+      let hash = 0;
+      for (let index = 0; index < value.length; index += 1) hash = (hash * 31 + value.charCodeAt(index)) % 997;
+      return (hash / 997) * Math.PI * 2;
+    };
+    const roundForDisplay = (symbol: string, value: number) => {
+      const decimals = getExecutionQuote(symbol, value).decimals;
+      return Number(value.toFixed(Math.min(decimals + 1, 8)));
+    };
+    const cadence = window.setInterval(() => {
+      const now = Date.now();
+      if (now < transitionUntilRef.current) return;
+      const nextPrices = { ...displayPricesRef.current };
+      const nextBids = { ...displayBidsRef.current };
+      const nextAsks = { ...displayAsksRef.current };
+      const nextModes = { ...displayModesRef.current };
+      Object.entries(pricesRef.current).forEach(([symbol, reference]) => {
+        const product = getMarketProduct(symbol);
+        const sourceState = dataStatesRef.current[symbol];
+        if (product.productId || sourceState === 'broker') {
+          nextPrices[symbol] = reference;
+          if (bidsRef.current[symbol] != null) nextBids[symbol] = bidsRef.current[symbol];
+          if (asksRef.current[symbol] != null) nextAsks[symbol] = asksRef.current[symbol];
+          nextModes[symbol] = 'verified';
+          return;
+        }
+        const quoteSpec = getExecutionQuote(symbol, reference);
+        const minimumTick = 10 ** -quoteSpec.decimals;
+        // The cadence is capped well below one quote unit. It is an interface
+        // pulse, not a forecast and not a market quote.
+        const amplitude = Math.min(Math.max(minimumTick, Math.abs(reference) * 0.000004), 0.08);
+        const offset = Math.sin(now / 760 + stableOffset(symbol)) * amplitude;
+        nextPrices[symbol] = roundForDisplay(symbol, Math.max(minimumTick, reference + offset));
+        if (bidsRef.current[symbol] != null) nextBids[symbol] = roundForDisplay(symbol, Math.max(minimumTick, bidsRef.current[symbol] + offset));
+        if (asksRef.current[symbol] != null) nextAsks[symbol] = roundForDisplay(symbol, Math.max(minimumTick, asksRef.current[symbol] + offset));
+        nextModes[symbol] = 'indicative';
+      });
+      displayPricesRef.current = nextPrices;
+      displayBidsRef.current = nextBids;
+      displayAsksRef.current = nextAsks;
+      displayModesRef.current = nextModes;
+      setDisplayPrices(nextPrices);
+      setDisplayBids(nextBids);
+      setDisplayAsks(nextAsks);
+      setDisplayModes(nextModes);
+    }, 720);
+    return () => window.clearInterval(cadence);
+  }, []);
 
   useEffect(() => () => {
     if (smoothingFrameRef.current != null) window.cancelAnimationFrame(smoothingFrameRef.current);
@@ -179,17 +238,23 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
     const nextBids = { ...bidsRef.current };
     const nextAsks = { ...asksRef.current };
     const nextDirections = { ...directionsRef.current };
+    const nextDataStates = { ...dataStatesRef.current };
+    const nextDisplayModes = { ...displayModesRef.current };
     fresh.forEach((quote) => {
       const previous = pricesRef.current[quote.symbol];
       nextDirections[quote.symbol] = previous == null ? 'flat' : quote.price > previous ? 'up' : quote.price < previous ? 'down' : 'flat';
       nextPrices[quote.symbol] = quote.price;
       if (Number.isFinite(quote.bid) && quote.bid > 0) nextBids[quote.symbol] = quote.bid;
       if (Number.isFinite(quote.ask) && quote.ask > 0) nextAsks[quote.symbol] = quote.ask;
+      nextDataStates[quote.symbol] = quote.dataState;
+      nextDisplayModes[quote.symbol] = getMarketProduct(quote.symbol).productId || quote.dataState === 'broker' ? 'verified' : 'interpolated';
     });
     pricesRef.current = nextPrices;
     bidsRef.current = nextBids;
     asksRef.current = nextAsks;
     directionsRef.current = nextDirections;
+    dataStatesRef.current = nextDataStates;
+    displayModesRef.current = nextDisplayModes;
     setPrices(nextPrices);
     setBids(nextBids);
     setAsks(nextAsks);
@@ -197,7 +262,8 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
     setChanges((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, quote.change24h])) }));
     setLastCheckedAt((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, checkedAt])) }));
     setQuoteUpdatedAt((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, new Date(quote.quoteUpdatedAt).getTime()])) }));
-    setDataStates((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, quote.dataState])) }));
+    setDataStates(nextDataStates);
+    setDisplayModes(nextDisplayModes);
 
     const fromPrices = { ...displayPricesRef.current };
     const fromBids = { ...displayBidsRef.current };
@@ -233,6 +299,13 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
 
     if (!needsMotion) {
       publishFrame(1);
+      const settledModes = { ...displayModesRef.current };
+      fresh.forEach((quote) => {
+        settledModes[quote.symbol] = getMarketProduct(quote.symbol).productId || quote.dataState === 'broker' ? 'verified' : 'indicative';
+      });
+      displayModesRef.current = settledModes;
+      setDisplayModes(settledModes);
+      transitionUntilRef.current = 0;
       smoothingFrameRef.current = null;
       return;
     }
@@ -245,11 +318,21 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
       return Math.max(largest, Math.abs(quote.price - start) / Math.max(Math.abs(start), 1e-9));
     }, 0);
     const durationMs = largestRelativeMove < 0.00008 ? 1_450 : Math.min(1_850, Math.max(1_100, 1_250 + largestRelativeMove * 180_000));
+    transitionUntilRef.current = startedAt + durationMs;
     const tick = () => {
       const progress = Math.min(1, (Date.now() - startedAt) / durationMs);
       publishFrame(progress);
-      if (progress < 1) smoothingFrameRef.current = window.requestAnimationFrame(tick);
-      else smoothingFrameRef.current = null;
+      if (progress < 1) {
+        smoothingFrameRef.current = window.requestAnimationFrame(tick);
+      } else {
+        const settledModes = { ...displayModesRef.current };
+        fresh.forEach((quote) => {
+          settledModes[quote.symbol] = getMarketProduct(quote.symbol).productId || quote.dataState === 'broker' ? 'verified' : 'indicative';
+        });
+        displayModesRef.current = settledModes;
+        setDisplayModes(settledModes);
+        smoothingFrameRef.current = null;
+      }
     };
     tick();
   };
@@ -348,5 +431,5 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
     };
   }, [symbolsKey]);
 
-  return { prices, bids, asks, displayPrices, displayBids, displayAsks, changes, directions, lastCheckedAt, quoteUpdatedAt, dataStates, streamStatus, status };
+  return { prices, bids, asks, displayPrices, displayBids, displayAsks, displayModes, changes, directions, lastCheckedAt, quoteUpdatedAt, dataStates, streamStatus, status };
 }

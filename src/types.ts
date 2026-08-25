@@ -94,9 +94,14 @@ export interface NewsEvent {
   title: string;
   market: string;
   country: string;
+  currency?: string;
   scheduledAt: string;
   impact: 'high' | 'medium' | 'low';
   description: string;
+  previous?: string;
+  forecast?: string;
+  actual?: string;
+  status?: 'scheduled' | 'live' | 'released';
 }
 
 export interface NewsBundle {
@@ -164,9 +169,9 @@ export type FundingMethod = 'tng' | 'bank';
 export interface FundingRate {
   /** MYR per 1 U before the review-side adjustment. */
   baseRate: number;
-  /** Deposit quote: base MYR/U + 0.05. */
+  /** Deposit quote: base MYR/U + 0.03. */
   depositRate: number;
-  /** Withdrawal quote: base MYR/U - 0.05. */
+  /** Withdrawal quote: base MYR/U - 0.03. */
   withdrawalRate: number;
   source: string;
   updatedAt: string;

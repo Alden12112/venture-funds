@@ -131,6 +131,52 @@
   box-shadow: 0 0 0 4px var(--success-soft);
 }
 
+.market-display-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-soft) 58%, var(--surface));
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.market-display-mode--indicative,
+.instrument-banner__display-mode--indicative {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border));
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.market-display-mode--interpolated,
+.instrument-banner__display-mode--interpolated {
+  border-color: color-mix(in srgb, var(--info) 42%, var(--border));
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.instrument-banner--indicative { border-color: color-mix(in srgb, var(--warning) 38%, var(--border)); }
+.instrument-banner--interpolated { border-color: color-mix(in srgb, var(--info) 38%, var(--border)); }
+
+.instrument-banner__display-mode {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
 .command-center__hero {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(430px, .9fr);
@@ -341,6 +387,39 @@
 
 .research-hero-band > div:first-child { display: grid; gap: 10px; max-width: 690px; }
 .research-hero-band h2 { font-size: clamp(28px, 3vw, 46px); line-height: 1.04; letter-spacing: -.04em; }
+
+.research-hero-band__copy { align-content: space-between; }
+.research-hero-band__rail {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: fit-content;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-strong) 76%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+}
+.research-hero-band__rail strong { color: var(--accent-strong); font-size: 11px; font-weight: 800; }
+.research-hero-band__insight { display: grid; align-content: end; gap: 12px; min-width: 0; }
+.research-hero-band__visual {
+  position: relative;
+  min-height: 148px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: 13px;
+  background: var(--surface-strong);
+  box-shadow: 0 15px 30px color-mix(in srgb, var(--text) 10%, transparent);
+}
+.research-hero-band__visual img { display: block; width: 100%; height: 148px; object-fit: cover; opacity: .92; transition: transform 520ms ease, opacity 520ms ease; }
+.research-hero-band__visual:hover img { opacity: 1; transform: scale(1.035); }
+.research-hero-band__visual::after { position: absolute; inset: 0; content: ''; pointer-events: none; background: linear-gradient(90deg, rgba(4, 13, 20, .08), rgba(4, 13, 20, .52)); }
+.research-hero-band__visual > div { position: absolute; z-index: 1; right: 15px; bottom: 14px; left: 15px; display: grid; gap: 3px; color: #fff; }
+.research-hero-band__visual span { font-size: 10px; font-weight: 800; letter-spacing: .12em; opacity: .78; }
+.research-hero-band__visual strong { font-size: 17px; letter-spacing: -.02em; }
 
 .research-hero-band__stats {
   display: grid;
@@ -2326,6 +2405,19 @@ table {
   stroke-linejoin: round;
   pointer-events: none;
 }
+
+.chart-indicator-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.chart-indicator-line--fast { stroke: #e77b6b; stroke-width: 1.65; opacity: .92; }
+.chart-indicator-line--slow { stroke: #d7b66c; stroke-width: 1.25; opacity: .76; stroke-dasharray: 6 4; }
+.chart-indicator-legend { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-left: auto; color: var(--muted); font-size: 10px; }
+.chart-indicator-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.chart-indicator-legend i { display: inline-block; width: 18px; height: 2px; border-radius: 99px; background: #e77b6b; }
+.chart-indicator-legend i:last-child { background: #d7b66c; height: 1px; background-image: linear-gradient(90deg, #d7b66c 60%, transparent 60%); background-size: 6px 1px; }
 
 .chart-price-guide {
   stroke: color-mix(in srgb, var(--accent) 70%, transparent);
@@ -4627,7 +4719,187 @@ table {
   font-weight: 800;
 }
 
+/* Research calendar workbench ------------------------------------------ */
+.research-calendar-workbench {
+  display: grid;
+  gap: 18px;
+  padding: clamp(18px, 2.2vw, 30px);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 34%, transparent), transparent 42%),
+    var(--surface);
+}
+
+.research-calendar-workbench__head h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.research-calendar-workbench__status {
+  display: grid;
+  justify-items: end;
+  align-content: start;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.research-calendar-workbench__status > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.research-calendar-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface-strong) 68%, transparent);
+}
+
+.research-calendar-kpis > div {
+  display: grid;
+  gap: 5px;
+  min-height: 92px;
+  align-content: center;
+  padding: 14px 16px;
+}
+
+.research-calendar-kpis > div + div { border-left: 1px solid var(--border); }
+.research-calendar-kpis span,
+.research-calendar-kpis small { color: var(--muted); font-size: 11px; }
+.research-calendar-kpis strong { overflow: hidden; font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
+.research-calendar-table-wrap { max-height: 440px; overflow: auto; }
+.research-calendar-table { min-width: 980px; }
+.research-calendar-table thead th { position: sticky; z-index: 2; top: 0; background: color-mix(in srgb, var(--surface) 96%, var(--surface-strong)); }
+.research-calendar-table td { vertical-align: middle; }
+.calendar-event-time,
+.calendar-event-name { display: grid; gap: 4px; }
+.calendar-event-time span,
+.calendar-event-name span { color: var(--muted); font-size: 11px; }
+.calendar-event-time span { color: var(--accent-strong); font-variant-numeric: tabular-nums; }
+.calendar-country { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.calendar-country__mark { display: inline-grid; width: 26px; height: 20px; place-items: center; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-strong); color: var(--accent-strong); font-size: 9px; font-weight: 850; }
+.calendar-market-list { color: var(--text); line-height: 1.45; }
+.calendar-value { color: var(--muted); font-variant-numeric: tabular-nums; }
+.research-side-rail { display: grid; align-content: start; gap: 16px; }
+.research-ad-slot {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  min-height: 150px;
+  padding: 16px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 55%),
+    linear-gradient(145deg, color-mix(in srgb, var(--surface-strong) 88%, transparent), var(--surface));
+}
+.research-ad-slot__visual { display: grid; min-height: 104px; place-items: center; align-content: center; gap: 8px; border-radius: 11px; background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 22%, var(--surface-strong)), var(--surface-strong)); color: var(--accent-strong); }
+.research-ad-slot__visual span { font-size: 9px; font-weight: 850; letter-spacing: .1em; }
+.research-ad-slot h2 { margin: 4px 0 6px; font-size: 17px; }
+.research-ad-slot p { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.research-reading-room .panel__head,
+.research-calendar-mini .panel__head { align-items: start; }
+.research-reading-room .panel__head h2 { display: inline-flex; align-items: center; gap: 7px; }
+.research-reading-room__rows { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.research-reading-room__rows > div { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--surface-strong) 72%, transparent); }
+.research-reading-room__rows span { color: var(--muted); font-size: 10px; }
+.research-reading-room__rows strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+
+/* The chart keeps its quote guides visually distinct from the neutral last-price guide. */
+.chart-price-guide--bid { stroke: var(--success); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: .9; }
+.chart-price-guide--ask { stroke: var(--critical); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: .9; }
+.chart-quote-label { font-size: 9px; font-weight: 850; letter-spacing: .08em; }
+.chart-quote-label--bid { fill: var(--success); }
+.chart-quote-label--ask { fill: var(--critical); }
+
+/* Admin ledger and review controls -------------------------------------- */
+.admin-credit-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.admin-ledger-scroll { max-height: 620px; overflow: auto; }
+.admin-ledger-table { min-width: 1080px; }
+.admin-ledger-table thead th { position: sticky; z-index: 2; top: 0; background: color-mix(in srgb, var(--surface) 96%, var(--surface-strong)); }
+.admin-ledger-table td { vertical-align: middle; }
+.admin-ledger-table__note { max-width: 300px; color: var(--muted); line-height: 1.45; }
+
+/* The admin console is a high-density workbench, but every control keeps a
+   stable hit area and a clear visual group so reviews do not collapse into a
+   single crowded chip row. */
+.admin-tab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.admin-tab-chip {
+  justify-content: flex-start;
+  min-height: 42px;
+  padding: 7px 11px;
+  text-align: left;
+  white-space: normal;
+}
+
+.admin-tab-chip svg { flex: 0 0 auto; color: var(--accent-strong); }
+.admin-tab-chip span { min-width: 0; line-height: 1.25; }
+.admin-tab-chip.is-active { box-shadow: inset 3px 0 0 var(--accent-strong); }
+
+.admin-u-grid > .panel,
+.funding-admin-grid > .panel { min-width: 0; }
+.admin-u-review-panel { background: linear-gradient(145deg, color-mix(in srgb, var(--surface) 94%, var(--accent-soft)), var(--surface)); }
+.admin-u-review-list { display: grid; gap: 0; }
+.admin-u-review-row { align-items: flex-start; min-height: 92px; padding: 15px 2px; }
+.admin-u-review-row > div:first-child { display: grid; gap: 4px; min-width: 0; }
+.admin-u-review-row > div:first-child strong { font-variant-numeric: tabular-nums; }
+.admin-u-review-row > div:first-child span { overflow-wrap: anywhere; }
+.admin-u-review-row .stack-list__meta { min-width: 170px; }
+.admin-funding-queue-scroll { max-height: 540px; overflow: auto; }
+.admin-funding-queue-panel .panel__head,
+.funding-admin-history-panel .panel__head { align-items: flex-start; }
+.funding-admin-table td { vertical-align: middle; }
+.funding-admin-table td:first-child { min-width: 170px; }
+.funding-admin-table td:last-child { min-width: 150px; }
+.admin-funding-history { min-height: 180px; }
+.admin-funding-history .stack-list__row { align-items: flex-start; }
+.admin-funding-history .stack-list__row > div:first-child { display: grid; gap: 3px; min-width: 0; }
+.admin-funding-history .stack-list__row > div:first-child span { overflow-wrap: anywhere; }
+.admin-funding-history .stack-list__meta { min-width: 150px; }
+
+@media (min-width: 1081px) {
+  .app-shell__sidebar { align-self: start; height: calc(100vh - 72px); max-height: calc(100vh - 72px); overflow-y: auto; scrollbar-width: thin; }
+}
+
+@media (max-width: 900px) {
+  .research-calendar-workbench__status { justify-items: start; }
+  .research-calendar-kpis { grid-template-columns: 1fr; }
+  .research-calendar-kpis > div + div { border-top: 1px solid var(--border); border-left: 0; }
+  .research-side-rail { grid-template-columns: 1fr 1fr; }
+  .research-ad-slot { grid-column: span 2; }
+}
+
 @media (max-width: 720px) {
+  .research-calendar-workbench { padding: 16px; }
+  .research-calendar-workbench__head { align-items: start; }
+  .research-calendar-workbench__status { white-space: normal; }
+  .research-side-rail { grid-template-columns: 1fr; }
+  .research-ad-slot { grid-column: auto; grid-template-columns: 78px minmax(0, 1fr); min-height: 132px; }
+  .research-ad-slot__visual { min-height: 92px; }
+  .research-reading-room__rows strong { font-size: 17px; }
+  .admin-credit-actions { justify-content: flex-start; }
+  .admin-tab-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-tab-chip { min-height: 46px; padding-inline: 9px; }
+  .admin-u-review-row,
+  .admin-funding-history .stack-list__row { display: grid; gap: 10px; }
+  .admin-u-review-row .stack-list__meta,
+  .admin-funding-history .stack-list__meta { min-width: 0; justify-items: start; text-align: left; }
+  .admin-funding-queue-scroll { max-height: min(540px, 58dvh); }
+  .admin-ledger-scroll { max-height: min(560px, 68dvh); }
+  .app-shell__sidebar { height: auto; max-height: none; overflow: visible; }
   .funding-history-scroll,
   .trade-history-scroll { max-block-size: min(430px, 56dvh); }
   .funding-history-scroll--stack .stack-list__row { min-block-size: 94px; }

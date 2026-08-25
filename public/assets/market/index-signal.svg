@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-label="Abstract index market artwork">
+  <defs><linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#151b26"/><stop offset="1" stop-color="#283347"/></linearGradient><linearGradient id="rise" x1="0" x2="1"><stop stop-color="#81a9ff"/><stop offset="1" stop-color="#68dfc2"/></linearGradient></defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <g stroke="#b8c7da" opacity=".12"><path d="M90 90v540M260 90v540M430 90v540M600 90v540M770 90v540M940 90v540M1110 90v540"/><path d="M60 130h1080M60 260h1080M60 390h1080M60 520h1080M60 650h1080"/></g>
+  <g fill="none" stroke="url(#rise)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><path d="M80 555L180 520l85 40 95-112 92 26 100-140 88 48 106-70 104 28 100-142 120 45"/></g>
+  <g fill="#7ee5c6"><circle cx="275" cy="560" r="7"/><circle cx="650" cy="394" r="7"/><circle cx="1030" cy="225" r="7"/></g>
+</svg>

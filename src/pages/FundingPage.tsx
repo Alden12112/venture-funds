@@ -143,10 +143,10 @@ export function FundingPage() {
         <div className="funding-workbench__main">
           <div className="funding-flow-switch" role="tablist" aria-label={t('funding.chooseFlow')}>
             <button type="button" role="tab" aria-selected={flow === 'deposit'} className={flow === 'deposit' ? 'is-active' : ''} onClick={() => { setFlow('deposit'); setFeedback(null); }}>
-              <span className="funding-flow-switch__icon funding-flow-switch__icon--deposit"><ArrowDownLeft size={18} /></span><span><strong>{t('funding.deposit')}</strong><small>{t('funding.depositHint')}</small></span>
+              <span className="funding-flow-switch__icon funding-flow-switch__icon--deposit"><ArrowDownLeft size={18} /></span><span><strong>{t('funding.deposit')}</strong></span>
             </button>
             <button type="button" role="tab" aria-selected={flow === 'withdraw'} className={flow === 'withdraw' ? 'is-active' : ''} onClick={() => { setFlow('withdraw'); setFeedback(null); }}>
-              <span className="funding-flow-switch__icon funding-flow-switch__icon--withdraw"><ArrowUpRight size={18} /></span><span><strong>{t('funding.withdraw')}</strong><small>{t('funding.withdrawHint')}</small></span>
+              <span className="funding-flow-switch__icon funding-flow-switch__icon--withdraw"><ArrowUpRight size={18} /></span><span><strong>{t('funding.withdraw')}</strong></span>
             </button>
           </div>
 
@@ -162,9 +162,9 @@ export function FundingPage() {
             ))}
           </div>
 
-          <div className="funding-section-head funding-section-head--amount"><div><span className="eyebrow">{t('funding.stepTwo')}</span><h2>{t('funding.enterAmount')}</h2></div><span>{flow === 'deposit' ? t('funding.depositAmountHint') : t('funding.withdrawalAmountHint')}</span></div>
+          <div className="funding-section-head funding-section-head--amount"><div><span className="eyebrow">{t('funding.stepTwo')}</span><h2>{t('funding.enterAmount')}</h2></div></div>
           <div className="funding-form-grid">
-            <label className="field funding-field--amount"><span>{flow === 'deposit' ? t('funding.amountMyr') : t('funding.amountU')}</span><div className="funding-amount-input"><span>{flow === 'deposit' ? 'MYR' : 'U'}</span><input inputMode="decimal" type="number" min={minimumAmount} step={flow === 'deposit' ? '1' : '0.01'} value={amountInput} onChange={(event) => setAmountInput(event.target.value)} /></div><small className="field-hint">{flow === 'deposit' ? t('funding.minimumDeposit') : t('funding.minimumWithdrawal')}</small></label>
+            <label className="field funding-field--amount"><span>{flow === 'deposit' ? t('funding.amountMyr') : t('funding.amountU')}</span><div className="funding-amount-input"><span>{flow === 'deposit' ? 'MYR' : 'U'}</span><input inputMode="decimal" type="number" min={minimumAmount} step={flow === 'deposit' ? '1' : '0.01'} value={amountInput} onChange={(event) => setAmountInput(event.target.value)} /></div></label>
             {requiresAccountDetails ? <>
               <label className="field"><span>{t('funding.accountHolder')}</span><input autoComplete="off" value={accountHolder} maxLength={80} onChange={(event) => setAccountHolder(event.target.value)} placeholder={t('funding.accountHolderPlaceholder')} /></label>
               <label className="field"><span>{method === 'tng' ? t('funding.walletReference') : t('funding.accountReference')}</span><input autoComplete="off" inputMode="numeric" value={accountReference} maxLength={24} onChange={(event) => setAccountReference(event.target.value.replace(/\D/g, '').slice(0, 24))} placeholder={method === 'tng' ? t('funding.walletReferencePlaceholder') : t('funding.accountReferencePlaceholder')} /><small className="field-hint">{t('funding.accountDetailsHint')}</small></label>

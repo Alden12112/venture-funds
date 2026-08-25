@@ -16,3 +16,12 @@ export async function loadLedgerBundle(scope: 'self' | 'all' = 'self'): Promise<
     },
   };
 }
+
+/**
+ * Administrative cleanup only. The server detaches any funding reference
+ * before removing the visual ledger row, so this cannot change U balances,
+ * funding decisions or paper positions.
+ */
+export async function deleteRemoteLedgerEntry(id: string) {
+  return apiFetch<{ ok: boolean; id: string }>(`/api/ledger/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}

@@ -201,3 +201,10 @@ export async function approveRemoteCreditRequest(requestId: string, reviewer: st
   writeStorage('creditRequests', requests, { sync: false, notify: false });
   return request;
 }
+
+export async function rejectRemoteCreditRequest(requestId: string, reviewer: string) {
+  const request = await apiFetch<CreditRequest>('/api/admin/credits/reject', { method: 'POST', body: JSON.stringify({ id: requestId, reviewer }) });
+  const requests = readCreditRequests().map((item) => item.id === request.id ? request : item);
+  writeStorage('creditRequests', requests, { sync: false, notify: false });
+  return request;
+}
