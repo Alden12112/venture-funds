@@ -13,7 +13,7 @@ import { useIndicativeQuotePulse, useLiveTickers } from '@/lib/useLiveTicker';
 import { writeStorage } from '@/lib/storage';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
-import { assetClassKey, assetNameKey, getExecutionQuote, getMarketProduct, getTradeSpec, marketProducts } from '@/data/assets';
+import { assetClassKey, assetNameKey, getExecutionQuote, getMarketIcon, getMarketProduct, getMarketVisual, getTradeSpec, marketProducts } from '@/data/assets';
 import { marketFilters } from '@/data/navigation';
 import { apiFetch } from '@/lib/api';
 import { loadRemoteCreditAccount, readCreditAccounts, writeCreditAccounts } from '@/lib/credits';
@@ -36,10 +36,22 @@ function computePnl(position: PaperPosition, exitPrice: number, lots = position.
 
 function AssetLogo({ symbol, size = 'md' }: { symbol: string; size?: 'sm' | 'md' | 'lg' }) {
   const product = getMarketProduct(symbol);
+  const icon = getMarketIcon(symbol);
   return (
-    <span className={`asset-logo asset-logo--${product.tone} asset-logo--${size}`} aria-hidden="true">
-      {product.mark}
+    <span className={`asset-logo asset-logo--${product.tone} asset-logo--${size} ${icon ? 'asset-logo--image' : ''}`} aria-hidden="true">
+      {icon ? <img className="asset-logo__image" src={icon} alt="" decoding="async" /> : product.mark}
     </span>
+  );
+}
+
+function InstrumentArtwork({ symbol }: { symbol: string }) {
+  const image = getMarketVisual(symbol);
+  if (!image) return <AssetLogo symbol={symbol} size="lg" />;
+  return (
+    <div className="instrument-banner__art" aria-hidden="true">
+      <img src={image} alt="" decoding="async" />
+      <span className="instrument-banner__art-mark"><AssetLogo symbol={symbol} size="sm" /></span>
+    </div>
   );
 }
 
@@ -141,6 +153,14 @@ export function MarketPage() {
     if (market.status !== 'success') return {};
     return Object.fromEntries(market.data.assets.map((asset) => [asset.symbol, asset.price]));
   }, [market]);
+  // `useAsyncResource` deliberately preserves the surrounding workspace
+  // while a new instrument loads. Resolve the selected product from the
+  // already-normalized asset list so BTC never briefly inherits XAU's title,
+  // image or instrument class during that background request.
+  const selectedBaseAsset = market.status === 'success'
+    ? market.data.assets.find((asset) => asset.symbol === symbol) ?? market.data.selected
+    : null;
+  const chartIsRefreshingForSymbol = market.status === 'success' && market.data.selected.symbol !== symbol;
   const live = useLiveTickers(fallbackPrices);
   // Include the legacy email-shaped id only while old browser snapshots are
   // being migrated. New positions always use the server-issued account id.
@@ -152,19 +172,19 @@ export function MarketPage() {
       ? live.prices[assetSymbol] ?? fallback
       : quotePulse.displayPrices[assetSymbol] ?? quotePulse.prices[assetSymbol] ?? fallback;
   };
-  const fallbackPrice = market.status === 'success' ? market.data.selected.price : 0;
+  const fallbackPrice = selectedBaseAsset?.price ?? 0;
   const livePrice = displayPriceFor(symbol, fallbackPrice);
   const selectedUpdatedAt = getMarketProduct(symbol).productId && live.lastTickAt[symbol]
     ? new Date(live.lastTickAt[symbol]).toISOString()
     : quotePulse.quoteUpdatedAt[symbol]
       ? new Date(quotePulse.quoteUpdatedAt[symbol]).toISOString()
-      : market.status === 'success' ? market.data.selected.updatedAt : new Date().toISOString();
-  const selectedAsset = market.status === 'success' ? {
-    ...market.data.selected,
+      : selectedBaseAsset?.updatedAt ?? new Date().toISOString();
+  const selectedAsset = selectedBaseAsset ? {
+    ...selectedBaseAsset,
     price: livePrice,
-    bid: quotePulse.displayBids[symbol] ?? quotePulse.bids[symbol] ?? market.data.selected.bid,
-    ask: quotePulse.displayAsks[symbol] ?? quotePulse.asks[symbol] ?? market.data.selected.ask,
-    dataState: quotePulse.dataStates[symbol] ?? market.data.selected.dataState,
+    bid: quotePulse.displayBids[symbol] ?? quotePulse.bids[symbol] ?? selectedBaseAsset.bid,
+    ask: quotePulse.displayAsks[symbol] ?? quotePulse.asks[symbol] ?? selectedBaseAsset.ask,
+    dataState: quotePulse.dataStates[symbol] ?? selectedBaseAsset.dataState,
     updatedAt: selectedUpdatedAt,
   } : null;
   const calculatedExecutionQuote = getExecutionQuote(symbol, livePrice);
@@ -374,6 +394,10 @@ export function MarketPage() {
   const liveLabel = selectedFeedState === 'broker' ? t('market.feedBroker') : selectedFeedState === 'cached' ? t('market.feedCache') : selectedFeedState === 'fallback' ? t('market.feedFallback') : t('market.feedLive');
   const selectedDirection = quotePulse.directions[symbol] ?? 'flat';
   const lastQuoteCheck = quotePulse.lastCheckedAt[symbol];
+  // A moving UI should never claim a changing market when the numeric quote
+  // has not changed. Keep visual cadence on a quiet/degraded source, and only
+  // animate the actual number between received server references.
+  const awaitingVerifiedQuote = selectedFeedState === 'fallback' || quotePulse.status === 'polling' || quotePulse.status === 'stale';
   return (
     <div className="page-stack">
       <PageHeader
@@ -487,16 +511,17 @@ export function MarketPage() {
             </div>
             <StatusPill tone={selectedChange >= 0 ? 'success' : 'critical'}>{formatPercent(selectedChange)}</StatusPill>
           </div>
-          <div key={`${symbol}-${lastQuoteCheck ?? selectedUpdatedAt}`} className={`instrument-banner instrument-banner--${selectedDirection}`} data-quote-cycle={lastQuoteCheck ?? selectedUpdatedAt}>
-            <AssetLogo symbol={selectedAsset?.symbol ?? symbol} size="lg" />
+          <div key={`${symbol}-${lastQuoteCheck ?? selectedUpdatedAt}`} className={`instrument-banner instrument-banner--${selectedDirection} ${awaitingVerifiedQuote ? 'instrument-banner--monitoring' : 'instrument-banner--active'}`} data-quote-cycle={lastQuoteCheck ?? selectedUpdatedAt}>
+            <InstrumentArtwork symbol={selectedAsset?.symbol ?? symbol} />
             <div className="instrument-banner__copy">
               <span className="eyebrow">{t('market.selectedInstrument')}</span>
               <strong>{selectedAsset ? t(assetNameKey(selectedAsset.symbol)) : symbol}</strong>
               <span>{selectedFeedState === 'broker' ? t('market.brokerReference') : t('market.verifiedReference')} · {selectedAsset?.assetClass ? t(assetClassKey(selectedAsset.assetClass)) : t('market.marketReference')}</span>
             </div>
             <div className="instrument-banner__quote">
-              <strong>{formatNumber(livePrice)}</strong>
+              <strong className="instrument-banner__price" aria-live="polite">{formatNumber(livePrice)}</strong>
               <span className={selectedChange >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(selectedChange)}</span>
+              <span className="instrument-banner__feed-state"><span className="instrument-banner__feed-dot" />{awaitingVerifiedQuote ? t('market.awaitingVerifiedQuote') : liveLabel}<span className="instrument-banner__signal-bars" aria-hidden="true"><i /><i /><i /></span></span>
             </div>
           </div>
           <div className="trading-chart__toolbar" aria-label={t('market.chartTools')}>
@@ -514,7 +539,14 @@ export function MarketPage() {
               </button>
             ))}
           </div>
-          <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={livePrice} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
+          {chartIsRefreshingForSymbol ? (
+            <div className="chart-refresh-placeholder" role="status" aria-live="polite">
+              <span className="chart-refresh-placeholder__pulse" aria-hidden="true" />
+              <span>{t('ui.synchronizing')}</span>
+            </div>
+          ) : (
+            <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={livePrice} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
+          )}
           <div className="execution-bar">
             <button type="button" className="execution-quote execution-quote--sell" onClick={() => void openPosition('short')} disabled={!canOpen || Boolean(busyAction)}>
               <span>{t('market.sellBid')}</span><strong>{formatNumber(sellPrice)}</strong><small>{t('market.openShort')}</small>

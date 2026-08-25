@@ -33,6 +33,27 @@ export const marketProducts = [
 
 export type MarketProductSymbol = (typeof marketProducts)[number]['symbol'];
 
+// These are editorial photographs used only in the large selected-instrument
+// treatment. Small row/chip marks stay vector-like so the table remains fast
+// to scan. The images are locally bundled rather than fetched from a third
+// party at runtime.
+const marketVisuals: Partial<Record<MarketProductSymbol, string>> = {
+  XAU: '/assets/market/gold-bullion.png',
+  CL: '/assets/market/crude-pumpjack.png',
+  BRN: '/assets/market/crude-pumpjack.png',
+};
+
+// Crisp coin marks are used throughout the live table, ticker and positions.
+// They make crypto assets as fast to identify as the reference the user
+// supplied, without borrowing a third-party site's presentation.
+const marketIcons: Partial<Record<MarketProductSymbol, string>> = {
+  BTC: '/assets/crypto/btc.png',
+  ETH: '/assets/crypto/eth.png',
+  SOL: '/assets/crypto/sol.png',
+  XRP: '/assets/crypto/xrp.png',
+  DOGE: '/assets/crypto/doge.png',
+};
+
 // Provider payloads stay normalized in English; the interface resolves the
 // same stable symbol into the language selected by the user.
 export function assetNameKey(symbol: string) {
@@ -139,6 +160,14 @@ export function getExecutionQuote(symbol: string, referencePrice: number) {
 
 export function getMarketProduct(symbol: string) {
   return marketProducts.find((product) => product.symbol === symbol.toUpperCase()) ?? marketProducts[0];
+}
+
+export function getMarketVisual(symbol: string) {
+  return marketVisuals[symbol.toUpperCase() as MarketProductSymbol];
+}
+
+export function getMarketIcon(symbol: string) {
+  return marketIcons[symbol.toUpperCase() as MarketProductSymbol];
 }
 
 export function getTradeSpec(symbol: string): TradeSpec {

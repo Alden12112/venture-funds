@@ -1,5 +1,5 @@
 import type { MarketAsset } from '@/types';
-import { getMarketProduct } from '@/data/assets';
+import { getMarketIcon, getMarketProduct } from '@/data/assets';
 import { useLanguage } from '@/context/language-context';
 
 function quote(value: number) {
@@ -23,10 +23,13 @@ export function MarketTicker({ assets }: { assets: MarketAsset[] }) {
         <div className="ticker-strip__track">
           {[...items, ...items].map((asset, index) => {
             const product = getMarketProduct(asset.symbol);
+            const icon = getMarketIcon(asset.symbol);
             const positive = asset.change24h >= 0;
             return (
               <div key={`${asset.symbol}-${index}`} className="ticker-item">
-                <span className={`asset-logo asset-logo--${product.tone} asset-logo--xs`} aria-hidden="true">{product.mark}</span>
+                <span className={`asset-logo asset-logo--${product.tone} asset-logo--xs ${icon ? 'asset-logo--image' : ''}`} aria-hidden="true">
+                  {icon ? <img className="asset-logo__image" src={icon} alt="" decoding="async" /> : product.mark}
+                </span>
                 <span className="ticker-item__name">{asset.symbol}</span>
                 <strong>{quote(asset.price)}</strong>
                 <span className={positive ? 'trend trend--up' : 'trend trend--down'}>{positive ? '+' : ''}{asset.change24h.toFixed(2)}%</span>

@@ -175,7 +175,7 @@ export function FundingPage() {
 
         <aside className="funding-quote-card">
           <div className="funding-quote-card__head"><span className="funding-quote-card__icon">{method === 'tng' ? <WalletCards size={18} /> : <Building2 size={18} />}</span><div><span className="eyebrow">{t('funding.stepThree')}</span><h2>{method === 'tng' ? t('funding.tngConfirmation') : t('funding.bankConfirmation')}</h2></div></div>
-          {method === 'tng' ? <div className="funding-tng-reference"><div className="funding-tng-reference__glyph"><span>TNG</span><WalletCards size={28} /></div><div><strong>{t('funding.sandboxReference')}</strong><p>{t('funding.tngReferenceHint')}</p></div></div> : <div className="funding-bank-reference"><Landmark size={22} /><div><strong>{bankName}</strong><p>{t('funding.bankReferenceHint')}</p></div></div>}
+          {method === 'tng' ? <div className="funding-tng-reference"><div className="funding-tng-reference__glyph"><span>TNG</span><WalletCards size={28} /></div><div><strong>{t('funding.sandboxReference')}</strong><p>{t('funding.tngReferenceHint')}</p></div></div> : <div className="funding-bank-reference funding-bank-reference--visual"><img src="/assets/market/secure-banking-vault.png" alt="" loading="lazy" decoding="async" /><Landmark size={22} /><div><strong>{bankName}</strong><p>{t('funding.bankReferenceHint')}</p></div></div>}
           <div className="funding-conversion">
             <div><span>{flow === 'deposit' ? t('funding.youEnter') : t('funding.youRequest')}</span><strong>{flow === 'deposit' ? formatCurrency(previewMyr || 0, 'MYR') : `${(previewU || 0).toFixed(4)} U`}</strong></div>
             <div><span>{t('funding.lockedRate')}</span><strong>RM {quoteRate.toFixed(4)} / U</strong></div>
