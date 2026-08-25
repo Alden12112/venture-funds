@@ -127,6 +127,12 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
   const [prices, setPrices] = useState<PriceMap>(fallbackPrices);
   const [bids, setBids] = useState<PriceMap>({});
   const [asks, setAsks] = useState<PriceMap>({});
+  // Display values only interpolate between two actual server references. They
+  // never invent a price outside that range, and order execution remains on
+  // the server's latest quote.
+  const [displayPrices, setDisplayPrices] = useState<PriceMap>(fallbackPrices);
+  const [displayBids, setDisplayBids] = useState<PriceMap>({});
+  const [displayAsks, setDisplayAsks] = useState<PriceMap>({});
   const [changes, setChanges] = useState<PriceMap>({});
   const [directions, setDirections] = useState<DirectionMap>({});
   const [lastCheckedAt, setLastCheckedAt] = useState<TickMap>({});
@@ -135,6 +141,12 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
   const [dataStates, setDataStates] = useState<Record<string, MarketDataState>>({});
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('idle');
   const pricesRef = useRef<PriceMap>(fallbackPrices);
+  const bidsRef = useRef<PriceMap>({});
+  const asksRef = useRef<PriceMap>({});
+  const displayPricesRef = useRef<PriceMap>(fallbackPrices);
+  const displayBidsRef = useRef<PriceMap>({});
+  const displayAsksRef = useRef<PriceMap>({});
+  const smoothingTimerRef = useRef<number | null>(null);
   const directionsRef = useRef<DirectionMap>({});
   const inFlight = useRef(false);
   const symbolsKey = useMemo(
@@ -145,7 +157,95 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
   useEffect(() => {
     pricesRef.current = { ...fallbackPrices, ...pricesRef.current };
     setPrices((current) => ({ ...fallbackPrices, ...current }));
+    displayPricesRef.current = { ...fallbackPrices, ...displayPricesRef.current };
+    setDisplayPrices((current) => ({ ...fallbackPrices, ...current }));
   }, [fallbackPrices]);
+
+  useEffect(() => () => {
+    if (smoothingTimerRef.current != null) window.clearTimeout(smoothingTimerRef.current);
+  }, []);
+
+  const applyQuoteBatch = (fresh: Array<{
+    symbol: string;
+    price: number;
+    bid: number;
+    ask: number;
+    change24h: number;
+    quoteUpdatedAt: string;
+    dataState: MarketDataState;
+  }>, checkedAt: number) => {
+    if (!fresh.length) return;
+    const nextPrices = { ...pricesRef.current };
+    const nextBids = { ...bidsRef.current };
+    const nextAsks = { ...asksRef.current };
+    const nextDirections = { ...directionsRef.current };
+    fresh.forEach((quote) => {
+      const previous = pricesRef.current[quote.symbol];
+      nextDirections[quote.symbol] = previous == null ? 'flat' : quote.price > previous ? 'up' : quote.price < previous ? 'down' : 'flat';
+      nextPrices[quote.symbol] = quote.price;
+      if (Number.isFinite(quote.bid) && quote.bid > 0) nextBids[quote.symbol] = quote.bid;
+      if (Number.isFinite(quote.ask) && quote.ask > 0) nextAsks[quote.symbol] = quote.ask;
+    });
+    pricesRef.current = nextPrices;
+    bidsRef.current = nextBids;
+    asksRef.current = nextAsks;
+    directionsRef.current = nextDirections;
+    setPrices(nextPrices);
+    setBids(nextBids);
+    setAsks(nextAsks);
+    setDirections(nextDirections);
+    setChanges((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, quote.change24h])) }));
+    setLastCheckedAt((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, checkedAt])) }));
+    setQuoteUpdatedAt((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, new Date(quote.quoteUpdatedAt).getTime()])) }));
+    setDataStates((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, quote.dataState])) }));
+
+    const fromPrices = { ...displayPricesRef.current };
+    const fromBids = { ...displayBidsRef.current };
+    const fromAsks = { ...displayAsksRef.current };
+    const epsilon = (value: number) => Math.max(Math.abs(value) * 1e-10, 1e-7);
+    const needsMotion = fresh.some((quote) => Math.abs((fromPrices[quote.symbol] ?? quote.price) - quote.price) > epsilon(quote.price));
+    if (smoothingTimerRef.current != null) window.clearTimeout(smoothingTimerRef.current);
+
+    const publishFrame = (progress: number) => {
+      const eased = 1 - Math.pow(1 - progress, 2);
+      const nextDisplayPrices = { ...fromPrices };
+      const nextDisplayBids = { ...fromBids };
+      const nextDisplayAsks = { ...fromAsks };
+      Object.entries(nextPrices).forEach(([symbol, target]) => {
+        const start = fromPrices[symbol] ?? target;
+        nextDisplayPrices[symbol] = start + (target - start) * eased;
+      });
+      Object.entries(nextBids).forEach(([symbol, target]) => {
+        const start = fromBids[symbol] ?? target;
+        nextDisplayBids[symbol] = start + (target - start) * eased;
+      });
+      Object.entries(nextAsks).forEach(([symbol, target]) => {
+        const start = fromAsks[symbol] ?? target;
+        nextDisplayAsks[symbol] = start + (target - start) * eased;
+      });
+      displayPricesRef.current = nextDisplayPrices;
+      displayBidsRef.current = nextDisplayBids;
+      displayAsksRef.current = nextDisplayAsks;
+      setDisplayPrices(nextDisplayPrices);
+      setDisplayBids(nextDisplayBids);
+      setDisplayAsks(nextDisplayAsks);
+    };
+
+    if (!needsMotion) {
+      publishFrame(1);
+      smoothingTimerRef.current = null;
+      return;
+    }
+    const startedAt = Date.now();
+    const durationMs = 1_700;
+    const tick = () => {
+      const progress = Math.min(1, (Date.now() - startedAt) / durationMs);
+      publishFrame(progress);
+      if (progress < 1) smoothingTimerRef.current = window.setTimeout(tick, 120);
+      else smoothingTimerRef.current = null;
+    };
+    tick();
+  };
 
   useEffect(() => {
     const watched = symbolsKey.split(',').filter(Boolean);
@@ -172,23 +272,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
           }))
           .filter((quote) => Number.isFinite(quote.price) && quote.price > 0);
         if (!fresh.length) return;
-        const nextPrices = { ...pricesRef.current };
-        const nextDirections = { ...directionsRef.current };
-        fresh.forEach((quote) => {
-          const previous = pricesRef.current[quote.symbol];
-          nextDirections[quote.symbol] = previous == null ? 'flat' : quote.price > previous ? 'up' : quote.price < previous ? 'down' : 'flat';
-          nextPrices[quote.symbol] = quote.price;
-        });
-        pricesRef.current = nextPrices;
-        directionsRef.current = nextDirections;
-        setPrices(nextPrices);
-        setDirections(nextDirections);
-        setBids((current) => ({ ...current, ...Object.fromEntries(fresh.filter((quote) => Number.isFinite(quote.bid) && quote.bid > 0).map((quote) => [quote.symbol, quote.bid])) }));
-        setAsks((current) => ({ ...current, ...Object.fromEntries(fresh.filter((quote) => Number.isFinite(quote.ask) && quote.ask > 0).map((quote) => [quote.symbol, quote.ask])) }));
-        setChanges((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, quote.change24h])) }));
-        setLastCheckedAt((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, Date.now()])) }));
-        setQuoteUpdatedAt((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, new Date(quote.quoteUpdatedAt).getTime()])) }));
-        setDataStates((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, quote.dataState])) }));
+        applyQuoteBatch(fresh, Date.now());
       } catch {
         setStreamStatus('stale');
       }
@@ -243,23 +327,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
         }))
         .filter((quote) => Number.isFinite(quote.price) && quote.price > 0);
       if (fresh.length) {
-        const nextPrices = { ...pricesRef.current };
-        const nextDirections = { ...directionsRef.current };
-        fresh.forEach((quote) => {
-          const previous = pricesRef.current[quote.symbol];
-          nextDirections[quote.symbol] = previous == null ? 'flat' : quote.price > previous ? 'up' : quote.price < previous ? 'down' : 'flat';
-          nextPrices[quote.symbol] = quote.price;
-        });
-        pricesRef.current = nextPrices;
-        directionsRef.current = nextDirections;
-        setPrices(nextPrices);
-        setDirections(nextDirections);
-        setBids((current) => ({ ...current, ...Object.fromEntries(fresh.filter((quote) => Number.isFinite(quote.bid) && quote.bid > 0).map((quote) => [quote.symbol, quote.bid])) }));
-        setAsks((current) => ({ ...current, ...Object.fromEntries(fresh.filter((quote) => Number.isFinite(quote.ask) && quote.ask > 0).map((quote) => [quote.symbol, quote.ask])) }));
-        setChanges((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, quote.change24h])) }));
-        setLastCheckedAt((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, checkedAt])) }));
-        setQuoteUpdatedAt((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, new Date(quote.quoteUpdatedAt).getTime()])) }));
-        setDataStates((current) => ({ ...current, ...Object.fromEntries(fresh.map((quote) => [quote.symbol, quote.dataState])) }));
+        applyQuoteBatch(fresh, checkedAt);
         setStatus('fresh');
       } else {
         setStatus('stale');
@@ -273,5 +341,5 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
     };
   }, [symbolsKey]);
 
-  return { prices, bids, asks, changes, directions, lastCheckedAt, quoteUpdatedAt, dataStates, streamStatus, status };
+  return { prices, bids, asks, displayPrices, displayBids, displayAsks, changes, directions, lastCheckedAt, quoteUpdatedAt, dataStates, streamStatus, status };
 }

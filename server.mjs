@@ -39,6 +39,10 @@ const memoryLedgerEntries = [];
 const memoryFundingRequests = new Map();
 const marketProxyCache = new Map();
 const yahooQuoteCache = new Map();
+// Quotes for instruments retired from the new-order catalogue. They are only
+// loaded when an existing historical paper position needs to be valued or
+// closed, so the active 30-instrument snapshot remains bounded.
+const legacyPaperQuoteCache = new Map();
 // Keep the server snapshot inside the requested 0–10 second display window.
 // The browser polls every two seconds; this cache prevents duplicate fan-out
 // requests while still allowing a fresh public quote cycle at that cadence.
@@ -779,8 +783,14 @@ function normalizePaperPosition(value, session) {
   const side = value?.side === 'short' ? 'short' : value?.side === 'long' ? 'long' : null;
   const lots = Number(value?.lots);
   const entryPrice = Number(value?.entryPrice);
-  const leverage = Math.min(50, Math.max(1, Number(value?.leverage) || spec.defaultLeverage));
-  if (!marketQuoteCatalogue[symbol] || !side || !Number.isFinite(lots) || lots < spec.minimumLots || lots > 1_000 || !Number.isFinite(entryPrice) || entryPrice <= 0) return null;
+  const savedLeverage = Number(value?.leverage);
+  // The server now owns a conservative, small-entry paper profile. Retain an
+  // older, higher leverage value if it already exists, but never keep a
+  // legacy low-leverage position that would turn a 0.01 lot into hundreds of U.
+  const leverage = Number.isFinite(savedLeverage) && savedLeverage > spec.defaultLeverage
+    ? Math.min(1_000, savedLeverage)
+    : spec.defaultLeverage;
+  if (!isPaperPositionSymbol(symbol) || !side || !Number.isFinite(lots) || lots < spec.minimumLots || lots > 1_000 || !Number.isFinite(entryPrice) || entryPrice <= 0) return null;
   const totalLots = Number(lots.toFixed(2));
   const rawRemaining = Number(value?.remainingLots ?? totalLots);
   const remainingLots = Math.min(totalLots, Math.max(0, Number.isFinite(rawRemaining) ? rawRemaining : totalLots));
@@ -810,7 +820,7 @@ function normalizePaperPosition(value, session) {
   };
 }
 
-async function getPaperPositions(session) {
+async function readPaperPositionState(session) {
   let stored;
   if (pool) {
     const result = await pool.query("SELECT state_value FROM ad88_user_state WHERE user_id = $1 AND state_key = 'paperPositions' LIMIT 1", [session.sub]);
@@ -818,9 +828,49 @@ async function getPaperPositions(session) {
   } else {
     stored = memoryState.get(session.sub)?.paperPositions;
   }
-  return (Array.isArray(stored) ? stored : [])
+  return Array.isArray(stored) ? stored : [];
+}
+
+function normalizePaperPositions(stored, session) {
+  return stored
     .map((item) => normalizePaperPosition(item, session))
     .filter(Boolean);
+}
+
+async function getPaperPositions(session) {
+  return normalizePaperPositions(await readPaperPositionState(session), session);
+}
+
+async function migratePaperMarginProfile(session) {
+  const stored = await readPaperPositionState(session);
+  const normalizedByIndex = stored.map((value) => normalizePaperPosition(value, session));
+  const positions = normalizedByIndex.filter(Boolean);
+  let releasedMargin = 0;
+  let changed = false;
+  stored.forEach((value, index) => {
+    const position = normalizedByIndex[index];
+    if (!position || position.status === 'closed' || (position.remainingLots ?? position.lots) <= 0) return;
+    const previousMargin = Number(value?.margin);
+    const openRatio = (position.remainingLots ?? position.lots) / position.lots;
+    const previousReservedMargin = previousMargin * openRatio;
+    const nextReservedMargin = position.margin * openRatio;
+    if (Number.isFinite(previousReservedMargin) && previousReservedMargin > nextReservedMargin + 0.005) {
+      releasedMargin += previousReservedMargin - nextReservedMargin;
+      changed = true;
+    }
+  });
+  if (!changed) return positions;
+  // Preserve any malformed or unknown historic records verbatim instead of
+  // silently deleting them during this risk-profile migration. Supported
+  // legacy symbols below are normalized and remain trade-auditable.
+  await writePaperPositions(session, stored.map((value, index) => normalizedByIndex[index] ?? value));
+  const account = await getOrCreateCreditAccount(session);
+  await updateCreditAccount({
+    ...account,
+    available: Math.min(account.balance, Math.max(0, Number((account.available + releasedMargin).toFixed(2)))),
+    updatedAt: new Date().toISOString(),
+  });
+  return positions;
 }
 
 async function writePaperPositions(session, positions) {
@@ -845,7 +895,10 @@ async function recordPaperTradeEvent(event) {
 
 async function getPaperMarketQuote(symbol) {
   const snapshot = overlayMt5Quotes(await getMarketQuoteSnapshot());
-  const quote = snapshot[symbol];
+  let quote = snapshot[symbol];
+  if (!quote && legacyPaperQuoteCatalogue[symbol]) {
+    quote = await loadLegacyPaperQuote(symbol);
+  }
   if (!quote || quote.fallback || !Number.isFinite(Number(quote.price)) || Number(quote.price) <= 0) {
     throw new Error('live paper quote unavailable');
   }
@@ -896,8 +949,8 @@ async function closePaperPosition(session, positionId, requestedLots) {
   const account = await getOrCreateCreditAccount(session);
   const nextAccount = await updateCreditAccount({
     ...account,
-    balance: Number((account.balance + pnl).toFixed(2)),
-    available: Number((account.available + releasedMargin + pnl).toFixed(2)),
+    balance: Math.max(0, Number((account.balance + pnl).toFixed(2))),
+    available: Math.max(0, Number((account.available + releasedMargin + pnl).toFixed(2))),
     updatedAt: new Date().toISOString(),
   });
   await writePaperPositions(session, nextPositions);
@@ -905,13 +958,74 @@ async function closePaperPosition(session, positionId, requestedLots) {
   return { positions: nextPositions, creditAccount: nextAccount, position: nextPositions.find((item) => item.id === position.id), event };
 }
 
+async function liquidatePaperPositionsIfNeeded(session, knownPositions) {
+  const positions = knownPositions ?? await getPaperPositions(session);
+  const activePositions = positions.filter((position) => position.status !== 'closed' && (position.remainingLots ?? position.lots) > 0);
+  const account = await getOrCreateCreditAccount(session);
+  if (!activePositions.length) return { positions, creditAccount: account, liquidated: false };
+
+  const marks = await Promise.all(activePositions.map(async (position) => {
+    try {
+      const quote = await getPaperMarketQuote(position.symbol);
+      const exitPrice = position.side === 'long' ? quote.bid : quote.ask;
+      const lots = Number(position.remainingLots ?? position.lots);
+      const pnl = Number(((position.side === 'long' ? exitPrice - position.entryPrice : position.entryPrice - exitPrice) * position.contractSize * lots).toFixed(2));
+      const releasedMargin = Number((position.margin * (lots / position.lots)).toFixed(2));
+      return { position, exitPrice, lots, pnl, releasedMargin };
+    } catch {
+      return null;
+    }
+  }));
+  if (marks.some((mark) => !mark)) return { positions, creditAccount: account, liquidated: false };
+
+  const settledMarks = marks.filter(Boolean);
+  const totalPnl = Number(settledMarks.reduce((sum, mark) => sum + mark.pnl, 0).toFixed(2));
+  if (account.balance + totalPnl > 0.000001) return { positions, creditAccount: account, liquidated: false };
+
+  const closedAt = new Date().toISOString();
+  const byId = new Map(settledMarks.map((mark) => [mark.position.id, mark]));
+  const nextPositions = positions.map((position) => {
+    const mark = byId.get(position.id);
+    if (!mark) return position;
+    return {
+      ...position,
+      markPrice: mark.exitPrice,
+      remainingLots: 0,
+      closedLots: position.lots,
+      status: 'closed',
+      closedAt,
+    };
+  });
+  const nextAccount = await updateCreditAccount({
+    ...account,
+    balance: 0,
+    available: 0,
+    updatedAt: closedAt,
+  });
+  await writePaperPositions(session, nextPositions);
+  await Promise.all(settledMarks.map((mark) => recordPaperTradeEvent(
+    paperTradeEvent(session, mark.position, 'liquidation', mark.lots, mark.exitPrice, mark.releasedMargin, mark.pnl),
+  )));
+  await createNotification(
+    session.sub,
+    'system',
+    'Paper account liquidated',
+    'Your paper-account equity reached 0 U. Open positions were closed at the latest server reference.',
+    'critical',
+    '/app/market',
+  );
+  return { positions: nextPositions, creditAccount: nextAccount, liquidated: true };
+}
+
 async function handlePaperTrading(req, res, requestUrl) {
   if (appSurface !== 'frontend') return sendJson(res, 404, { error: 'not found' });
   const session = requireSession(req, res);
   if (!session) return true;
   if (session.role === 'admin') return sendJson(res, 403, { error: 'administrators use the separate workspace' });
+  const migratedPositions = await migratePaperMarginProfile(session);
   if (req.method === 'GET' && requestUrl.pathname === '/api/paper/positions') {
-    return sendJson(res, 200, await getPaperPositions(session));
+    const workspace = await liquidatePaperPositionsIfNeeded(session, migratedPositions);
+    return sendJson(res, 200, workspace.positions);
   }
   if (req.method === 'POST' && requestUrl.pathname === '/api/paper/orders') {
     const input = await readBody(req);
@@ -919,7 +1033,9 @@ async function handlePaperTrading(req, res, requestUrl) {
     const side = input.side === 'short' ? 'short' : input.side === 'long' ? 'long' : null;
     const spec = getPaperInstrumentSpec(symbol);
     const lots = Number(input.lots);
-    const leverage = Math.min(50, Math.max(1, Number(input.leverage) || spec.defaultLeverage));
+    // Leverage is a fixed paper-risk profile owned by the server. The browser
+    // mirrors it only for its preview and cannot create oversized margins.
+    const leverage = spec.defaultLeverage;
     if (!marketQuoteCatalogue[symbol] || !side || !Number.isFinite(lots) || lots < spec.minimumLots || lots > 1_000) return sendJson(res, 400, { error: 'invalid paper order' });
     let quote;
     try {
@@ -1230,7 +1346,7 @@ function validateTradeEvent(input) {
   const leverage = input.leverage == null ? undefined : Number(input.leverage);
   const margin = input.margin == null ? undefined : Number(input.margin);
   const pnl = input.pnl == null ? undefined : Number(input.pnl);
-  if (!/^[A-Z0-9]{1,16}$/.test(symbol) || !['long', 'short'].includes(side) || !['open', 'close', 'partial-close', 'risk-update'].includes(action)) return { error: 'invalid trade event' };
+  if (!/^[A-Z0-9]{1,16}$/.test(symbol) || !['long', 'short'].includes(side) || !['open', 'close', 'partial-close', 'risk-update', 'liquidation'].includes(action)) return { error: 'invalid trade event' };
   if (!Number.isFinite(lots) || lots < 0.01 || lots > 100000 || !Number.isFinite(price) || price <= 0) return { error: 'invalid trade values' };
   if (contractSize !== undefined && (!Number.isFinite(contractSize) || contractSize <= 0)) return { error: 'invalid contract size' };
   if (leverage !== undefined && (!Number.isFinite(leverage) || leverage <= 0)) return { error: 'invalid leverage' };
@@ -1736,13 +1852,31 @@ const twelveDataSymbols = {
 // deliberately separate from the React asset catalogue so the browser never
 // needs provider credentials or to fan out one request per instrument.
 const marketQuoteCatalogue = {
-  XAU: 'GC=F', BTC: 'BTC-USD', ETH: 'ETH-USD', CL: 'CL=F', NG: 'NG=F', XAG: 'SI=F', HG: 'HG=F', SCCO: 'SCCO',
-  BRN: 'BZ=F', HO: 'HO=F', RB: 'RB=F', LGO: 'LGO=F', PL: 'PL=F', PA: 'PA=F', CORN: 'ZC=F', WHEAT: 'ZW=F', COFFEE: 'KC=F',
-  SUGAR: 'SB=F', COCOA: 'CC=F', COTTON: 'CT=F', OATS: 'ZO=F', LUMBER: 'LBS=F', SOYBEAN: 'ZS=F', SOYMEAL: 'ZM=F', SOYOIL: 'ZL=F', CATTLE: 'LE=F', HOGS: 'HE=F', ORANGE: 'OJ=F',
-  SOL: 'SOL-USD', XRP: 'XRP-USD', LINK: 'LINK-USD', AVAX: 'AVAX-USD', DOGE: 'DOGE-USD', ADA: 'ADA-USD', LTC: 'LTC-USD', BCH: 'BCH-USD',
-  EURUSD: 'EURUSD=X', GBPUSD: 'GBPUSD=X', NZDUSD: 'NZDUSD=X', USDCHF: 'CHF=X', EURGBP: 'EURGBP=X', EURJPY: 'EURJPY=X', GBPJPY: 'GBPJPY=X', EURCHF: 'EURCHF=X', USDCNH: 'CNH=X', USDSGD: 'SGD=X', USDHKD: 'HKD=X', USDTRY: 'TRY=X', USDZAR: 'ZAR=X', USDJPY: 'JPY=X', AUDUSD: 'AUDUSD=X', USDCAD: 'CAD=X',
-  SPX: '^GSPC', NAS100: '^NDX', DAX: '^GDAXI', FTSE: '^FTSE', CAC: '^FCHI', NIKKEI: '^N225', HSI: '^HSI', DJ30: '^DJI', RUSSELL: '^RUT',
+  XAU: 'GC=F', BTC: 'BTC-USD', ETH: 'ETH-USD', CL: 'CL=F', BRN: 'BZ=F', NG: 'NG=F', XAG: 'SI=F', HG: 'HG=F', SCCO: 'SCCO',
+  HO: 'HO=F', RB: 'RB=F', PL: 'PL=F', PA: 'PA=F',
+  SOL: 'SOL-USD', XRP: 'XRP-USD', DOGE: 'DOGE-USD',
+  EURUSD: 'EURUSD=X', GBPUSD: 'GBPUSD=X', USDJPY: 'JPY=X', AUDUSD: 'AUDUSD=X', USDCAD: 'CAD=X', USDCHF: 'CHF=X', EURJPY: 'EURJPY=X',
+  SPX: '^GSPC', NAS100: '^NDX', DJ30: '^DJI', DAX: '^GDAXI', FTSE: '^FTSE', NIKKEI: '^N225', HSI: '^HSI',
 };
+
+// The visible selector intentionally contains only the 30 focused products
+// above. This separate map keeps earlier paper positions safe after the
+// catalogue reduction: they can still be rendered, valued on demand, closed,
+// and included in audit history, but cannot be opened as new orders.
+const legacyPaperQuoteCatalogue = {
+  LGO: 'LGO=F', CORN: 'ZC=F', WHEAT: 'ZW=F', COFFEE: 'KC=F',
+  SUGAR: 'SB=F', COCOA: 'CC=F', COTTON: 'CT=F', OATS: 'ZO=F',
+  LUMBER: 'LBS=F', SOYBEAN: 'ZS=F', SOYMEAL: 'ZM=F', SOYOIL: 'ZL=F',
+  CATTLE: 'LE=F', HOGS: 'HE=F', ORANGE: 'OJ=F',
+  LINK: 'LINK-USD', AVAX: 'AVAX-USD', ADA: 'ADA-USD', LTC: 'LTC-USD', BCH: 'BCH-USD',
+  NZDUSD: 'NZDUSD=X', EURGBP: 'EURGBP=X', GBPJPY: 'GBPJPY=X', EURCHF: 'EURCHF=X',
+  USDCNH: 'CNH=X', USDSGD: 'SGD=X', USDHKD: 'HKD=X', USDTRY: 'TRY=X', USDZAR: 'ZAR=X',
+  CAC: '^FCHI', RUSSELL: '^RUT',
+};
+
+function isPaperPositionSymbol(symbol) {
+  return Boolean(marketQuoteCatalogue[symbol] || legacyPaperQuoteCatalogue[symbol]);
+}
 
 // Paper orders are calculated from this server-owned contract catalogue.  The
 // UI can preview the same values, but it cannot decide a contract size,
@@ -1757,13 +1891,12 @@ const paperContractSizes = {
   HOGS: 40_000, ORANGE: 15_000,
 };
 const paperLeverageOverrides = {
-  XAU: 20, XAG: 20, CL: 20, NG: 20, HG: 20, BRN: 20, HO: 20, RB: 20, LGO: 20, PL: 20, PA: 20,
-  SCCO: 10, CORN: 10, WHEAT: 10, COFFEE: 10, SUGAR: 10, COCOA: 10, COTTON: 10, OATS: 10, LUMBER: 10,
-  SOYBEAN: 10, SOYMEAL: 10, SOYOIL: 10, CATTLE: 10, HOGS: 10, ORANGE: 10,
+  XAU: 500, XAG: 500, CL: 500, NG: 500, HG: 500, BRN: 500, HO: 500, RB: 500, PL: 500, PA: 500,
+  SCCO: 100,
 };
-const paperCryptoSymbols = new Set(['BTC', 'ETH', 'SOL', 'XRP', 'LINK', 'AVAX', 'DOGE', 'ADA', 'LTC', 'BCH']);
-const paperForexSymbols = new Set(['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'NZDUSD', 'USDCHF', 'EURGBP', 'EURJPY', 'GBPJPY', 'EURCHF', 'USDCNH', 'USDSGD', 'USDHKD', 'USDTRY', 'USDZAR']);
-const paperForexLeverage = { USDCNH: 20, USDSGD: 20, USDHKD: 20, USDTRY: 10, USDZAR: 10 };
+const paperCryptoSymbols = new Set(['BTC', 'ETH', 'SOL', 'XRP', 'DOGE']);
+const paperForexSymbols = new Set(['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'EURJPY']);
+const paperIndexSymbols = new Set(['SPX', 'NAS100', 'DJ30', 'DAX', 'FTSE', 'NIKKEI', 'HSI']);
 const paperExecutionSpecs = {
   XAU: [0.30, 2], XAG: [0.035, 3], CL: [0.03, 3], NG: [0.006, 4], HG: [0.004, 4], SCCO: [0.04, 2],
   BRN: [0.03, 3], HO: [0.004, 4], RB: [0.004, 4], LGO: [0.80, 2], PL: [0.45, 2], PA: [0.65, 2],
@@ -1776,9 +1909,10 @@ const paperExecutionSpecs = {
 };
 
 function getPaperInstrumentSpec(symbol) {
-  if (paperCryptoSymbols.has(symbol)) return { contractSize: 1, defaultLeverage: 5, minimumLots: 0.01 };
-  if (paperForexSymbols.has(symbol)) return { contractSize: 100_000, defaultLeverage: paperForexLeverage[symbol] || 30, minimumLots: 0.01 };
-  return { contractSize: paperContractSizes[symbol] || 1, defaultLeverage: paperLeverageOverrides[symbol] || 10, minimumLots: 0.01 };
+  if (paperCryptoSymbols.has(symbol)) return { contractSize: 1, defaultLeverage: 100, minimumLots: 0.01 };
+  if (paperForexSymbols.has(symbol)) return { contractSize: 100_000, defaultLeverage: 500, minimumLots: 0.01 };
+  if (paperIndexSymbols.has(symbol)) return { contractSize: 1, defaultLeverage: 100, minimumLots: 0.01 };
+  return { contractSize: paperContractSizes[symbol] || 1, defaultLeverage: paperLeverageOverrides[symbol] || 100, minimumLots: 0.01 };
 }
 
 function roundPaperQuote(value, decimals) {
@@ -2026,9 +2160,13 @@ async function loadCoinbaseQuote(providerSymbol) {
   };
 }
 
-async function loadTradingViewSnapshot() {
+async function loadTradingViewSnapshot(symbols = Object.keys(marketQuoteCatalogue)) {
+  const requested = new Set(symbols);
   const groups = new Map();
-  Object.entries(tradingViewSymbols).forEach(([symbol, [market, ticker]]) => {
+  // Keep the two-second public snapshot intentionally focused on the active
+  // 30-instrument trading universe. This prevents background fan-out for
+  // instruments that are no longer exposed in the workspace.
+  Object.entries(tradingViewSymbols).filter(([symbol]) => requested.has(symbol)).forEach(([symbol, [market, ticker]]) => {
     const group = groups.get(market) || [];
     group.push({ symbol, ticker });
     groups.set(market, group);
@@ -2120,6 +2258,38 @@ async function loadYahooQuote(providerSymbol) {
   }
   yahooQuoteCache.set(providerSymbol, { expiresAt: Date.now() + yahooNegativeQuoteTtlMs, value: null });
   return null;
+}
+
+async function loadLegacyPaperQuote(symbol) {
+  const providerSymbol = legacyPaperQuoteCatalogue[symbol];
+  if (!providerSymbol) return null;
+  const cached = legacyPaperQuoteCache.get(symbol);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  let quote = getActiveMt5Quote(symbol);
+  if (!quote && tradingViewSymbols[symbol]) {
+    try {
+      quote = (await loadTradingViewSnapshot([symbol]))[symbol] || null;
+    } catch {
+      quote = null;
+    }
+  }
+  if (!quote && twelveDataApiKey) {
+    try { quote = await loadTwelveQuote(providerSymbol); } catch { quote = null; }
+  }
+  if (!quote) {
+    try { quote = await loadYahooQuote(providerSymbol); } catch { quote = null; }
+  }
+
+  // Do not settle an existing position from a fabricated fallback. When every
+  // upstream reference is unavailable, the position stays visible until a
+  // genuine quote can be obtained again.
+  if (!quote || quote.fallback) {
+    legacyPaperQuoteCache.set(symbol, { expiresAt: Date.now() + 15_000, value: null });
+    return null;
+  }
+  legacyPaperQuoteCache.set(symbol, { expiresAt: Date.now() + marketProxyTtlMs, value: quote });
+  return quote;
 }
 
 async function buildMarketQuoteSnapshot() {

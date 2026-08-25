@@ -146,12 +146,14 @@ export function MarketPage() {
   // being migrated. New positions always use the server-issued account id.
   const userPositions = positions.filter((position) => (position.userId === session?.id || position.userId === session?.email) && position.status !== 'closed');
   const quotePulse = useIndicativeQuotePulse(marketProducts.map((product) => product.symbol), fallbackPrices);
-  const priceFor = (assetSymbol: string, fallback: number) => {
+  const displayPriceFor = (assetSymbol: string, fallback: number) => {
     const product = getMarketProduct(assetSymbol);
-    return product.productId ? live.prices[assetSymbol] ?? fallback : quotePulse.prices[assetSymbol] ?? fallback;
+    return product.productId
+      ? live.prices[assetSymbol] ?? fallback
+      : quotePulse.displayPrices[assetSymbol] ?? quotePulse.prices[assetSymbol] ?? fallback;
   };
   const fallbackPrice = market.status === 'success' ? market.data.selected.price : 0;
-  const livePrice = priceFor(symbol, fallbackPrice);
+  const livePrice = displayPriceFor(symbol, fallbackPrice);
   const selectedUpdatedAt = getMarketProduct(symbol).productId && live.lastTickAt[symbol]
     ? new Date(live.lastTickAt[symbol]).toISOString()
     : quotePulse.quoteUpdatedAt[symbol]
@@ -160,8 +162,8 @@ export function MarketPage() {
   const selectedAsset = market.status === 'success' ? {
     ...market.data.selected,
     price: livePrice,
-    bid: quotePulse.bids[symbol] ?? market.data.selected.bid,
-    ask: quotePulse.asks[symbol] ?? market.data.selected.ask,
+    bid: quotePulse.displayBids[symbol] ?? quotePulse.bids[symbol] ?? market.data.selected.bid,
+    ask: quotePulse.displayAsks[symbol] ?? quotePulse.asks[symbol] ?? market.data.selected.ask,
     dataState: quotePulse.dataStates[symbol] ?? market.data.selected.dataState,
     updatedAt: selectedUpdatedAt,
   } : null;
@@ -181,7 +183,7 @@ export function MarketPage() {
     if (market.status !== 'success') return [];
     return market.data.assets.map((asset) => ({
       ...asset,
-      price: priceFor(asset.symbol, asset.price),
+      price: displayPriceFor(asset.symbol, asset.price),
       change24h: quotePulse.changes[asset.symbol] ?? asset.change24h,
       updatedAt: getMarketProduct(asset.symbol).productId && live.lastTickAt[asset.symbol]
         ? new Date(live.lastTickAt[asset.symbol]).toISOString()
@@ -189,7 +191,7 @@ export function MarketPage() {
           ? new Date(quotePulse.quoteUpdatedAt[asset.symbol]).toISOString()
           : asset.updatedAt,
     }));
-  }, [live.lastTickAt, live.prices, market, quotePulse.changes, quotePulse.prices, quotePulse.quoteUpdatedAt]);
+  }, [live.lastTickAt, live.prices, market, quotePulse.changes, quotePulse.displayPrices, quotePulse.prices, quotePulse.quoteUpdatedAt]);
   const filteredRows = useMemo(() => {
     if (assetClassFilter === 'All') return rows;
     return rows.filter((asset) => asset.assetClass === assetClassFilter);
@@ -209,10 +211,10 @@ export function MarketPage() {
   const maxLots = orderPreviewPrice && contractSize ? (availableMargin * leverage) / (orderPreviewPrice * contractSize) : 0;
   const canOpen = Boolean(session) && hasAssetMargin && margin > 0 && lots >= tradeSpec.minimumLots && contractSize > 0 && leverage > 0;
   const livePositions = userPositions.map((position) => {
-    const referencePrice = priceFor(position.symbol, position.markPrice);
+    const referencePrice = displayPriceFor(position.symbol, position.markPrice);
     const indicative = getExecutionQuote(position.symbol, referencePrice);
-    const bid = quotePulse.bids[position.symbol];
-    const ask = quotePulse.asks[position.symbol];
+    const bid = quotePulse.displayBids[position.symbol] ?? quotePulse.bids[position.symbol];
+    const ask = quotePulse.displayAsks[position.symbol] ?? quotePulse.asks[position.symbol];
     const quote = bid && ask && ask >= bid ? { ...indicative, bid, ask } : indicative;
     return { ...position, markPrice: position.side === 'long' ? quote.bid : quote.ask };
   });
@@ -561,7 +563,7 @@ export function MarketPage() {
             </label>
             <label className="field">
               <span>{t('market.leverage')}</span>
-              <input type="number" min="1" max="50" step="1" value={leverage} onChange={(event) => setLeverage(Number(event.target.value))} />
+              <input type="number" value={leverage} readOnly aria-readonly="true" title="Server-owned paper risk profile" />
             </label>
             <label className="field">
               <span>{t('market.maxLots')}</span>
@@ -611,8 +613,9 @@ export function MarketPage() {
           </div>
           {livePositions.length ? (
             <div className="position-console">
-              <div className="stack-list">
-                {livePositions.map((position) => {
+              <div className="position-list-scroll" tabIndex={0} aria-label={t('market.positions')}>
+                <div className="stack-list position-list-scroll__inner">
+                  {livePositions.map((position) => {
                   const pnl = computePnl(position, position.markPrice);
                   const remaining = position.remainingLots ?? position.lots;
                   return (
@@ -650,7 +653,8 @@ export function MarketPage() {
                       </div>
                     </div>
                   );
-                })}
+                  })}
+                </div>
               </div>
 
               {selectedPosition ? (

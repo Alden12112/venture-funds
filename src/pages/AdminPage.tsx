@@ -125,6 +125,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     if (action === 'close') return t('ledger.close');
     if (action === 'partial-close') return t('ledger.partialClose');
     if (action === 'risk-update') return t('ledger.riskUpdate');
+    if (action === 'liquidation') return t('ledger.liquidation');
     return action;
   };
   const sideLabel = (side: string) => side === 'long' ? t('market.long') : t('market.short');
@@ -691,7 +692,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                      <strong>{item.userName ?? item.userEmail ?? item.userId} / {item.symbol} {sideLabel(item.side)}</strong>
                      <span>{tradeActionLabel(item.action)} · {item.lots} {t('ledger.lots')} · {formatCurrency(item.price)}</span>
                   </div>
-                   <div className="stack-list__meta"><StatusPill tone={item.action === 'open' ? 'success' : item.action === 'risk-update' ? 'info' : 'warning'}>{tradeActionLabel(item.action)}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div>
+                   <div className="stack-list__meta"><StatusPill tone={item.action === 'open' ? 'success' : item.action === 'risk-update' ? 'info' : item.action === 'liquidation' ? 'critical' : 'warning'}>{tradeActionLabel(item.action)}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div>
                 </div>
                )) : <div className="state-block"><strong>{t('admin.noCrossDeviceTradeEvents')}</strong><p>{t('admin.noCrossDeviceTradeEventsHint')}</p></div>}
             </div>

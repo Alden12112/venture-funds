@@ -111,7 +111,7 @@ export function DashboardPage() {
 
       <section className="metric-grid metric-grid--command">
          <StatCard label={t('dashboard.accountValue')} value={formatCurrency(totalAssets)} note={totalAssets ? t('dashboard.paperBalance') : t('dashboard.noFundedBalance')} />
-         <StatCard label={t('dashboard.buyingPower')} value={formatCurrency(availableMargin)} note={t('dashboard.availablePaperMargin')} />
+         <StatCard label={t('dashboard.buyingPower')} value={formatCurrency(availableMargin)} />
          <StatCard label={t('dashboard.reviewQueue')} value={String(pendingLedger + recentCreditRequests.filter((item) => item.status === 'pending').length)} note={t('dashboard.reviewQueueHint')} />
          <StatCard label={t('dashboard.attentionRequired')} value={String(unread)} note={unread ? t('dashboard.unreadAlerts') : t('dashboard.noUnreadAlerts')} />
       </section>

@@ -310,7 +310,7 @@ export interface ShellLink {
 
 export type TradeSide = 'long' | 'short';
 
-export type TradeAuditAction = 'open' | 'close' | 'partial-close' | 'risk-update';
+export type TradeAuditAction = 'open' | 'close' | 'partial-close' | 'risk-update' | 'liquidation';
 
 export interface TradeAuditEvent {
   id: string;
