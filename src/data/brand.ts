@@ -21,13 +21,13 @@ export const shellLinks: ShellLink[] = [
 
 export const brandMarkers = [
   {
-    title: 'Market intelligence',
-    text: 'Prices, risk budget and positions in one disciplined view.',
+    title: 'landing.markerIntelligence',
+    text: 'landing.markerIntelligenceText',
     icon: Landmark,
   },
   {
-    title: 'Data integrity',
-    text: 'Market and research signals are normalized into one stable operating layer.',
+    title: 'landing.markerIntegrity',
+    text: 'landing.markerIntegrityText',
     icon: BriefcaseBusiness,
   },
 ];

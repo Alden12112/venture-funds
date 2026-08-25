@@ -70,8 +70,8 @@ export function LandingPage() {
               return (
                 <article key={item.title} className="marker-block">
                   <Icon size={18} />
-                  <strong>{item.title}</strong>
-                  <p>{item.text}</p>
+                  <strong>{t(item.title)}</strong>
+                  <p>{t(item.text)}</p>
                 </article>
               );
             })}
