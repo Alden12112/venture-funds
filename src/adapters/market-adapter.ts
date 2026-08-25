@@ -161,11 +161,12 @@ function fallbackPrice(symbol: string) {
     HO: { price: 2.36, change: 0.48, volume: 8.8e8 }, RB: { price: 2.19, change: -0.37, volume: 7.4e8 }, LGO: { price: 1281.25, change: -2.33, volume: 6.5e8 },
     PL: { price: 982.4, change: 0.21, volume: 1.4e9 }, PA: { price: 1028.5, change: -0.38, volume: 5.7e8 }, CORN: { price: 432.25, change: 0.15, volume: 1.2e9 },
     WHEAT: { price: 548.5, change: -0.27, volume: 1.1e9 }, COFFEE: { price: 312.8, change: 0.74, volume: 8.1e8 },
-    EURUSD: { price: 1.0912, change: -0.12, volume: 3.2e10 }, GBPUSD: { price: 1.2748, change: 0.21, volume: 2.1e10 },
+    SUGAR: { price: 18.72, change: 0.36, volume: 4.4e8 }, COCOA: { price: 8275, change: -0.58, volume: 3.1e8 }, COTTON: { price: 68.4, change: 0.21, volume: 2.7e8 }, OATS: { price: 384.5, change: -0.14, volume: 1.8e8 }, LUMBER: { price: 612.2, change: 0.44, volume: 1.2e8 },
+    EURUSD: { price: 1.0912, change: -0.12, volume: 3.2e10 }, GBPUSD: { price: 1.2748, change: 0.21, volume: 2.1e10 }, NZDUSD: { price: 0.5984, change: -0.16, volume: 8.4e9 }, USDCHF: { price: 0.8842, change: 0.08, volume: 1.1e10 }, EURGBP: { price: 0.8567, change: 0.05, volume: 9.2e9 },
     USDJPY: { price: 156.42, change: 0.09, volume: 2.7e10 }, AUDUSD: { price: 0.6543, change: -0.08, volume: 1.4e10 }, USDCAD: { price: 1.3714, change: 0.04, volume: 1.6e10 },
-    SPX: { price: 5615.2, change: 0.34, volume: 4.9e10 }, NAS100: { price: 19842.1, change: 0.48, volume: 3.2e10 }, DAX: { price: 18422.6, change: 0.26, volume: 1.9e10 },
+    SPX: { price: 5615.2, change: 0.34, volume: 4.9e10 }, NAS100: { price: 19842.1, change: 0.48, volume: 3.2e10 }, DAX: { price: 18422.6, change: 0.26, volume: 1.9e10 }, FTSE: { price: 8320.5, change: 0.31, volume: 1.4e10 }, CAC: { price: 7548.3, change: 0.18, volume: 1.2e10 }, NIKKEI: { price: 39110, change: 0.44, volume: 2.2e10 }, HSI: { price: 17840, change: -0.22, volume: 1.8e10 },
     BTC: { price: 76000, change: 0.4, volume: 3.2e10 }, ETH: { price: 2400, change: 0.2, volume: 1.8e10 }, SOL: { price: 93, change: 0.1, volume: 1.2e10 },
-    XRP: { price: 1.47, change: 0.1, volume: 4.3e9 }, LINK: { price: 11.3, change: 0.1, volume: 2.2e8 }, AVAX: { price: 7.4, change: 0.1, volume: 7.2e7 },
+    XRP: { price: 1.47, change: 0.1, volume: 4.3e9 }, LINK: { price: 11.3, change: 0.1, volume: 2.2e8 }, AVAX: { price: 7.4, change: 0.1, volume: 7.2e7 }, DOGE: { price: 0.17, change: 0.1, volume: 2.8e9 }, ADA: { price: 0.62, change: 0.1, volume: 1.1e9 }, LTC: { price: 84, change: 0.1, volume: 5.6e8 }, BCH: { price: 390, change: 0.1, volume: 2.3e8 },
   };
   return values[symbol] ?? { price: 100, change: 0, volume: 1000000 };
 }

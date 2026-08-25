@@ -71,6 +71,7 @@ export function AppShell() {
         key={link.to}
         to={link.to}
         className={({ isActive }) => `nav-chip ${isActive ? 'nav-chip--active' : ''}`}
+        onClick={() => setMobileMoreOpen(false)}
       >
         <Icon size={17} aria-hidden="true" />
         <span>{t(navKeyByPath[link.to] ?? 'nav.dashboard')}</span>
@@ -88,10 +89,12 @@ export function AppShell() {
         className={`nav-chip ${active ? 'nav-chip--active' : ''}`}
         onClick={() => {
           setMobileMoreOpen(false);
-          // Keep navigation inside the protected router. A full document
-          // reload here could race the session restore while MarketPage is
-          // streaming quotes, leaving the user stuck on the trade route.
+          // Keep all workspace changes inside the authenticated React router.
+          // A browser-level navigation can race the session restore while the
+          // Trade page owns a long-lived quote stream, leaving the old surface
+          // visible even though the visitor selected a different workspace.
           navigate(link.to);
+          window.scrollTo({ top: 0, behavior: 'auto' });
         }}
       >
         <Icon size={17} aria-hidden="true" />

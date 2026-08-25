@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, ChevronDown, ChevronUp, Crosshair, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2 } from 'lucide-react';
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, CheckCircle2, ChevronDown, ChevronUp, Crosshair, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2, XCircle } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { CandleChart, DepthChart } from '@/components/Charts';
 import type { ChartDrawing } from '@/components/Charts';
@@ -64,6 +64,8 @@ export function MarketPage() {
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
   const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(null);
   const [positionsHydratedFor, setPositionsHydratedFor] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<{ tone: 'success' | 'warning' | 'error'; message: string } | null>(null);
   const market = useAsyncResource(() => loadMarketBundle(symbol, timeframe), [symbol, timeframe, refreshKey]);
 
   // Command Center market links carry a normalized symbol. Respect it once it
@@ -109,7 +111,9 @@ export function MarketPage() {
     setPositionsHydratedFor(null);
     void apiFetch<{ paperPositions?: PaperPosition[] }>('/api/sync').then((remoteState) => {
       if (!active) return;
-      setPositions(Array.isArray(remoteState.paperPositions) ? remoteState.paperPositions : []);
+      const remotePositions = Array.isArray(remoteState.paperPositions) ? remoteState.paperPositions : [];
+      setPositions(remotePositions);
+      writeStorage('paperPositions', remotePositions, { sync: false });
       setPositionsHydratedFor(session.id);
     }).catch(() => {
       // Keep the local paper workspace usable if the API is temporarily
@@ -119,10 +123,6 @@ export function MarketPage() {
     });
     return () => { active = false; };
   }, [session?.id]);
-
-  useEffect(() => {
-    if (session?.id && positionsHydratedFor === session.id) writeStorage('paperPositions', positions);
-  }, [positions, positionsHydratedFor, session?.id]);
 
   useEffect(() => {
     if (!session) {
@@ -257,6 +257,19 @@ export function MarketPage() {
     void apiFetch('/api/trades', { method: 'POST', body: JSON.stringify(event) }).catch(() => undefined);
   };
 
+  const announceAction = (tone: 'success' | 'warning' | 'error', message: string) => {
+    setActionFeedback({ tone, message });
+  };
+
+  const syncPositions = async (nextPositions: PaperPosition[]) => {
+    writeStorage('paperPositions', nextPositions, { sync: false });
+    if (!session || positionsHydratedFor !== session.id) return;
+    await apiFetch('/api/sync', {
+      method: 'PUT',
+      body: JSON.stringify({ key: 'paperPositions', value: nextPositions }),
+    });
+  };
+
   const reserveMargin = (amount: number) => {
     if (!session) return false;
     const accounts = readCreditAccounts();
@@ -269,20 +282,24 @@ export function MarketPage() {
     return true;
   };
 
-  const settlePaperTrade = (amount: number, pnl = 0) => {
-    if (!session || amount <= 0) return;
+  const settlePaperTrade = async (amount: number, pnl = 0) => {
+    if (!session || amount <= 0) return null;
     const accounts = readCreditAccounts();
     const current = accounts.find((item) => item.userId === session.id || item.email.toLowerCase() === session.email.toLowerCase());
-    if (!current) return;
-    const next = {
-      ...current,
-      balance: Number((current.balance + pnl).toFixed(2)),
-      available: Number((current.available + amount + pnl).toFixed(2)),
-      updatedAt: new Date().toISOString(),
-    };
-    writeCreditAccounts(accounts.map((item) => item.userId === current.userId ? next : item));
-    setCreditAccount(next);
-    void settleRemoteMargin(amount, pnl).then((remote) => { if (remote) setCreditAccount(remote); });
+    if (current) {
+      const next = {
+        ...current,
+        balance: Number((current.balance + pnl).toFixed(2)),
+        available: Number((current.available + amount + pnl).toFixed(2)),
+        updatedAt: new Date().toISOString(),
+      };
+      writeCreditAccounts(accounts.map((item) => item.userId === current.userId ? next : item));
+      setCreditAccount(next);
+    }
+    return settleRemoteMargin(amount, pnl).then((remote) => {
+      if (remote) setCreditAccount(remote);
+      return remote;
+    });
   };
 
   const openPosition = (orderSide: TradeSide = side, orderPrice = orderPreviewPrice) => {
@@ -310,9 +327,12 @@ export function MarketPage() {
       closedLots: 0,
       status: 'open',
     };
-    setPositions((current) => [next, ...current]);
+    const nextPositions = [next, ...positions];
+    setPositions(nextPositions);
+    void syncPositions(nextPositions).catch(() => announceAction('warning', t('market.positionSyncWarning')));
     setSelectedPositionId(next.id);
     auditTrade({ positionId, symbol, side: orderSide, action: 'open', lots, price: orderPrice, contractSize, leverage, margin: orderMargin });
+    announceAction('success', t('market.openSuccess'));
   };
 
   useEffect(() => {
@@ -320,64 +340,99 @@ export function MarketPage() {
     setChartTool('cursor');
   }, [symbol]);
 
-  const closePosition = (id: string) => {
-    const position = userPositions.find((item) => item.id === id);
-    if (position) {
-      const closeLots = position.remainingLots ?? position.lots;
-      const pnl = computePnl(position, position.markPrice, closeLots);
-      settlePaperTrade(position.margin * (closeLots / position.lots), pnl);
-      auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin, pnl });
+  const closePosition = async (id: string) => {
+    if (busyAction) return;
+    const position = livePositions.find((item) => item.id === id);
+    if (!position) {
+      announceAction('error', t('market.positionActionUnavailable'));
+      return;
     }
-    setPositions((current) =>
-      current.map((position) =>
-        position.id === id
-          ? { ...position, remainingLots: 0, closedLots: position.lots, status: 'closed', closedAt: new Date().toISOString() }
-          : position,
-      ),
-    );
+    const closeLots = position.remainingLots ?? position.lots;
+    const pnl = computePnl(position, position.markPrice, closeLots);
+    const releasedMargin = position.margin * (closeLots / position.lots);
+    const nextPositions = positions.map((item) => item.id === id
+      ? { ...item, remainingLots: 0, closedLots: item.lots, status: 'closed' as const, closedAt: new Date().toISOString() }
+      : item);
+    setBusyAction(`close:${id}`);
+    setPositions(nextPositions);
+    auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: 'close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: releasedMargin, pnl });
+    try {
+      await Promise.all([syncPositions(nextPositions), settlePaperTrade(releasedMargin, pnl)]);
+      announceAction('success', t('market.closeSuccess'));
+    } catch {
+      announceAction('warning', t('market.positionSyncWarning'));
+    } finally {
+      setBusyAction(null);
+    }
   };
 
-  const closeAllPositions = () => {
-    userPositions.forEach((position) => {
+  const closeAllPositions = async () => {
+    if (busyAction || !livePositions.length) return;
+    const now = new Date().toISOString();
+    const totals = livePositions.reduce((result, position) => {
+      const closeLots = position.remainingLots ?? position.lots;
+      return {
+        margin: result.margin + position.margin * (closeLots / position.lots),
+        pnl: result.pnl + computePnl(position, position.markPrice, closeLots),
+      };
+    }, { margin: 0, pnl: 0 });
+    const ids = new Set(livePositions.map((position) => position.id));
+    const nextPositions = positions.map((item) => ids.has(item.id)
+      ? { ...item, remainingLots: 0, closedLots: item.lots, status: 'closed' as const, closedAt: now }
+      : item);
+    setBusyAction('close-all');
+    setPositions(nextPositions);
+    livePositions.forEach((position) => {
       const closeLots = position.remainingLots ?? position.lots;
       const pnl = computePnl(position, position.markPrice, closeLots);
-      settlePaperTrade(position.margin * (closeLots / position.lots), pnl);
-      auditTrade({ positionId: position.id, symbol: position.symbol, side: position.side, action: 'close', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin, pnl });
+      auditTrade({ positionId: position.id, symbol: position.symbol, side: position.side, action: 'close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin * (closeLots / position.lots), pnl });
     });
-    setPositions((current) =>
-      current.map((position) =>
-        userPositions.some((item) => item.id === position.id)
-          ? { ...position, remainingLots: 0, closedLots: position.lots, status: 'closed', closedAt: new Date().toISOString() }
-          : position,
-      ),
-    );
-    setSelectedPositionId('');
+    try {
+      await Promise.all([syncPositions(nextPositions), settlePaperTrade(totals.margin, totals.pnl)]);
+      setSelectedPositionId('');
+      announceAction('success', t('market.closeAllSuccess'));
+    } catch {
+      announceAction('warning', t('market.positionSyncWarning'));
+    } finally {
+      setBusyAction(null);
+    }
   };
 
-  const closePartialPosition = (id: string) => {
-    const position = userPositions.find((item) => item.id === id);
-    if (!position) return;
+  const closePartialPosition = async (id: string) => {
+    if (busyAction) return;
+    const position = livePositions.find((item) => item.id === id);
+    if (!position) {
+      announceAction('error', t('market.positionActionUnavailable'));
+      return;
+    }
     const remaining = position.remainingLots ?? position.lots;
-    const closeLots = Math.min(Math.max(partialLots, 0.01), remaining);
+    const closeLots = Math.min(Math.max(Number(partialLots) || 0.01, 0.01), remaining);
     const pnl = computePnl(position, position.markPrice, closeLots);
-    settlePaperTrade(position.margin * (closeLots / position.lots), pnl);
-    auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: closeLots >= remaining ? 'close' : 'partial-close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin, pnl });
-    setPositions((current) =>
-      current.map((position) => {
-        if (position.id !== id) return position;
-        const currentRemaining = position.remainingLots ?? position.lots;
-        const currentCloseLots = Math.min(Math.max(partialLots, 0.01), currentRemaining);
-        const nextRemaining = Math.max(0, Number((currentRemaining - currentCloseLots).toFixed(2)));
-        const nextClosed = Number(((position.closedLots ?? 0) + currentCloseLots).toFixed(2));
-        return {
-          ...position,
-          remainingLots: nextRemaining,
-          closedLots: nextClosed,
-          status: nextRemaining > 0 ? 'partial' : 'closed',
-          closedAt: nextRemaining > 0 ? position.closedAt : new Date().toISOString(),
-        };
-      }),
-    );
+    const releasedMargin = position.margin * (closeLots / position.lots);
+    const nextPositions = positions.map((item) => {
+      if (item.id !== id) return item;
+      const currentRemaining = item.remainingLots ?? item.lots;
+      const nextRemaining = Math.max(0, Number((currentRemaining - closeLots).toFixed(2)));
+      const nextClosed = Number(((item.closedLots ?? 0) + closeLots).toFixed(2));
+      return {
+        ...item,
+        remainingLots: nextRemaining,
+        closedLots: nextClosed,
+        status: nextRemaining > 0 ? 'partial' as const : 'closed' as const,
+        closedAt: nextRemaining > 0 ? item.closedAt : new Date().toISOString(),
+      };
+    });
+    setBusyAction(`partial:${id}`);
+    setPositions(nextPositions);
+    auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: closeLots >= remaining ? 'close' : 'partial-close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: releasedMargin, pnl });
+    try {
+      await Promise.all([syncPositions(nextPositions), settlePaperTrade(releasedMargin, pnl)]);
+      announceAction(closeLots >= remaining ? 'success' : 'success', closeLots >= remaining ? t('market.closeSuccess') : t('market.partialCloseSuccess'));
+    } catch {
+      announceAction('warning', t('market.positionSyncWarning'));
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   const saveRiskSettings = (id: string) => {
@@ -385,17 +440,17 @@ export function MarketPage() {
     if (position) {
       auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: 'risk-update', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
     }
-    setPositions((current) =>
-      current.map((position) =>
-        position.id === id
-          ? {
-              ...position,
-              stopLoss: editStopLoss ? Number(editStopLoss) : undefined,
-              takeProfit: editTakeProfit ? Number(editTakeProfit) : undefined,
-            }
-          : position,
-      ),
-    );
+    const nextPositions = positions.map((item) => item.id === id
+      ? {
+          ...item,
+          stopLoss: editStopLoss ? Number(editStopLoss) : undefined,
+          takeProfit: editTakeProfit ? Number(editTakeProfit) : undefined,
+        }
+      : item);
+    setPositions(nextPositions);
+    void syncPositions(nextPositions)
+      .then(() => announceAction('success', t('market.riskSaved')))
+      .catch(() => announceAction('warning', t('market.positionSyncWarning')));
   };
 
   if (market.status === 'loading') {
@@ -410,6 +465,8 @@ export function MarketPage() {
   const selectedFeedState = selectedAsset?.dataState ?? (selectedIsCrypto && live.lastTickAt[symbol] ? 'live' : quotePulse.dataStates[symbol] ?? (quotePulse.status === 'stale' ? 'fallback' : 'live'));
   const liveTone = selectedFeedState === 'broker' || selectedFeedState === 'live' ? 'success' : selectedFeedState === 'fallback' ? 'warning' : 'info';
   const liveLabel = selectedFeedState === 'broker' ? t('market.feedBroker') : selectedFeedState === 'cached' ? t('market.feedCache') : selectedFeedState === 'fallback' ? t('market.feedFallback') : t('market.feedLive');
+  const selectedDirection = quotePulse.directions[symbol] ?? 'flat';
+  const lastQuoteCheck = quotePulse.lastCheckedAt[symbol];
   return (
     <div className="page-stack">
       <PageHeader
@@ -430,6 +487,13 @@ export function MarketPage() {
         <DataMeta source={{ ...market.data.source, dataState: selectedFeedState, updatedAt: selectedUpdatedAt }} />
         <span className={`market-integrity-rail__stream market-integrity-rail__stream--${quotePulse.streamStatus === 'open' ? 'healthy' : 'monitoring'}`}>{quotePulse.streamStatus === 'open' ? t('market.streamConnected') : t('market.streamMonitoring')}</span>
       </section>
+
+      {actionFeedback ? (
+        <div className={`notice-banner notice-banner--${actionFeedback.tone}`} role="status" aria-live="polite">
+          {actionFeedback.tone === 'success' ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+          <span>{actionFeedback.message}</span>
+        </div>
+      ) : null}
 
       <section className="metric-grid metric-grid--compact">
         <StatCard label={`${selectedAsset?.symbol ?? 'BTC'} ${t('market.price')}`} value={formatCurrency(livePrice)} delta={formatPercent(selectedChange)} />
@@ -516,7 +580,7 @@ export function MarketPage() {
             </div>
             <StatusPill tone={selectedChange >= 0 ? 'success' : 'critical'}>{formatPercent(selectedChange)}</StatusPill>
           </div>
-          <div className="instrument-banner">
+          <div key={`${symbol}-${lastQuoteCheck ?? selectedUpdatedAt}`} className={`instrument-banner instrument-banner--${selectedDirection}`} data-quote-cycle={lastQuoteCheck ?? selectedUpdatedAt}>
             <AssetLogo symbol={selectedAsset?.symbol ?? symbol} size="lg" />
             <div className="instrument-banner__copy">
               <span className="eyebrow">{t('market.selectedInstrument')}</span>
@@ -545,7 +609,7 @@ export function MarketPage() {
           </div>
           <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={livePrice} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           <div className="execution-bar">
-            <button type="button" className="execution-quote execution-quote--sell" onClick={() => openPosition('short', sellPrice)} disabled={!canOpen}>
+            <button type="button" className="execution-quote execution-quote--sell" onClick={() => openPosition('short', sellPrice)} disabled={!canOpen || Boolean(busyAction)}>
               <span>{t('market.sellBid')}</span><strong>{formatNumber(sellPrice)}</strong><small>{t('market.openShort')}</small>
             </button>
             <div className="execution-bar__middle">
@@ -553,7 +617,7 @@ export function MarketPage() {
               <strong>{formatNumber(livePrice)}</strong>
               <label><span>{t('market.orderLots')}</span><input type="number" min={tradeSpec.minimumLots} step="0.01" value={lotsInput} onChange={(event) => updateLots(event.target.value)} onBlur={() => { if (!Number.isFinite(Number(lotsInput)) || Number(lotsInput) < tradeSpec.minimumLots) { setLots(tradeSpec.minimumLots); setLotsInput(String(tradeSpec.minimumLots)); } }} /></label>
             </div>
-            <button type="button" className="execution-quote execution-quote--buy" onClick={() => openPosition('long', buyPrice)} disabled={!canOpen}>
+            <button type="button" className="execution-quote execution-quote--buy" onClick={() => openPosition('long', buyPrice)} disabled={!canOpen || Boolean(busyAction)}>
               <span>{t('market.buyAsk')}</span><strong>{formatNumber(buyPrice)}</strong><small>{t('market.openLong')}</small>
             </button>
           </div>
@@ -615,7 +679,7 @@ export function MarketPage() {
             <div><span>{t('market.pnlPerMove')}</span><strong>{formatCurrency(pnlForOneQuoteMove)}</strong><small>{t('market.pnlPerMoveHint')}</small></div>
           </div>
 
-          <button type="button" className="btn btn--primary btn--block" onClick={() => openPosition()} disabled={!canOpen}>
+          <button type="button" className="btn btn--primary btn--block" onClick={() => openPosition()} disabled={!canOpen || Boolean(busyAction)} aria-busy={Boolean(busyAction)}>
             {t('market.placeSandboxOrder')}
           </button>
           <div className="risk-note">
@@ -633,9 +697,9 @@ export function MarketPage() {
             <div className="panel__actions">
               <StatusPill tone={totalPnl >= 0 ? 'success' : 'critical'}>{formatCurrency(totalPnl)}</StatusPill>
               {livePositions.length ? (
-                  <button type="button" className="btn btn--danger btn--sm" onClick={closeAllPositions}>
+                  <button type="button" className="btn btn--danger btn--sm" onClick={() => void closeAllPositions()} disabled={Boolean(busyAction)} aria-busy={busyAction === 'close-all'}>
                   <Ban size={14} />
-                  {t('market.closeAll')}
+                  {busyAction === 'close-all' ? t('market.closing') : t('market.closeAll')}
                 </button>
               ) : null}
             </div>
@@ -649,36 +713,34 @@ export function MarketPage() {
                   return (
                     <div
                       key={position.id}
-                      className={`position-row position-row--button ${selectedPosition?.id === position.id ? 'is-selected' : ''}`}
-                      onClick={() => setSelectedPositionId(position.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') setSelectedPositionId(position.id);
-                      }}
-                      role="button"
-                      tabIndex={0}
-                      aria-pressed={selectedPosition?.id === position.id}
+                      className={`position-row ${selectedPosition?.id === position.id ? 'is-selected' : ''}`}
                     >
-                      <div>
+                      <button
+                        type="button"
+                        className="position-row__select"
+                        onClick={() => setSelectedPositionId(position.id)}
+                        aria-pressed={selectedPosition?.id === position.id}
+                        aria-label={`${position.symbol} ${position.side === 'long' ? t('market.long') : t('market.short')} ${t('market.positionControls')}`}
+                      >
                         <strong>
                           <AssetLogo symbol={position.symbol} size="sm" />
                           {position.symbol}
-                <span className={`side-badge side-badge--${position.side}`}>{position.side === 'long' ? t('market.long') : t('market.short')}</span>
+                          <span className={`side-badge side-badge--${position.side}`}>{position.side === 'long' ? t('market.long') : t('market.short')}</span>
                         </strong>
                         <span>{t('market.entry')} {formatCurrency(position.entryPrice)} / {t('market.exitReference')} {formatCurrency(position.markPrice)}</span>
                         <span>{t('market.openLots')} {remaining.toFixed(2)} / {t('market.closedLots')} {Number(position.closedLots ?? 0).toFixed(2)} {t('market.lots')}</span>
-                      </div>
+                      </button>
                       <div className="position-row__meta">
                         <StatusPill tone={pnl >= 0 ? 'success' : 'critical'}>{formatCurrency(pnl)}</StatusPill>
                         <span>{formatDateTime(position.openedAt)}</span>
                         <button
                           type="button"
                           className="btn btn--danger btn--sm"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            closePosition(position.id);
-                          }}
+                          onClick={() => void closePosition(position.id)}
+                          disabled={Boolean(busyAction)}
+                          aria-busy={busyAction === `close:${position.id}`}
                         >
-                           {t('market.closePosition')}
+                           {busyAction === `close:${position.id}` ? t('market.closing') : t('market.closePosition')}
                         </button>
                       </div>
                     </div>
@@ -726,12 +788,12 @@ export function MarketPage() {
                     <button type="button" className="btn btn--ghost" onClick={() => saveRiskSettings(selectedPosition.id)}>
                        {t('market.saveRisk')}
                     </button>
-                    <button type="button" className="btn btn--danger" onClick={() => closePartialPosition(selectedPosition.id)}>
-                       {t('market.closePartial')} {partialLots.toFixed(2)}
+                    <button type="button" className="btn btn--danger" onClick={() => void closePartialPosition(selectedPosition.id)} disabled={Boolean(busyAction)} aria-busy={busyAction === `partial:${selectedPosition.id}`}>
+                       {busyAction === `partial:${selectedPosition.id}` ? t('market.closing') : `${t('market.closePartial')} ${Number(partialLots || 0).toFixed(2)}`}
                     </button>
-                    <button type="button" className="btn btn--danger" onClick={() => closePosition(selectedPosition.id)}>
+                    <button type="button" className="btn btn--danger" onClick={() => void closePosition(selectedPosition.id)} disabled={Boolean(busyAction)} aria-busy={busyAction === `close:${selectedPosition.id}`}>
                       <Trash2 size={16} />
-                       {t('market.closeFull')}
+                       {busyAction === `close:${selectedPosition.id}` ? t('market.closing') : t('market.closeFull')}
                     </button>
                   </div>
                 </div>

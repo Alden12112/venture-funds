@@ -135,6 +135,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
   const [dataStates, setDataStates] = useState<Record<string, MarketDataState>>({});
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('idle');
   const pricesRef = useRef<PriceMap>(fallbackPrices);
+  const directionsRef = useRef<DirectionMap>({});
   const inFlight = useRef(false);
   const symbolsKey = useMemo(
     () => [...new Set(symbols.map((symbol) => symbol.toUpperCase()))].sort().join(','),
@@ -172,13 +173,14 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
           .filter((quote) => Number.isFinite(quote.price) && quote.price > 0);
         if (!fresh.length) return;
         const nextPrices = { ...pricesRef.current };
-        const nextDirections = { ...directions };
+        const nextDirections = { ...directionsRef.current };
         fresh.forEach((quote) => {
           const previous = pricesRef.current[quote.symbol];
           nextDirections[quote.symbol] = previous == null ? 'flat' : quote.price > previous ? 'up' : quote.price < previous ? 'down' : 'flat';
           nextPrices[quote.symbol] = quote.price;
         });
         pricesRef.current = nextPrices;
+        directionsRef.current = nextDirections;
         setPrices(nextPrices);
         setDirections(nextDirections);
         setBids((current) => ({ ...current, ...Object.fromEntries(fresh.filter((quote) => Number.isFinite(quote.bid) && quote.bid > 0).map((quote) => [quote.symbol, quote.bid])) }));
@@ -242,13 +244,14 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
         .filter((quote) => Number.isFinite(quote.price) && quote.price > 0);
       if (fresh.length) {
         const nextPrices = { ...pricesRef.current };
-        const nextDirections = { ...directions };
+        const nextDirections = { ...directionsRef.current };
         fresh.forEach((quote) => {
           const previous = pricesRef.current[quote.symbol];
           nextDirections[quote.symbol] = previous == null ? 'flat' : quote.price > previous ? 'up' : quote.price < previous ? 'down' : 'flat';
           nextPrices[quote.symbol] = quote.price;
         });
         pricesRef.current = nextPrices;
+        directionsRef.current = nextDirections;
         setPrices(nextPrices);
         setDirections(nextDirections);
         setBids((current) => ({ ...current, ...Object.fromEntries(fresh.filter((quote) => Number.isFinite(quote.bid) && quote.bid > 0).map((quote) => [quote.symbol, quote.bid])) }));

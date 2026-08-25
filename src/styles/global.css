@@ -1201,6 +1201,21 @@ table {
 .asset-logo--corn { background: linear-gradient(135deg, #dda943, #9a6b19); }
 .asset-logo--wheat { background: linear-gradient(135deg, #e2c36a, #a78327); }
 .asset-logo--coffee { background: linear-gradient(135deg, #a86c4c, #64392f); }
+.asset-logo--doge { background: linear-gradient(135deg, #d6b84a, #9a741f); }
+.asset-logo--cardano { background: linear-gradient(135deg, #4d9bc2, #285b83); }
+.asset-logo--litecoin { background: linear-gradient(135deg, #aab8c4, #65798c); }
+.asset-logo--bitcoin-cash { background: linear-gradient(135deg, #72c979, #2f8549); }
+.asset-logo--sugar { background: linear-gradient(135deg, #e0b46a, #9b6737); }
+.asset-logo--cocoa { background: linear-gradient(135deg, #98634f, #56352f); }
+.asset-logo--cotton { background: linear-gradient(135deg, #d8d8d2, #7b8790); }
+.asset-logo--oats { background: linear-gradient(135deg, #c6a56b, #85603b); }
+.asset-logo--lumber { background: linear-gradient(135deg, #b57950, #70442e); }
+.asset-logo--soybean { background: linear-gradient(135deg, #bb9b59, #756034); }
+.asset-logo--soymeal { background: linear-gradient(135deg, #a3784e, #614531); }
+.asset-logo--soyoil { background: linear-gradient(135deg, #d4a94f, #95621a); }
+.asset-logo--cattle { background: linear-gradient(135deg, #9b5f4f, #61382f); }
+.asset-logo--hogs { background: linear-gradient(135deg, #bd766e, #834849); }
+.asset-logo--orange { background: linear-gradient(135deg, #e49438, #b85320); }
 .asset-logo--forex { background: linear-gradient(135deg, #4d83a2, #2e5a79); }
 .asset-logo--index { background: linear-gradient(135deg, #80649a, #4f3d70); }
 
@@ -1407,6 +1422,11 @@ table {
   color: var(--critical);
 }
 
+.notice-banner--warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
 .ready-accounts {
   display: grid;
   gap: 8px;
@@ -1455,6 +1475,8 @@ table {
 .app-shell__sidebar {
   position: sticky;
   top: 72px;
+  z-index: 12;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 72px);
@@ -1512,6 +1534,8 @@ table {
 }
 
 .app-shell__main {
+  position: relative;
+  z-index: 0;
   min-width: 0;
 }
 
@@ -1791,6 +1815,36 @@ table {
 .instrument-banner__quote strong {
   font-size: 22px;
   font-variant-numeric: tabular-nums;
+}
+
+@keyframes quotePulseUp {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 26%, transparent); }
+  100% { box-shadow: 0 0 0 12px transparent; }
+}
+
+@keyframes quotePulseDown {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--critical) 22%, transparent); }
+  100% { box-shadow: 0 0 0 12px transparent; }
+}
+
+.instrument-banner--up { animation: quotePulseUp 720ms ease-out; }
+.instrument-banner--down { animation: quotePulseDown 720ms ease-out; }
+
+/* A quiet heartbeat acknowledges each verified snapshot even when the market
+   price itself has not changed. It communicates an active feed without
+   inventing price movement on a quiet or closed instrument. */
+@keyframes quoteHeartbeat {
+  0% { border-color: color-mix(in srgb, var(--accent) 26%, var(--border)); box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 13%, transparent); }
+  45% { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); box-shadow: 0 0 0 7px transparent; }
+  100% { border-color: color-mix(in srgb, var(--accent) 26%, var(--border)); box-shadow: none; }
+}
+
+.instrument-banner--flat { animation: quoteHeartbeat 520ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .instrument-banner--up,
+  .instrument-banner--down,
+  .instrument-banner--flat { animation: none; }
 }
 
 .panel--controls {
@@ -2772,11 +2826,13 @@ table {
   border-bottom: 1px solid var(--border);
 }
 
-.position-row--button {
-  width: 100%;
-  border-top: 0;
-  border-right: 0;
-  border-left: 0;
+.position-row__select {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
   background: transparent;
   color: var(--text);
   text-align: left;
@@ -2784,12 +2840,12 @@ table {
   transition: background 140ms ease, border-color 140ms ease;
 }
 
-.position-row--button:hover,
-.position-row--button.is-selected {
+.position-row:hover,
+.position-row.is-selected {
   background: color-mix(in srgb, var(--accent-soft) 48%, transparent);
 }
 
-.position-row--button:focus-visible {
+.position-row__select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -2798,20 +2854,15 @@ table {
   border-bottom: 0;
 }
 
-.position-row div:first-child {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.position-row strong {
+.position-row__select strong {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
 }
 
-.position-row span {
+.position-row__select > span,
+.position-row__meta > span {
   color: var(--muted);
   font-size: 12px;
 }
@@ -3522,7 +3573,7 @@ table {
     right: 0;
     bottom: 0;
     left: 0;
-    z-index: 30;
+    z-index: 60;
     display: block;
     height: auto;
     min-height: 0;
@@ -3549,7 +3600,7 @@ table {
   .mobile-workspace {
     position: relative;
     display: block;
-    z-index: 31;
+    z-index: 61;
   }
 
   .nav-chip {

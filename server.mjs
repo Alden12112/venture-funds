@@ -36,13 +36,17 @@ const memoryCreditRequests = new Map();
 const memoryBlacklist = new Map();
 const memoryNotifications = [];
 const marketProxyCache = new Map();
+const yahooQuoteCache = new Map();
 // Keep the server snapshot inside the requested 0–10 second display window.
 // The browser polls every two seconds; this cache prevents duplicate fan-out
 // requests while still allowing a fresh public quote cycle at that cadence.
 const marketProxyTtlMs = 2_000;
+const yahooQuoteTtlMs = 8_000;
+const yahooNegativeQuoteTtlMs = 60_000;
 const mt5QuoteCache = new Map();
 const mt5QuoteTtlMs = 20_000;
 const marketStreamClients = new Set();
+let marketStreamBroadcastTimer = null;
 let mt5QuoteRevision = 0;
 // Twelve Data remains an optional server-only fallback. Its free tier is not
 // suited to polling every instrument every few seconds, so the multi-asset
@@ -62,8 +66,10 @@ const newsProxyTtlMs = 5 * 60_000;
 const marketFallbackPrices = {
   'GC=F': [4680.6, 0.42], 'SI=F': [54.18, -0.18], 'CL=F': [79.22, 1.1], 'NG=F': [2.86, -1.42], 'HG=F': [4.31, 0.68],
   SCCO: [94.3, 0.36], 'BZ=F': [82.14, 0.62], 'HO=F': [2.36, 0.48], 'RB=F': [2.19, -0.37], 'LGO=F': [1281.25, -2.33], 'PL=F': [982.4, 0.21], 'PA=F': [1028.5, -0.38], 'ZC=F': [432.25, 0.15],
-  'ZW=F': [548.5, -0.27], 'KC=F': [312.8, 0.74], 'EURUSD=X': [1.0912, -0.12], 'GBPUSD=X': [1.2748, 0.21],
-  'JPY=X': [156.42, 0.09], 'AUDUSD=X': [0.6543, -0.08], 'CAD=X': [1.3714, 0.04], '^GSPC': [5615.2, 0.34], '^NDX': [19842.1, 0.48], '^GDAXI': [18422.6, 0.26],
+  'ZW=F': [548.5, -0.27], 'KC=F': [312.8, 0.74], 'SB=F': [18.72, 0.36], 'CC=F': [8275, -0.58], 'CT=F': [68.4, 0.21], 'ZO=F': [384.5, -0.14], 'LBS=F': [612.2, 0.44],
+  'EURUSD=X': [1.0912, -0.12], 'GBPUSD=X': [1.2748, 0.21], 'NZDUSD=X': [0.5984, -0.16], 'CHF=X': [0.8842, 0.08], 'EURGBP=X': [0.8567, 0.05], 'EURJPY=X': [170.64, -0.04], 'GBPJPY=X': [199.22, 0.06], 'EURCHF=X': [0.9641, -0.07],
+  'JPY=X': [156.42, 0.09], 'AUDUSD=X': [0.6543, -0.08], 'CAD=X': [1.3714, 0.04], 'CNH=X': [7.2584, 0.02], 'SGD=X': [1.3412, -0.03], 'HKD=X': [7.8114, 0.01], 'TRY=X': [41.08, 0.13], 'ZAR=X': [17.92, -0.11], '^GSPC': [5615.2, 0.34], '^NDX': [19842.1, 0.48], '^GDAXI': [18422.6, 0.26], '^FTSE': [8320.5, 0.31], '^FCHI': [7548.3, 0.18], '^N225': [39110, 0.44], '^HSI': [17840, -0.22], '^DJI': [40610, 0.27], '^RUT': [2210, -0.16],
+  'ZS=F': [1012.5, 0.18], 'ZM=F': [286.1, -0.24], 'ZL=F': [49.7, 0.11], 'LE=F': [195.2, -0.09], 'HE=F': [88.4, 0.25], 'OJ=F': [312.6, -0.41],
 };
 let pool = null;
 let databaseAttemptAt = 0;
@@ -1140,9 +1146,11 @@ const twelveDataSymbols = {
   // the selected chart a real time-series provider when the account plan
   // supports the instrument.
   'GC=F': 'XAU/USD', 'SI=F': 'XAG/USD', 'CL=F': 'WTI/USD', 'BZ=F': 'BRENT/USD', 'NG=F': 'NATGAS/USD', 'HG=F': 'COPPER/USD',
-  'PL=F': 'XPT/USD', 'PA=F': 'XPD/USD', 'BTC-USD': 'BTC/USD', 'ETH-USD': 'ETH/USD', 'SOL-USD': 'SOL/USD',
-  'XRP-USD': 'XRP/USD', 'LINK-USD': 'LINK/USD', 'AVAX-USD': 'AVAX/USD', 'EURUSD=X': 'EUR/USD',
-  'GBPUSD=X': 'GBP/USD', 'JPY=X': 'USD/JPY', 'AUDUSD=X': 'AUD/USD', 'CAD=X': 'USD/CAD',
+  'PL=F': 'XPT/USD', 'PA=F': 'XPD/USD', 'RB=F': 'RBOB/USD', 'LGO=F': 'GASOIL/USD', 'ZC=F': 'CORN/USD', 'ZW=F': 'WHEAT/USD', 'KC=F': 'COFFEE/USD',
+  'SB=F': 'SUGAR/USD', 'CC=F': 'COCOA/USD', 'CT=F': 'COTTON/USD', 'ZO=F': 'OATS/USD', 'LBS=F': 'LUMBER/USD', 'SCCO': 'SCCO',
+  'BTC-USD': 'BTC/USD', 'ETH-USD': 'ETH/USD', 'SOL-USD': 'SOL/USD', 'XRP-USD': 'XRP/USD', 'LINK-USD': 'LINK/USD', 'AVAX-USD': 'AVAX/USD',
+  'DOGE-USD': 'DOGE/USD', 'ADA-USD': 'ADA/USD', 'LTC-USD': 'LTC/USD', 'BCH-USD': 'BCH/USD', 'EURUSD=X': 'EUR/USD',
+  'GBPUSD=X': 'GBP/USD', 'NZDUSD=X': 'NZD/USD', 'CHF=X': 'USD/CHF', 'EURGBP=X': 'EUR/GBP', 'EURJPY=X': 'EUR/JPY', 'GBPJPY=X': 'GBP/JPY', 'EURCHF=X': 'EUR/CHF', 'CNH=X': 'USD/CNH', 'SGD=X': 'USD/SGD', 'HKD=X': 'USD/HKD', 'TRY=X': 'USD/TRY', 'ZAR=X': 'USD/ZAR', 'JPY=X': 'USD/JPY', 'AUDUSD=X': 'AUD/USD', 'CAD=X': 'USD/CAD',
 };
 
 // This is the server-side catalogue used by the single quote snapshot. It is
@@ -1151,8 +1159,10 @@ const twelveDataSymbols = {
 const marketQuoteCatalogue = {
   XAU: 'GC=F', BTC: 'BTC-USD', ETH: 'ETH-USD', CL: 'CL=F', NG: 'NG=F', XAG: 'SI=F', HG: 'HG=F', SCCO: 'SCCO',
   BRN: 'BZ=F', HO: 'HO=F', RB: 'RB=F', LGO: 'LGO=F', PL: 'PL=F', PA: 'PA=F', CORN: 'ZC=F', WHEAT: 'ZW=F', COFFEE: 'KC=F',
-  SOL: 'SOL-USD', XRP: 'XRP-USD', LINK: 'LINK-USD', AVAX: 'AVAX-USD', EURUSD: 'EURUSD=X', GBPUSD: 'GBPUSD=X',
-  USDJPY: 'JPY=X', AUDUSD: 'AUDUSD=X', USDCAD: 'CAD=X', SPX: '^GSPC', NAS100: '^NDX', DAX: '^GDAXI',
+  SUGAR: 'SB=F', COCOA: 'CC=F', COTTON: 'CT=F', OATS: 'ZO=F', LUMBER: 'LBS=F', SOYBEAN: 'ZS=F', SOYMEAL: 'ZM=F', SOYOIL: 'ZL=F', CATTLE: 'LE=F', HOGS: 'HE=F', ORANGE: 'OJ=F',
+  SOL: 'SOL-USD', XRP: 'XRP-USD', LINK: 'LINK-USD', AVAX: 'AVAX-USD', DOGE: 'DOGE-USD', ADA: 'ADA-USD', LTC: 'LTC-USD', BCH: 'BCH-USD',
+  EURUSD: 'EURUSD=X', GBPUSD: 'GBPUSD=X', NZDUSD: 'NZDUSD=X', USDCHF: 'CHF=X', EURGBP: 'EURGBP=X', EURJPY: 'EURJPY=X', GBPJPY: 'GBPJPY=X', EURCHF: 'EURCHF=X', USDCNH: 'CNH=X', USDSGD: 'SGD=X', USDHKD: 'HKD=X', USDTRY: 'TRY=X', USDZAR: 'ZAR=X', USDJPY: 'JPY=X', AUDUSD: 'AUDUSD=X', USDCAD: 'CAD=X',
+  SPX: '^GSPC', NAS100: '^NDX', DAX: '^GDAXI', FTSE: '^FTSE', CAC: '^FCHI', NIKKEI: '^N225', HSI: '^HSI', DJ30: '^DJI', RUSSELL: '^RUT',
 };
 
 // Common MT5 broker symbols differ by suffix (for example XAUUSD.a). The
@@ -1165,6 +1175,10 @@ const mt5SymbolAliases = {
   UKOIL: 'BRN', BRENT: 'BRN', BRENTUSD: 'BRN', XBRUSD: 'BRN',
   NATGAS: 'NG', NATURALGAS: 'NG', NGAS: 'NG',
   COPPER: 'HG', XCUUSD: 'HG',
+  DOGEUSD: 'DOGE', ADAUSD: 'ADA', LTCUSD: 'LTC', BCHUSD: 'BCH',
+  NZDUSD: 'NZDUSD', USDCHF: 'USDCHF', EURGBP: 'EURGBP', EURJPY: 'EURJPY', GBPJPY: 'GBPJPY', EURCHF: 'EURCHF', USDCNH: 'USDCNH', USDSGD: 'USDSGD', USDHKD: 'USDHKD', USDTRY: 'USDTRY', USDZAR: 'USDZAR',
+  FTSE100: 'FTSE', UK100: 'FTSE', CAC40: 'CAC', FRA40: 'CAC', NIKKEI225: 'NIKKEI', JP225: 'NIKKEI', HANGSENG: 'HSI', HK50: 'HSI', US30: 'DJ30', DOW30: 'DJ30', DJ30: 'DJ30', US2000: 'RUSSELL', RUSSELL2000: 'RUSSELL',
+  SUGAR: 'SUGAR', COCOA: 'COCOA', COTTON: 'COTTON', OATS: 'OATS', LUMBER: 'LUMBER', SOYBEAN: 'SOYBEAN', SOYMEAL: 'SOYMEAL', SOYOIL: 'SOYOIL', CATTLE: 'CATTLE', HOGS: 'HOGS', ORANGE: 'ORANGE',
   EURUSD: 'EURUSD', GBPUSD: 'GBPUSD', USDJPY: 'USDJPY', AUDUSD: 'AUDUSD', USDCAD: 'USDCAD',
 };
 
@@ -1213,9 +1227,9 @@ function overlayMt5Quotes(snapshot) {
   }
   return result;
 }
-const cryptoQuoteSymbols = new Set(['BTC', 'ETH', 'SOL', 'XRP', 'LINK', 'AVAX']);
+const cryptoQuoteSymbols = new Set(['BTC', 'ETH', 'SOL', 'XRP', 'LINK', 'AVAX', 'DOGE', 'ADA', 'LTC', 'BCH']);
 const internalFallbackPrices = {
-  BTC: [76000, 0.4], ETH: [2400, 0.2], SOL: [93, 0.1], XRP: [1.47, 0.1], LINK: [11.3, 0.1], AVAX: [7.4, 0.1],
+  BTC: [76000, 0.4], ETH: [2400, 0.2], SOL: [93, 0.1], XRP: [1.47, 0.1], LINK: [11.3, 0.1], AVAX: [7.4, 0.1], DOGE: [0.17, 0.1], ADA: [0.62, 0.1], LTC: [84, 0.1], BCH: [390, 0.1],
 };
 const tradingViewSymbols = {
   XAU: ['cfd', 'OANDA:XAUUSD'], XAG: ['cfd', 'OANDA:XAGUSD'],
@@ -1223,7 +1237,9 @@ const tradingViewSymbols = {
   HO: ['futures', 'NYMEX:HO1!'], RB: ['futures', 'NYMEX:RB1!'], LGO: ['futures', 'ICEEUR:ULS1!'], PL: ['futures', 'NYMEX:PL1!'], PA: ['futures', 'NYMEX:PA1!'],
   CORN: ['futures', 'CBOT:ZC1!'], WHEAT: ['futures', 'CBOT:ZW1!'], COFFEE: ['futures', 'ICEUS:KC1!'], DAX: ['futures', 'EUREX:FDAX1!'],
   SCCO: ['america', 'NYSE:SCCO'], SPX: ['america', 'SP:SPX'], NAS100: ['america', 'NASDAQ:NDX'],
-  EURUSD: ['forex', 'OANDA:EURUSD'], GBPUSD: ['forex', 'OANDA:GBPUSD'], USDJPY: ['forex', 'OANDA:USDJPY'],
+  SUGAR: ['futures', 'ICEUS:SB1!'], COCOA: ['futures', 'ICEUS:CC1!'], COTTON: ['futures', 'ICEUS:CT1!'], OATS: ['futures', 'CBOT:ZO1!'], LUMBER: ['futures', 'CME:LBS1!'], SOYBEAN: ['futures', 'CBOT:ZS1!'], SOYMEAL: ['futures', 'CBOT:ZM1!'], SOYOIL: ['futures', 'CBOT:ZL1!'], CATTLE: ['futures', 'CME:LE1!'], HOGS: ['futures', 'CME:HE1!'], ORANGE: ['futures', 'ICEUS:OJ1!'],
+  FTSE: ['cfd', 'TVC:UKX'], CAC: ['cfd', 'TVC:CAC40'], NIKKEI: ['cfd', 'TVC:NI225'], HSI: ['cfd', 'TVC:HSI'], DJ30: ['america', 'DJ:DJI'], RUSSELL: ['america', 'TVC:RUT'],
+  EURUSD: ['forex', 'OANDA:EURUSD'], GBPUSD: ['forex', 'OANDA:GBPUSD'], NZDUSD: ['forex', 'OANDA:NZDUSD'], USDCHF: ['forex', 'OANDA:USDCHF'], EURGBP: ['forex', 'OANDA:EURGBP'], EURJPY: ['forex', 'OANDA:EURJPY'], GBPJPY: ['forex', 'OANDA:GBPJPY'], EURCHF: ['forex', 'OANDA:EURCHF'], USDCNH: ['forex', 'OANDA:USDCNH'], USDSGD: ['forex', 'OANDA:USDSGD'], USDHKD: ['forex', 'OANDA:USDHKD'], USDTRY: ['forex', 'OANDA:USDTRY'], USDZAR: ['forex', 'OANDA:USDZAR'], USDJPY: ['forex', 'OANDA:USDJPY'],
   AUDUSD: ['forex', 'OANDA:AUDUSD'], USDCAD: ['forex', 'OANDA:USDCAD'],
 };
 
@@ -1328,9 +1344,10 @@ async function loadTwelveQuote(providerSymbol) {
   return value;
 }
 
-// Gold API is a keyless spot-metal quote. It is a better reference for XAUUSD
-// and XAGUSD than the futures symbols GC=F/SI=F used by Yahoo, which can be
-// materially different from the broker-style spot quote shown in MT5.
+// Gold API is a keyless spot-metal fallback for XAUUSD and XAGUSD. The public
+// OANDA reference from the TradingView scanner is preferred when present: it
+// tends to update more frequently and sits closer to a retail-MT5 style spot
+// quote than the futures symbols GC=F/SI=F used by Yahoo.
 async function loadSpotMetalQuote(symbol) {
   const key = symbol.toUpperCase();
   const cached = spotMetalCache.get(key);
@@ -1436,11 +1453,9 @@ function buildIndicativeReferenceChart(symbol, quote, interval = '15m') {
   };
 }
 
-function buildSpotMetalChart(symbol, quote) {
-  return buildIndicativeReferenceChart(symbol, quote, '15m');
-}
-
 async function loadYahooQuote(providerSymbol) {
+  const cached = yahooQuoteCache.get(providerSymbol);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
   const hosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
   for (const host of hosts) {
     try {
@@ -1454,7 +1469,7 @@ async function loadYahooQuote(providerSymbol) {
       const price = Number(meta?.regularMarketPrice);
       if (!Number.isFinite(price) || price <= 0) continue;
       const previous = Number(meta?.previousClose ?? meta?.chartPreviousClose);
-      return {
+      const value = {
         price,
         change24h: previous > 0 ? ((price - previous) / previous) * 100 : 0,
         volume24h: Number(meta?.regularMarketVolume) || 0,
@@ -1462,10 +1477,13 @@ async function loadYahooQuote(providerSymbol) {
         provider: 'Yahoo Finance',
         fallback: false,
       };
+      yahooQuoteCache.set(providerSymbol, { expiresAt: Date.now() + yahooQuoteTtlMs, value });
+      return value;
     } catch {
       // Try the second public host, then use the deterministic local quote.
     }
   }
+  yahooQuoteCache.set(providerSymbol, { expiresAt: Date.now() + yahooNegativeQuoteTtlMs, value: null });
   return null;
 }
 
@@ -1477,13 +1495,34 @@ async function buildMarketQuoteSnapshot() {
     if (cryptoQuoteSymbols.has(symbol)) {
       try { quote = await loadCoinbaseQuote(providerSymbol); } catch { quote = null; }
     }
-    // Prefer one public market snapshot for spot metals, futures, FX and
-    // indices. This keeps the table, ticker and trade ticket on the same
-    // reference price instead of mixing a stale futures quote with spot gold.
-    if (!quote) quote = tradingViewQuotes[symbol] || null;
-    if (!quote && (symbol === 'XAU' || symbol === 'XAG')) {
-      try { quote = await loadSpotMetalQuote(symbol); } catch { quote = null; }
+    // XAU/XAG are displayed as spot-style instruments. Use the OANDA spot
+    // reference first when it is available, then a configured Twelve Data
+    // quote, and only then the keyless Gold API fallback. This preserves a
+    // true source change on the two-second snapshot cycle instead of pinning
+    // the ticket to a public endpoint with a longer edge-cache interval.
+    if (symbol === 'XAU' || symbol === 'XAG') {
+      const oandaQuote = tradingViewQuotes[symbol];
+      if (oandaQuote) {
+        quote = {
+          ...oandaQuote,
+          provider: symbol === 'XAU' ? 'OANDA XAUUSD market reference' : 'OANDA XAGUSD market reference',
+        };
+      }
+      if (!quote && twelveDataApiKey) {
+        try { quote = await loadTwelveQuote(providerSymbol); } catch { quote = null; }
+      }
+      if (!quote) {
+        try {
+          quote = await loadSpotMetalQuote(symbol);
+        } catch {
+          quote = null;
+        }
+      }
     }
+    // Prefer one public market snapshot for futures, FX, indices and equities.
+    // This keeps the table, ticker and trade ticket on the same reference
+    // cycle instead of fanning out one browser request per row.
+    if (!quote) quote = tradingViewQuotes[symbol] || null;
     // Twelve Data is only a rate-bounded fallback. The free tier cannot safely
     // serve thirty real-time instruments every two seconds, while the batch
     // snapshot above can keep the whole catalogue aligned.
@@ -1547,6 +1586,30 @@ function broadcastMt5Quotes(updates) {
       writeMarketEvent(client.res, 'quotes', { quotes, updatedAt: new Date().toISOString(), state: 'broker' });
     }
   }
+}
+
+async function broadcastMarketSnapshot() {
+  if (!marketStreamClients.size) return;
+  try {
+    const snapshot = overlayMt5Quotes(await getMarketQuoteSnapshot());
+    for (const client of marketStreamClients) {
+      const quotes = Object.fromEntries(Object.entries(snapshot)
+        .filter(([symbol]) => !client.symbols.size || client.symbols.has(symbol))
+        .map(([symbol, quote]) => [symbol, publicMarketQuote(symbol, quote)]));
+      if (Object.keys(quotes).length) {
+        writeMarketEvent(client.res, 'quotes', { quotes, updatedAt: new Date().toISOString(), state: 'market' });
+      }
+    }
+  } catch {
+    for (const client of marketStreamClients) {
+      writeMarketEvent(client.res, 'state', { connection: 'degraded', bridgeConfigured: Boolean(mt5IngestSecret), execution: 'paper' });
+    }
+  }
+}
+
+function ensureMarketStreamBroadcast() {
+  if (marketStreamBroadcastTimer) return;
+  marketStreamBroadcastTimer = setInterval(() => { void broadcastMarketSnapshot(); }, marketProxyTtlMs);
 }
 
 function parseMt5Timestamp(value) {
@@ -1635,9 +1698,14 @@ async function handleMarketStream(req, res, requestUrl) {
   const close = () => {
     marketStreamClients.delete(client);
     clearInterval(heartbeat);
+    if (!marketStreamClients.size && marketStreamBroadcastTimer) {
+      clearInterval(marketStreamBroadcastTimer);
+      marketStreamBroadcastTimer = null;
+    }
   };
   const heartbeat = setInterval(() => writeMarketEvent(res, 'ping', { at: new Date().toISOString() }), 15_000);
   marketStreamClients.add(client);
+  ensureMarketStreamBroadcast();
   writeMarketEvent(res, 'state', { connection: 'open', bridgeConfigured: Boolean(mt5IngestSecret), execution: 'paper' });
   try {
     const rawSnapshot = await getMarketQuoteSnapshot();
@@ -1731,14 +1799,19 @@ async function proxyMarket(res, requestUrl) {
   if (symbol === 'GC=F' || symbol === 'SI=F') {
     try {
       const spotSymbol = symbol === 'GC=F' ? 'XAU' : 'XAG';
-      const tradingViewQuotes = await loadTradingViewSnapshot();
-      const spotQuote = tradingViewQuotes[spotSymbol] || await loadSpotMetalQuote(spotSymbol);
-      const body = JSON.stringify(buildSpotMetalChart(symbol, spotQuote));
-      marketProxyCache.set(cacheKey, { expiresAt: Date.now() + cacheTtlMs, body, provider: 'spot-metal' });
+      // Read exactly the same normalized snapshot used by the price tile,
+      // trade ticket and SSE feed. Previously this branch fetched Gold API a
+      // second time, so the last candle could lag or disagree with the XAU
+      // order price while a new market quote was already visible.
+      const snapshot = overlayMt5Quotes(await getMarketQuoteSnapshot());
+      const chartQuote = snapshot[spotSymbol];
+      if (!chartQuote || chartQuote.fallback) throw new Error('spot quote unavailable');
+      const body = JSON.stringify(buildIndicativeReferenceChart(symbol, chartQuote, interval));
+      marketProxyCache.set(cacheKey, { expiresAt: Date.now() + cacheTtlMs, body, provider: 'market-snapshot' });
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json; charset=utf-8');
       res.setHeader('x-ad88-cache', 'fresh');
-      res.setHeader('x-ad88-provider', 'spot-metal');
+      res.setHeader('x-ad88-provider', chartQuote.provider || 'market-snapshot');
       res.end(body);
       return;
     } catch {
