@@ -441,7 +441,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         eyebrow={t('admin.eyebrow')}
         title={t('admin.title')}
         description={t('admin.description')}
-        meta={<DataMeta source={admin.data.source} />}
+        meta={<DataMeta source={admin.data.source} refreshing={admin.refreshing} refreshError={admin.refreshError} />}
       />
 
       <section className="metric-grid metric-grid--compact">

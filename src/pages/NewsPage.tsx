@@ -93,7 +93,11 @@ export function NewsPage() {
         <div className="research-hero-band__insight"><div className="research-hero-band__visual"><img src="/assets/market/research-signal.svg" alt="" loading="lazy" decoding="async" /><div><span>{t('news.visualEyebrow')}</span><strong>{t('news.visualTitle')}</strong></div></div><div className="research-hero-band__stats"><div><span>{t('news.currentBriefs')}</span><strong>{filtered.length}</strong></div><div><span>{t('news.highImpact')}</span><strong>{highImpact}</strong></div><div><span>{t('news.forwardCalendar')}</span><strong>{upcoming.length}</strong></div></div></div>
       </section>
 
-      <DataMeta source={{ ...news.data.source, dataState: news.data.source.cacheState === 'stale' ? 'fallback' : 'live' }} />
+      <DataMeta
+        source={{ ...news.data.source, dataState: news.data.source.cacheState === 'stale' ? 'fallback' : 'live' }}
+        refreshing={refreshing || news.refreshing}
+        refreshError={news.refreshError}
+      />
 
       <section className="panel research-calendar-workbench">
         <div className="panel__head research-calendar-workbench__head">

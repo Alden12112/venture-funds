@@ -429,7 +429,11 @@ export function MarketPage() {
       <MarketTicker assets={rows} />
 
       <section className="market-integrity-rail">
-        <DataMeta source={{ ...market.data.source, dataState: selectedFeedState, updatedAt: selectedUpdatedAt }} />
+        <DataMeta
+          source={{ ...market.data.source, dataState: selectedFeedState, updatedAt: selectedUpdatedAt }}
+          refreshing={refreshing || market.refreshing}
+          refreshError={market.refreshError}
+        />
         <span className={`market-display-mode market-display-mode--${displayMode}`} title={t('market.displayModeHint')}>{displayModeLabel}</span>
         <span className={`market-integrity-rail__stream market-integrity-rail__stream--${quotePulse.streamStatus === 'open' ? 'healthy' : 'monitoring'}`}>{quotePulse.streamStatus === 'open' ? t('market.streamConnected') : t('market.streamMonitoring')}</span>
       </section>

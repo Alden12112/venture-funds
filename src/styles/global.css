@@ -96,6 +96,48 @@
   white-space: nowrap;
 }
 
+.data-integrity__item--provider,
+.data-integrity__item--lineage {
+  min-width: 0;
+}
+
+.data-integrity__item--provider strong,
+.data-integrity__item--lineage strong {
+  display: block;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-integrity__item--lineage {
+  flex: 1 1 260px;
+}
+
+.data-integrity__item--lineage strong {
+  max-width: min(520px, 44vw);
+}
+
+.data-integrity__item--error,
+.data-integrity__item--error strong {
+  color: var(--warning);
+}
+
+.data-integrity__refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
 .market-integrity-rail {
   justify-content: space-between;
   padding: 0 2px;
