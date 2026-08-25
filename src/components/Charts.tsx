@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type WheelEvent } from 'react';
 import type { Candle } from '@/types';
 import { useElementSize } from '@/lib/useElementSize';
-import { formatNumber, getUiLocale } from '@/lib/format';
+import { formatMarketPrice, formatNumber, getUiLocale } from '@/lib/format';
 import { useLanguage } from '@/context/language-context';
 
 function pathFromPoints(points: Array<[number, number]>) {
@@ -238,7 +238,7 @@ export function CandleChart({
             const y = 18 + (1 - (tick - domainMin) / (domainMax - domainMin)) * (height - 54);
             return (
               <text key={tick} x="10" y={y + 4} className="chart-axis__label">
-                {formatNumber(tick)}
+                {formatMarketPrice(tick)}
               </text>
             );
           })}
@@ -350,10 +350,10 @@ export function DepthChart({
             0
           </text>
           <text x="42" y={height - 8} className="chart-axis__label">
-            {formatNumber(minPrice)}
+            {formatMarketPrice(minPrice)}
           </text>
           <text x={width - 96} y={height - 8} className="chart-axis__label">
-            {formatNumber(maxPrice)}
+            {formatMarketPrice(maxPrice)}
           </text>
         </g>
       </svg>

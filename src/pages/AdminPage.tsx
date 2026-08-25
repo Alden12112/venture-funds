@@ -5,7 +5,7 @@ import { DataMeta, LoadingState, StatCard, StatusPill, EmptyState } from '@/comp
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadAdminBundle } from '@/adapters/admin-adapter';
 import { loadNewsBundle } from '@/adapters/news-adapter';
-import { formatCurrency, formatDateTime } from '@/lib/format';
+import { formatCurrency, formatDateTime, formatMarketCurrency } from '@/lib/format';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -792,7 +792,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                 <div key={item.id} className="stack-list__row">
                   <div>
                      <strong>{item.userName ?? item.userEmail ?? item.userId} / {item.symbol} {sideLabel(item.side)}</strong>
-                     <span>{tradeActionLabel(item.action)} · {item.lots} {t('ledger.lots')} · {formatCurrency(item.price)}</span>
+                     <span>{tradeActionLabel(item.action)} · {item.lots} {t('ledger.lots')} · {formatMarketCurrency(item.price)}</span>
                   </div>
                    <div className="stack-list__meta"><StatusPill tone={item.action === 'open' ? 'success' : item.action === 'risk-update' ? 'info' : item.action === 'liquidation' ? 'critical' : 'warning'}>{tradeActionLabel(item.action)}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div>
                 </div>
@@ -804,7 +804,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <div className="stack-list">
               {visiblePositions.map((item) => (
                  <div key={item.id} className="stack-list__row">
-                   <div><strong>{item.userName ?? item.userId ?? t('ui.unknown')} / {item.symbol} {sideLabel(item.side)}</strong><span>{item.lots} {t('ledger.lots')} / {t('market.leverage')} {item.leverage}x / {t('market.entry')} {formatCurrency(item.entryPrice)}</span></div>
+                   <div><strong>{item.userName ?? item.userId ?? t('ui.unknown')} / {item.symbol} {sideLabel(item.side)}</strong><span>{item.lots} {t('ledger.lots')} / {t('market.leverage')} {item.leverage}x / {t('market.entry')} {formatMarketCurrency(item.entryPrice)}</span></div>
                   <div className="stack-list__meta"><StatusPill tone={item.margin < 1000 ? 'success' : item.margin < 3000 ? 'warning' : 'critical'}>{formatCurrency(item.margin)}</StatusPill><span>{formatDateTime(item.openedAt)}</span></div>
                 </div>
               ))}

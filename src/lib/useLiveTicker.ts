@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getExecutionQuote, getMarketProduct, marketProducts } from '@/data/assets';
+import { marketDisplayDecimals, truncateMarketValue } from '@/lib/format';
 import { apiFetch } from '@/lib/api';
 import type { MarketDataState } from '@/types';
 
@@ -9,6 +10,11 @@ type TickMap = Record<string, number>;
 type DirectionMap = Record<string, 'up' | 'down' | 'flat'>;
 
 const productToSymbol = Object.fromEntries(marketProducts.map((product) => [product.productId, product.symbol]));
+
+function displayQuoteValue(symbol: string, value: number) {
+  const executionDecimals = getExecutionQuote(symbol, value).decimals;
+  return truncateMarketValue(value, marketDisplayDecimals(value, executionDecimals));
+}
 
 export function useLiveTickers(fallbackPrices: PriceMap = {}) {
   const [prices, setPrices] = useState<PriceMap>(fallbackPrices);
@@ -176,10 +182,6 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
       for (let index = 0; index < value.length; index += 1) hash = (hash * 31 + value.charCodeAt(index)) % 997;
       return (hash / 997) * Math.PI * 2;
     };
-    const roundForDisplay = (symbol: string, value: number) => {
-      const decimals = getExecutionQuote(symbol, value).decimals;
-      return Number(value.toFixed(Math.min(decimals + 1, 8)));
-    };
     const cadence = window.setInterval(() => {
       const now = Date.now();
       if (now < transitionUntilRef.current) return;
@@ -198,14 +200,15 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
           return;
         }
         const quoteSpec = getExecutionQuote(symbol, reference);
-        const minimumTick = 10 ** -quoteSpec.decimals;
+        const displayDecimals = marketDisplayDecimals(reference, quoteSpec.decimals);
+        const minimumTick = 10 ** -displayDecimals;
         // The cadence is capped well below one quote unit. It is an interface
         // pulse, not a forecast and not a market quote.
         const amplitude = Math.min(Math.max(minimumTick, Math.abs(reference) * 0.000004), 0.08);
         const offset = Math.sin(now / 760 + stableOffset(symbol)) * amplitude;
-        nextPrices[symbol] = roundForDisplay(symbol, Math.max(minimumTick, reference + offset));
-        if (bidsRef.current[symbol] != null) nextBids[symbol] = roundForDisplay(symbol, Math.max(minimumTick, bidsRef.current[symbol] + offset));
-        if (asksRef.current[symbol] != null) nextAsks[symbol] = roundForDisplay(symbol, Math.max(minimumTick, asksRef.current[symbol] + offset));
+        nextPrices[symbol] = displayQuoteValue(symbol, Math.max(minimumTick, reference + offset));
+        if (bidsRef.current[symbol] != null) nextBids[symbol] = displayQuoteValue(symbol, Math.max(minimumTick, bidsRef.current[symbol] + offset));
+        if (asksRef.current[symbol] != null) nextAsks[symbol] = displayQuoteValue(symbol, Math.max(minimumTick, asksRef.current[symbol] + offset));
         nextModes[symbol] = 'indicative';
       });
       displayPricesRef.current = nextPrices;
@@ -279,15 +282,15 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
       const nextDisplayAsks = { ...fromAsks };
       Object.entries(nextPrices).forEach(([symbol, target]) => {
         const start = fromPrices[symbol] ?? target;
-        nextDisplayPrices[symbol] = start + (target - start) * eased;
+        nextDisplayPrices[symbol] = displayQuoteValue(symbol, start + (target - start) * eased);
       });
       Object.entries(nextBids).forEach(([symbol, target]) => {
         const start = fromBids[symbol] ?? target;
-        nextDisplayBids[symbol] = start + (target - start) * eased;
+        nextDisplayBids[symbol] = displayQuoteValue(symbol, start + (target - start) * eased);
       });
       Object.entries(nextAsks).forEach(([symbol, target]) => {
         const start = fromAsks[symbol] ?? target;
-        nextDisplayAsks[symbol] = start + (target - start) * eased;
+        nextDisplayAsks[symbol] = displayQuoteValue(symbol, start + (target - start) * eased);
       });
       displayPricesRef.current = nextDisplayPrices;
       displayBidsRef.current = nextDisplayBids;

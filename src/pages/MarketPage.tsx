@@ -8,7 +8,7 @@ import { DataMeta, LoadingState, StatCard, StatusPill } from '@/components/Stats
 import { MarketTicker } from '@/components/MarketTicker';
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadMarketBundle } from '@/adapters/market-adapter';
-import { formatCurrency, formatPercent, formatCompact, formatNumber, formatDateTime } from '@/lib/format';
+import { formatCurrency, formatPercent, formatCompact, formatMarketCurrency, formatMarketPrice, formatNumber, formatDateTime } from '@/lib/format';
 import { useIndicativeQuotePulse, useLiveTickers } from '@/lib/useLiveTicker';
 import { writeStorage } from '@/lib/storage';
 import { useAuth } from '@/context/auth-context';
@@ -446,7 +446,7 @@ export function MarketPage() {
       ) : null}
 
       <section className="metric-grid metric-grid--compact">
-        <StatCard label={`${selectedAsset?.symbol ?? 'BTC'} ${t('market.price')}`} value={formatCurrency(livePrice)} delta={formatPercent(selectedChange)} />
+        <StatCard label={`${selectedAsset?.symbol ?? 'BTC'} ${t('market.price')}`} value={formatMarketCurrency(livePrice)} delta={formatPercent(selectedChange)} />
         <StatCard label={t('market.change24h')} value={formatPercent(selectedChange)} note={selectedAsset ? t(assetNameKey(selectedAsset.symbol)) : ''} />
         <StatCard label={t('market.volume24h')} value={formatCompact(selectedAsset?.volume24h ?? 0)} note={t('market.volumeUsd')} />
         <StatCard label={t('market.availableMargin')} value={formatCurrency(availableMargin)} note={t('market.paperBuyingPower')} />
@@ -498,7 +498,7 @@ export function MarketPage() {
                         </div>
                       </div>
                     </td>
-                    <td className={`text-end price-cell price-cell--${quotePulse.directions[asset.symbol] ?? live.directions[asset.symbol] ?? 'flat'}`}>{formatCurrency(asset.price)}</td>
+                    <td className={`text-end price-cell price-cell--${quotePulse.directions[asset.symbol] ?? live.directions[asset.symbol] ?? 'flat'}`}>{formatMarketCurrency(asset.price)}</td>
                     <td className="text-end">
                       <span className={asset.change24h >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(asset.change24h)}</span>
                     </td>
@@ -538,7 +538,7 @@ export function MarketPage() {
               <span>{selectedFeedState === 'broker' ? t('market.brokerReference') : t('market.verifiedReference')} · {selectedAsset?.assetClass ? t(assetClassKey(selectedAsset.assetClass)) : t('market.marketReference')}</span>
             </div>
             <div className="instrument-banner__quote">
-              <strong className="instrument-banner__price" aria-live="polite">{formatNumber(livePrice)}</strong>
+              <strong className="instrument-banner__price" aria-live="polite">{formatMarketPrice(livePrice)}</strong>
               <span className={selectedChange >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(selectedChange)}</span>
               <span className="instrument-banner__feed-state"><span className="instrument-banner__feed-dot" />{awaitingVerifiedQuote ? t('market.awaitingVerifiedQuote') : liveLabel}<span className={`instrument-banner__display-mode instrument-banner__display-mode--${displayMode}`}>{displayModeLabel}</span><span className="instrument-banner__signal-bars" aria-hidden="true"><i /><i /><i /></span></span>
             </div>
@@ -569,15 +569,15 @@ export function MarketPage() {
           )}
           <div className="execution-bar">
             <button type="button" className="execution-quote execution-quote--sell" onClick={() => void openPosition('short')} disabled={!canOpen || Boolean(busyAction)}>
-              <span>{t('market.sellBid')}</span><strong>{formatNumber(sellPrice)}</strong><small>{t('market.openShort')}</small>
+              <span>{t('market.sellBid')}</span><strong>{formatMarketPrice(sellPrice)}</strong><small>{t('market.openShort')}</small>
             </button>
             <div className="execution-bar__middle">
               <span className="execution-bar__label">{t('market.midpoint')}</span>
-              <strong>{formatNumber(livePrice)}</strong>
+              <strong>{formatMarketPrice(livePrice)}</strong>
               <label><span>{t('market.orderLots')}</span><input type="number" min={tradeSpec.minimumLots} step="0.01" value={lotsInput} onChange={(event) => updateLots(event.target.value)} onBlur={() => { if (!Number.isFinite(Number(lotsInput)) || Number(lotsInput) < tradeSpec.minimumLots) { setLots(tradeSpec.minimumLots); setLotsInput(String(tradeSpec.minimumLots)); } }} /></label>
             </div>
             <button type="button" className="execution-quote execution-quote--buy" onClick={() => void openPosition('long')} disabled={!canOpen || Boolean(busyAction)}>
-              <span>{t('market.buyAsk')}</span><strong>{formatNumber(buyPrice)}</strong><small>{t('market.openLong')}</small>
+              <span>{t('market.buyAsk')}</span><strong>{formatMarketPrice(buyPrice)}</strong><small>{t('market.openLong')}</small>
             </button>
           </div>
         </article>
@@ -687,7 +687,7 @@ export function MarketPage() {
                           {position.symbol}
                           <span className={`side-badge side-badge--${position.side}`}>{position.side === 'long' ? t('market.long') : t('market.short')}</span>
                         </strong>
-                        <span>{t('market.entry')} {formatCurrency(position.entryPrice)} / {t('market.exitReference')} {formatCurrency(position.markPrice)}</span>
+                        <span>{t('market.entry')} {formatMarketCurrency(position.entryPrice)} / {t('market.exitReference')} {formatMarketCurrency(position.markPrice)}</span>
                         <span>{t('market.openLots')} {remaining.toFixed(2)} / {t('market.closedLots')} {Number(position.closedLots ?? 0).toFixed(2)} {t('market.lots')}</span>
                       </button>
                       <div className="position-row__meta">
@@ -792,7 +792,7 @@ export function MarketPage() {
               <strong>{t('market.asks')}</strong>
               {market.data.orderBook.asks.slice().reverse().map((level) => (
                 <div key={`${level.price}-${level.side}`} className="book-row book-row--ask">
-                  <span>{formatNumber(level.price)}</span>
+                  <span>{formatMarketPrice(level.price)}</span>
                   <span>{formatNumber(level.size)}</span>
                   <span>{formatNumber(level.depth)}</span>
                 </div>
@@ -802,7 +802,7 @@ export function MarketPage() {
               <strong>{t('market.bids')}</strong>
               {market.data.orderBook.bids.map((level) => (
                 <div key={`${level.price}-${level.side}`} className="book-row book-row--bid">
-                  <span>{formatNumber(level.price)}</span>
+                  <span>{formatMarketPrice(level.price)}</span>
                   <span>{formatNumber(level.size)}</span>
                   <span>{formatNumber(level.depth)}</span>
                 </div>

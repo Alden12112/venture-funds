@@ -1,11 +1,11 @@
 import type { MarketAsset } from '@/types';
 import { getMarketIcon, getMarketProduct } from '@/data/assets';
 import { useLanguage } from '@/context/language-context';
+import { formatMarketPrice } from '@/lib/format';
 
 function quote(value: number) {
-  if (value >= 1000) return `$${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-  if (value < 10) return value.toFixed(4);
-  return value.toFixed(2);
+  const price = formatMarketPrice(value);
+  return value >= 1000 ? `$${price}` : price;
 }
 
 export function MarketTicker({ assets }: { assets: MarketAsset[] }) {

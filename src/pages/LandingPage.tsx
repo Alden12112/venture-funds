@@ -3,7 +3,7 @@ import { ArrowRight, Languages, LogIn } from 'lucide-react';
 import { brand, brandMarkers } from '@/data/brand';
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadMarketBundle } from '@/adapters/market-adapter';
-import { formatCurrency, formatPercent, formatCompact } from '@/lib/format';
+import { formatMarketCurrency, formatPercent, formatCompact } from '@/lib/format';
 import { LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { Sparkline } from '@/components/Charts';
 import { useLanguage } from '@/context/language-context';
@@ -98,8 +98,8 @@ export function LandingPage() {
             ) : (
               <>
                 <div className="preview-metrics">
-                  <StatCard label={t('landing.btcPrice')} value={formatCurrency(btc?.price ?? 0)} delta={btc ? formatPercent(btc.change24h) : undefined} />
-                  <StatCard label={t('landing.ethPrice')} value={formatCurrency(eth?.price ?? 0)} delta={eth ? formatPercent(eth.change24h) : undefined} />
+                  <StatCard label={t('landing.btcPrice')} value={formatMarketCurrency(btc?.price ?? 0)} delta={btc ? formatPercent(btc.change24h) : undefined} />
+                  <StatCard label={t('landing.ethPrice')} value={formatMarketCurrency(eth?.price ?? 0)} delta={eth ? formatPercent(eth.change24h) : undefined} />
                   <StatCard label={t('landing.activeLiquidity')} value={formatCompact(selected?.volume24h ?? 0)} note={t('landing.volume24h')} />
                 </div>
 
@@ -115,7 +115,7 @@ export function LandingPage() {
                         <span>{t(assetNameKey(asset.symbol))}</span>
                       </div>
                       <div className="preview-list__value">
-                        <strong>{formatCurrency(asset.price)}</strong>
+                        <strong>{formatMarketCurrency(asset.price)}</strong>
                         <span className={asset.change24h >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(asset.change24h)}</span>
                       </div>
                     </div>

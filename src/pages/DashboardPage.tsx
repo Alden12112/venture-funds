@@ -10,7 +10,7 @@ import { loadLedgerBundle } from '@/adapters/ledger-adapter';
 import { loadMarketBundle } from '@/adapters/market-adapter';
 import { loadNewsBundle } from '@/adapters/news-adapter';
 import { loadNotificationBundle } from '@/adapters/notification-adapter';
-import { formatCurrency, formatDateTime, formatPercent } from '@/lib/format';
+import { formatCurrency, formatDateTime, formatMarketCurrency, formatPercent } from '@/lib/format';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
 import { createRemoteCreditRequest, loadRemoteCreditAccount, loadRemoteCreditRequests } from '@/lib/credits';
@@ -103,7 +103,7 @@ export function DashboardPage() {
         </div>
         <div className="command-center__hero-market">
            <div className="command-center__hero-market-head"><div><span>{t('dashboard.featuredReference')}</span><strong>{market.data.selected.symbol} · {t(assetNameKey(market.data.selected.symbol))}</strong></div><StatusPill tone={market.data.selected.change24h >= 0 ? 'success' : 'critical'}>{formatPercent(market.data.selected.change24h)}</StatusPill></div>
-          <strong className="command-center__hero-price">{formatCurrency(market.data.selected.price)}</strong>
+          <strong className="command-center__hero-price">{formatMarketCurrency(market.data.selected.price)}</strong>
           <Sparkline values={trendSeries} positive={market.data.selected.change24h >= 0} />
           <DataMeta source={market.data.source} />
         </div>
@@ -132,7 +132,7 @@ export function DashboardPage() {
 
         <article className="panel market-intelligence-panel">
            <div className="panel__head"><div><h2><TrendingUp size={18} /> {t('dashboard.marketIntelligence')}</h2><p>{t('dashboard.marketIntelligenceHint')}</p></div><Link to="/app/market" className="link-action">{t('dashboard.exploreMarkets')} <ArrowRight size={16} /></Link></div>
-          <div className="market-intelligence-list">{topMoves.map((asset) => <Link to={`/app/market?symbol=${asset.symbol}`} className="market-intelligence-item" key={asset.symbol}><span className="market-intelligence-item__symbol">{asset.symbol}</span><span>{t(assetNameKey(asset.symbol))}</span><strong>{formatCurrency(asset.price)}</strong><em className={asset.change24h >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(asset.change24h)}</em></Link>)}</div>
+          <div className="market-intelligence-list">{topMoves.map((asset) => <Link to={`/app/market?symbol=${asset.symbol}`} className="market-intelligence-item" key={asset.symbol}><span className="market-intelligence-item__symbol">{asset.symbol}</span><span>{t(assetNameKey(asset.symbol))}</span><strong>{formatMarketCurrency(asset.price)}</strong><em className={asset.change24h >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(asset.change24h)}</em></Link>)}</div>
            <div className="market-intelligence-panel__event"><span>{t('dashboard.nextSignal')}</span><strong>{nextEvent ? labelCalendarTitle(nextEvent.title, t) : t('dashboard.calendarSyncing')}</strong><small>{nextEvent ? `${labelMarket(nextEvent.market, t)} · ${labelCountry(nextEvent.country, t)} · ${formatDateTime(nextEvent.scheduledAt)}` : t('dashboard.researchEventsSoon')}</small></div>
         </article>
       </section>

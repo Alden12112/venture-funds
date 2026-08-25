@@ -6,6 +6,43 @@ export function formatCurrency(value: number, currency = 'USD') {
   }).format(value);
 }
 
+/**
+ * Market quotes are intentionally shown at a stable, readable precision.
+ * High-value instruments such as XAU, indices and BTC use two decimals so a
+ * provider payload like 4,667.7081 is rendered as 4,667.70. The underlying
+ * quote is kept at full precision for the server-owned paper calculation.
+ * Truncation (rather than rounding) keeps the visible tick from inventing a
+ * third/fourth decimal after the display contract has been chosen.
+ */
+export function marketDisplayDecimals(value: number, preferredDecimals = 4) {
+  if (Math.abs(value) >= 100) return 2;
+  return Math.max(0, Math.min(preferredDecimals, 8));
+}
+
+export function truncateMarketValue(value: number, preferredDecimals = 4) {
+  if (!Number.isFinite(value)) return value;
+  const decimals = marketDisplayDecimals(value, preferredDecimals);
+  const factor = 10 ** decimals;
+  return Math.trunc(value * factor) / factor;
+}
+
+export function formatMarketPrice(value: number, preferredDecimals = 4) {
+  const decimals = marketDisplayDecimals(value, preferredDecimals);
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: Math.min(2, decimals),
+    maximumFractionDigits: decimals,
+  }).format(truncateMarketValue(value, preferredDecimals));
+}
+
+export function formatMarketCurrency(value: number, currency = 'USD', preferredDecimals = 4) {
+  const decimals = marketDisplayDecimals(value, preferredDecimals);
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: decimals,
+  }).format(truncateMarketValue(value, preferredDecimals));
+}
+
 export function formatCompact(value: number) {
   return new Intl.NumberFormat('en-US', {
     notation: 'compact',
