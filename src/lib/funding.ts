@@ -8,7 +8,7 @@ export type CreateFundingRequestInput = {
   amountU?: number;
   bankName?: string;
   accountHolder?: string;
-  /** The UI only sends a masked / last-four account reference. */
+  /** Sent only over the authenticated request channel; the server encrypts it at rest. */
   accountReference?: string;
   supportRequired?: boolean;
 };
@@ -37,4 +37,12 @@ export async function reviewFundingRequest(id: string, action: 'approve' | 'reje
     method: 'POST',
     body: JSON.stringify({ reviewerNote }),
   });
+}
+
+export async function deleteFundingHistoryItem(id: string) {
+  return apiFetch<{ deleted: true }>(`/api/admin/funding/requests/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function clearFundingHistory(kind: FundingKind) {
+  return apiFetch<{ deleted: number }>(`/api/admin/funding/requests/history?kind=${encodeURIComponent(kind)}`, { method: 'DELETE' });
 }

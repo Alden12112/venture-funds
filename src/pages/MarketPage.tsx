@@ -418,7 +418,7 @@ export function MarketPage() {
             </div>
             <StatusPill tone={liveTone}>{liveLabel}</StatusPill>
           </div>
-          <div className="asset-selector">
+            <div className={`asset-selector instrument-chip-scroll ${showAllInstruments ? 'is-expanded' : ''}`} tabIndex={showAllInstruments ? 0 : -1}>
             <div className="market-filter-row">
               {marketFilters.map((filter) => (
                 <button key={filter} type="button" className={`chip ${assetClassFilter === filter ? 'is-active' : ''}`} onClick={() => { setAssetClassFilter(filter); setShowAllInstruments(false); }}>
@@ -433,7 +433,7 @@ export function MarketPage() {
               </button>
             ))}
           </div>
-          <div className="table-wrap">
+          <div className={`table-wrap instrument-list-scroll ${showAllInstruments ? 'is-expanded' : ''}`} tabIndex={showAllInstruments ? 0 : -1}>
             <table className="table table--interactive">
               <thead>
                 <tr>

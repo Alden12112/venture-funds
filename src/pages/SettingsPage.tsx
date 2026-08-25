@@ -11,10 +11,8 @@ import { useLanguage } from '@/context/language-context';
 import { labelCountry } from '@/lib/news-labels';
 
 const profileCountryOptions = ['Malaysia', 'Singapore', 'China', 'Indonesia', 'Thailand', 'United States', 'United Kingdom', 'Other'] as const;
-const profileTierOptions = ['Core', 'Pro', 'Enterprise'] as const;
-
 function tierLabel(t: (key: string) => string, value: string) {
-  const key = value === 'Pro' ? 'settings.tierPro' : value === 'Enterprise' ? 'settings.tierEnterprise' : 'settings.tierCore';
+  const key = value === 'Enterprise' ? 'settings.tierEnterprise' : value === 'Pro' ? 'settings.tierPro' : 'settings.tierProfessional';
   return t(key);
 }
 
@@ -28,7 +26,7 @@ export function SettingsPage() {
     email: profile?.email ?? session?.email ?? 'demo@meridian.example',
     phone: profile?.phone ?? '+86 138 0000 8888',
     country: profile?.country ?? 'Malaysia',
-    tier: profile?.tier ?? 'Core',
+    tier: profile?.tier === 'Core' || !profile?.tier ? 'Professional' : profile.tier,
   });
   const [security, setSecurity] = useState({
     mfa: readStorage('securityPreferences', { mfa: false, trustedDevice: false, alerts: true, apiAccess: false }).mfa,
@@ -46,7 +44,7 @@ export function SettingsPage() {
       email: profile?.email ?? session?.email ?? 'demo@meridian.example',
       phone: profile?.phone ?? '+60 12 000 0000',
       country: profile?.country ?? 'Malaysia',
-      tier: profile?.tier ?? 'Core',
+      tier: profile?.tier === 'Core' || !profile?.tier ? 'Professional' : profile.tier,
     });
   }, [profile, session]);
 
@@ -63,7 +61,7 @@ export function SettingsPage() {
       setSecurityNotice(t('settings.validPhone'));
       return;
     }
-    updateProfile(form);
+    updateProfile({ name: form.name, email: form.email, phone: form.phone, country: form.country });
     setSecurityNotice(t('settings.profileSaved'));
     setSaved(t('settings.savedAt').replace('{time}', formatDateTime(new Date())));
   };
@@ -131,12 +129,10 @@ export function SettingsPage() {
                 {profileCountryOptions.map((country) => <option key={country} value={country}>{country === 'Other' ? t('settings.otherCountry') : labelCountry(country, t)}</option>)}
               </select>
             </label>
-            <label className="field">
+            <div className="field field--readonly-tier">
               <span>{t('settings.workspaceTier')}</span>
-              <select value={form.tier} onChange={(event) => setForm({ ...form, tier: event.target.value })}>
-                {profileTierOptions.map((tier) => <option key={tier} value={tier}>{tierLabel(t, tier)}</option>)}
-              </select>
-            </label>
+              <div className="readonly-tier"><strong>{tierLabel(t, form.tier)}</strong><small>{t('settings.tierLocked')}</small></div>
+            </div>
           </div>
           <button type="button" className="btn btn--primary" onClick={saveProfile}>
             <CheckCircle2 size={16} />

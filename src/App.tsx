@@ -9,6 +9,7 @@ import { DashboardPage } from '@/pages/DashboardPage';
 import { MarketPage } from '@/pages/MarketPage';
 import { NewsPage } from '@/pages/NewsPage';
 import { LedgerPage } from '@/pages/LedgerPage';
+import { FundingPage } from '@/pages/FundingPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { SupportPage } from '@/pages/SupportPage';
@@ -94,6 +95,7 @@ export default function App() {
               <Route path="news" element={<NewsPage />} />
               <Route path="support" element={<SupportPage />} />
               <Route path="ledger" element={<LedgerPage />} />
+              <Route path="funding" element={<FundingPage />} />
               <Route path="notifications" element={<NotificationsPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>

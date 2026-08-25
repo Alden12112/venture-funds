@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
@@ -27,6 +27,12 @@ const twelveDataApiKey = (process.env.TWELVE_DATA_API_KEY || '').trim();
 // the admin service, or source control. The bridge only accepts reference
 // prices; it has no trading-command or account-credential path.
 const mt5IngestSecret = (process.env.MT5_INGEST_SECRET || '').trim();
+// Funding account details are retained only for an authenticated funding
+// review. Encrypt them before they touch PostgreSQL or the local memory store;
+// the browser receives a masked value unless it is an administrator session.
+const fundingDataEncryptionKey = createHash('sha256')
+  .update(`${authSecret}:ad88-funding-data:v1`)
+  .digest();
 const memoryAccounts = new Map();
 const memoryState = new Map();
 const memorySupportMessages = [];
@@ -37,6 +43,7 @@ const memoryBlacklist = new Map();
 const memoryNotifications = [];
 const memoryLedgerEntries = [];
 const memoryFundingRequests = new Map();
+const registrationChallenges = new Map();
 const marketProxyCache = new Map();
 const yahooQuoteCache = new Map();
 // Quotes for instruments retired from the new-order catalogue. They are only
@@ -142,7 +149,7 @@ function normalizeAccount(row) {
     role: row.role || 'user',
     status: row.status || 'active',
     joinedAt: row.joinedAt ?? row.joined_at,
-    tier: row.tier || 'Core',
+    tier: row.role === 'admin' ? 'Enterprise' : row.tier === 'Core' || !row.tier ? 'Professional' : row.tier,
     tradingScore: Number(row.tradingScore ?? row.trading_score ?? 60),
   };
 }
@@ -268,6 +275,42 @@ function validateCredentials(input) {
   return { name, email, phone, country, password };
 }
 
+function pruneRegistrationChallenges() {
+  const now = Date.now();
+  for (const [id, challenge] of registrationChallenges) {
+    if (challenge.expiresAt <= now || challenge.attempts >= 5) registrationChallenges.delete(id);
+  }
+}
+
+function createRegistrationChallenge() {
+  pruneRegistrationChallenges();
+  const useSubtraction = Math.random() >= 0.5;
+  const left = Math.floor(Math.random() * 10) + (useSubtraction ? 5 : 1);
+  const right = useSubtraction
+    ? Math.floor(Math.random() * Math.max(left, 1))
+    : Math.floor(Math.random() * 10) + 1;
+  const answer = useSubtraction ? left - right : left + right;
+  const challengeId = randomUUID();
+  const expiresAt = Date.now() + 10 * 60 * 1000;
+  registrationChallenges.set(challengeId, { answer: String(answer), expiresAt, attempts: 0 });
+  return { challengeId, prompt: `${left} ${useSubtraction ? '−' : '+'} ${right} = ?`, expiresAt: new Date(expiresAt).toISOString() };
+}
+
+function validateRegistrationChallenge(input) {
+  pruneRegistrationChallenges();
+  const id = String(input.challengeId || '').trim();
+  const answer = String(input.challengeAnswer || '').trim();
+  const challenge = registrationChallenges.get(id);
+  if (!challenge || !/^-?\d{1,3}$/.test(answer)) return { error: 'registration challenge failed' };
+  challenge.attempts += 1;
+  if (challenge.answer !== answer) {
+    if (challenge.attempts >= 5) registrationChallenges.delete(id);
+    return { error: 'registration challenge failed' };
+  }
+  registrationChallenges.delete(id);
+  return { ok: true };
+}
+
 async function initDatabase() {
   if (!process.env.DATABASE_URL || pool) return;
   const { Pool } = await import('pg');
@@ -286,7 +329,7 @@ async function initDatabase() {
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'user',
       status TEXT NOT NULL DEFAULT 'active',
-      tier TEXT NOT NULL DEFAULT 'Core',
+      tier TEXT NOT NULL DEFAULT 'Professional',
       trading_score INTEGER NOT NULL DEFAULT 60,
       joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -561,13 +604,21 @@ async function handleNotifications(req, res, requestUrl) {
 }
 
 async function handleAuth(req, res, requestUrl) {
+  if (req.method === 'GET' && requestUrl.pathname === '/api/auth/registration-challenge') {
+    if (appSurface === 'admin') return sendJson(res, 404, { error: 'not found' });
+    return sendJson(res, 200, createRegistrationChallenge());
+  }
+
   if (req.method === 'POST' && requestUrl.pathname === '/api/auth/register') {
     if (appSurface === 'admin') return sendJson(res, 403, { error: 'the administrator service does not accept public registration' });
-    const input = validateCredentials(await readBody(req));
+    const body = await readBody(req);
+    const input = validateCredentials(body);
     if (input.error) return sendJson(res, 400, input);
+    const challenge = validateRegistrationChallenge(body);
+    if (challenge.error) return sendJson(res, 400, challenge);
     if (await isBlacklisted(input.email, input.phone)) return sendJson(res, 403, { error: 'registration is blocked' });
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
-    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Core', tradingScore: 0, joinedAt: new Date().toISOString() }, input.password);
+    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Professional', tradingScore: 0, joinedAt: new Date().toISOString() }, input.password);
     await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
     await createNotification(account.id, 'system', 'Account approved', 'Your account is active and has synchronized to the administrator review record.', 'success', '/app/settings');
     return sendJson(res, 201, sessionResponse(account));
@@ -698,7 +749,7 @@ async function handleAdmin(req, res, requestUrl) {
     if (await isBlacklisted(input.email, input.phone)) return sendJson(res, 403, { error: 'registration is blocked' });
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
     const requestedRole = body.role === 'admin' ? 'admin' : 'user';
-    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: requestedRole, status: 'active', tier: requestedRole === 'admin' ? 'Enterprise' : 'Core', tradingScore: requestedRole === 'admin' ? 100 : 0, joinedAt: new Date().toISOString() }, input.password);
+    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: requestedRole, status: 'active', tier: requestedRole === 'admin' ? 'Enterprise' : 'Professional', tradingScore: requestedRole === 'admin' ? 100 : 0, joinedAt: new Date().toISOString() }, input.password);
     await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
     await createNotification(account.id, 'system', 'Account created by administrator', 'This account was created in the administrator workspace and is active.', 'success', '/app/settings');
     return sendJson(res, 201, normalizeAccount(account));
@@ -1501,7 +1552,40 @@ function sanitizeFundingText(value, limit = 80) {
   return String(value || '').replace(/[\u0000-\u001f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
-function normalizeFundingRequest(row) {
+function encryptFundingValue(value) {
+  const plainText = String(value || '').trim();
+  if (!plainText || plainText.startsWith('v1.')) return plainText || undefined;
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', fundingDataEncryptionKey, iv);
+  const ciphertext = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `v1.${iv.toString('base64url')}.${tag.toString('base64url')}.${ciphertext.toString('base64url')}`;
+}
+
+function decryptFundingValue(value) {
+  const stored = String(value || '').trim();
+  if (!stored) return '';
+  if (!stored.startsWith('v1.')) return stored;
+  const [, ivPart, tagPart, ciphertextPart] = stored.split('.');
+  if (!ivPart || !tagPart || !ciphertextPart) return '';
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', fundingDataEncryptionKey, Buffer.from(ivPart, 'base64url'));
+    decipher.setAuthTag(Buffer.from(tagPart, 'base64url'));
+    return Buffer.concat([decipher.update(Buffer.from(ciphertextPart, 'base64url')), decipher.final()]).toString('utf8');
+  } catch {
+    return '';
+  }
+}
+
+function maskFundingAccountReference(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return undefined;
+  return `•••• ${digits.slice(-4)}`;
+}
+
+function normalizeFundingRequest(row, { includeSensitive = false } = {}) {
+  const accountHolder = decryptFundingValue(row.accountHolder ?? row.account_holder);
+  const accountReference = decryptFundingValue(row.accountReference ?? row.account_reference);
   return {
     id: row.id,
     userId: row.userId ?? row.user_id,
@@ -1510,8 +1594,10 @@ function normalizeFundingRequest(row) {
     kind: row.kind,
     method: row.method,
     bankName: row.bankName ?? row.bank_name ?? undefined,
-    accountHolder: row.accountHolder ?? row.account_holder ?? undefined,
-    accountReference: row.accountReference ?? row.account_reference ?? undefined,
+    // A complete account holder/name and number are supplied only to an
+    // authenticated administrator review. Client history remains masked.
+    accountHolder: includeSensitive ? accountHolder || undefined : undefined,
+    accountReference: includeSensitive ? accountReference || undefined : maskFundingAccountReference(accountReference),
     amountMyr: Number(row.amountMyr ?? row.amount_myr ?? 0),
     amountU: Number(row.amountU ?? row.amount_u ?? 0),
     rate: Number(row.rate ?? 0),
@@ -1531,10 +1617,10 @@ function normalizeFundingRequest(row) {
 async function findFundingRequest(id) {
   if (pool) {
     const result = await pool.query('SELECT * FROM ad88_funding_requests WHERE id = $1 LIMIT 1', [id]);
-    return result.rows[0] ? normalizeFundingRequest(result.rows[0]) : null;
+    return result.rows[0] ? normalizeFundingRequest(result.rows[0], { includeSensitive: true }) : null;
   }
   const request = memoryFundingRequests.get(id);
-  return request ? normalizeFundingRequest(request) : null;
+  return request ? normalizeFundingRequest(request, { includeSensitive: true }) : null;
 }
 
 async function listFundingRequests(session, admin = false) {
@@ -1542,16 +1628,21 @@ async function listFundingRequests(session, admin = false) {
     const result = admin
       ? await pool.query('SELECT * FROM ad88_funding_requests ORDER BY created_at DESC LIMIT 500')
       : await pool.query('SELECT * FROM ad88_funding_requests WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100', [session.sub]);
-    return result.rows.map(normalizeFundingRequest);
+    return result.rows.map((row) => normalizeFundingRequest(row, { includeSensitive: admin }));
   }
   return [...memoryFundingRequests.values()]
     .filter((item) => admin || item.userId === session.sub)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, admin ? 500 : 100)
-    .map(normalizeFundingRequest);
+    .map((row) => normalizeFundingRequest(row, { includeSensitive: admin }));
 }
 
 async function saveFundingRequest(request) {
+  const storedRequest = {
+    ...request,
+    accountHolder: encryptFundingValue(request.accountHolder),
+    accountReference: encryptFundingValue(request.accountReference),
+  };
   if (pool) {
     await pool.query(
       `INSERT INTO ad88_funding_requests (
@@ -1560,17 +1651,17 @@ async function saveFundingRequest(request) {
         reviewed_at,reviewer,reviewer_note,support_required,ledger_entry_id
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
       [
-        request.id, request.userId, request.userName, request.email, request.kind, request.method,
-        request.bankName ?? null, request.accountHolder ?? null, request.accountReference ?? null,
-        request.amountMyr, request.amountU, request.rate, request.baseRate, request.rateSource,
-        request.rateUpdatedAt, request.status, request.createdAt, request.reviewedAt ?? null,
-        request.reviewer ?? null, request.reviewerNote ?? null, Boolean(request.supportRequired), request.ledgerEntryId ?? null,
+        storedRequest.id, storedRequest.userId, storedRequest.userName, storedRequest.email, storedRequest.kind, storedRequest.method,
+        storedRequest.bankName ?? null, storedRequest.accountHolder ?? null, storedRequest.accountReference ?? null,
+        storedRequest.amountMyr, storedRequest.amountU, storedRequest.rate, storedRequest.baseRate, storedRequest.rateSource,
+        storedRequest.rateUpdatedAt, storedRequest.status, storedRequest.createdAt, storedRequest.reviewedAt ?? null,
+        storedRequest.reviewer ?? null, storedRequest.reviewerNote ?? null, Boolean(storedRequest.supportRequired), storedRequest.ledgerEntryId ?? null,
       ],
     );
   } else {
-    memoryFundingRequests.set(request.id, { ...request });
+    memoryFundingRequests.set(storedRequest.id, storedRequest);
   }
-  return normalizeFundingRequest(request);
+  return normalizeFundingRequest(storedRequest);
 }
 
 async function updateFundingRequest(id, fields) {
@@ -1585,9 +1676,72 @@ async function updateFundingRequest(id, fields) {
       [next.id, next.status, next.reviewedAt ?? null, next.reviewer ?? null, next.reviewerNote ?? null, next.ledgerEntryId ?? null],
     );
   } else {
-    memoryFundingRequests.set(next.id, next);
+    memoryFundingRequests.set(next.id, {
+      ...next,
+      accountHolder: encryptFundingValue(next.accountHolder),
+      accountReference: encryptFundingValue(next.accountReference),
+    });
   }
   return normalizeFundingRequest(next);
+}
+
+async function deleteCompletedFundingRequest(id) {
+  const request = await findFundingRequest(id);
+  if (!request) return { error: 'funding request not found', status: 404 };
+  if (request.status === 'pending') return { error: 'pending funding requests cannot be deleted', status: 409 };
+  if (pool) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM ad88_funding_requests WHERE id = $1 AND status <> $2', [id, 'pending']);
+      if (request.ledgerEntryId) await client.query('DELETE FROM ad88_ledger_entries WHERE id = $1', [request.ledgerEntryId]);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  } else {
+    memoryFundingRequests.delete(id);
+    if (request.ledgerEntryId) {
+      const ledgerIndex = memoryLedgerEntries.findIndex((entry) => entry.id === request.ledgerEntryId);
+      if (ledgerIndex >= 0) memoryLedgerEntries.splice(ledgerIndex, 1);
+    }
+  }
+  return { deleted: true };
+}
+
+async function clearCompletedFundingHistory(kind) {
+  const normalizedKind = kind === 'deposit' || kind === 'withdraw' ? kind : undefined;
+  if (pool) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        'DELETE FROM ad88_funding_requests WHERE status <> $1 AND ($2::text IS NULL OR kind = $2) RETURNING ledger_entry_id',
+        ['pending', normalizedKind ?? null],
+      );
+      const ledgerIds = result.rows.map((row) => row.ledger_entry_id).filter(Boolean);
+      if (ledgerIds.length) await client.query('DELETE FROM ad88_ledger_entries WHERE id = ANY($1::text[])', [ledgerIds]);
+      await client.query('COMMIT');
+      return { deleted: result.rowCount || 0 };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  const completed = [...memoryFundingRequests.values()]
+    .map((item) => normalizeFundingRequest(item, { includeSensitive: true }))
+    .filter((item) => item.status !== 'pending' && (!normalizedKind || item.kind === normalizedKind));
+  const ledgerIds = new Set(completed.map((item) => item.ledgerEntryId).filter(Boolean));
+  completed.forEach((item) => memoryFundingRequests.delete(item.id));
+  for (let index = memoryLedgerEntries.length - 1; index >= 0; index -= 1) {
+    if (ledgerIds.has(memoryLedgerEntries[index].id)) memoryLedgerEntries.splice(index, 1);
+  }
+  return { deleted: completed.length };
 }
 
 function fundingMethodLabel(request) {
@@ -1641,8 +1795,9 @@ async function createPaperFundingRequest(session, input) {
   const bankName = method === 'bank' ? sanitizeFundingText(input.bankName, 60) : undefined;
   if (method === 'bank' && !fundingBankOptions.has(bankName)) return { error: 'invalid bank method', status: 400 };
   const accountHolder = sanitizeFundingText(input.accountHolder, 80) || undefined;
-  const referenceDigits = String(input.accountReference || '').replace(/\D/g, '').slice(-4);
-  const accountReference = referenceDigits ? `•••• ${referenceDigits}` : undefined;
+  const accountReference = String(input.accountReference || '').replace(/\D/g, '').slice(0, 24) || undefined;
+  if (kind === 'withdraw' && (!accountHolder || accountHolder.length < 2)) return { error: 'a full account holder name is required for withdrawal review', status: 400 };
+  if (kind === 'withdraw' && (!accountReference || accountReference.length < 7)) return { error: 'a complete account number is required for withdrawal review', status: 400 };
   const rateSnapshot = await getFundingRate();
   const rate = kind === 'deposit' ? rateSnapshot.depositRate : rateSnapshot.withdrawalRate;
   const rawAmount = kind === 'deposit' ? Number(input.amountMyr) : Number(input.amountU);
@@ -1653,13 +1808,14 @@ async function createPaperFundingRequest(session, input) {
   const amountU = kind === 'deposit'
     ? roundFundingAmount(rawAmount / rate, 4)
     : roundFundingAmount(rawAmount, 4);
-  if (amountMyr < 1 || amountU <= 0) return { error: 'funding amount is below the paper-review minimum', status: 400 };
+  if (kind === 'deposit' && amountMyr < 100) return { error: 'minimum deposit is MYR 100', status: 400 };
+  if (kind === 'withdraw' && amountU < 25) return { error: 'minimum withdrawal is 25 U', status: 400 };
 
   let withdrawalReserved = false;
   let account;
   if (kind === 'withdraw') {
     account = await getOrCreateCreditAccount(session);
-    if (account.available + 0.000001 < amountU) return { error: 'insufficient available paper U for withdrawal review', status: 409, creditAccount: account };
+    if (account.available + 0.000001 < amountU) return { error: 'insufficient available U for withdrawal review', status: 409, creditAccount: account };
     await updateCreditAccount({
       ...account,
       available: roundFundingAmount(account.available - amountU, 2),
@@ -1748,7 +1904,7 @@ async function reviewPaperFundingRequest(session, id, approved, reviewerNote) {
     `${action} review ${approved ? 'approved' : 'rejected'}`,
     `${request.amountU.toFixed(2)} U · MYR ${request.amountMyr.toFixed(2)} · ${fundingMethodLabel(request)}.`,
     approved ? 'success' : 'warning',
-    '/app/ledger',
+    '/app/funding',
   );
   return { request: reviewed };
 }
@@ -1771,11 +1927,21 @@ async function handleAdminFunding(req, res, requestUrl) {
   const session = requireSession(req, res, 'admin');
   if (!session) return true;
   if (req.method === 'GET' && requestUrl.pathname === '/api/admin/funding/requests') return sendJson(res, 200, await listFundingRequests(session, true));
+  if (req.method === 'DELETE' && requestUrl.pathname === '/api/admin/funding/requests/history') {
+    const requestedKind = requestUrl.searchParams.get('kind');
+    if (requestedKind && requestedKind !== 'deposit' && requestedKind !== 'withdraw') return sendJson(res, 400, { error: 'invalid funding history type' });
+    return sendJson(res, 200, await clearCompletedFundingHistory(requestedKind));
+  }
   const match = requestUrl.pathname.match(/^\/api\/admin\/funding\/requests\/([^/]+)\/(approve|reject)$/);
   if (req.method === 'POST' && match) {
     const input = await readBody(req);
     const result = await reviewPaperFundingRequest(session, match[1], match[2] === 'approve', input.reviewerNote);
     return result.error ? sendJson(res, result.status || 400, result) : sendJson(res, 200, result.request);
+  }
+  const deleteMatch = requestUrl.pathname.match(/^\/api\/admin\/funding\/requests\/([^/]+)$/);
+  if (req.method === 'DELETE' && deleteMatch) {
+    const result = await deleteCompletedFundingRequest(deleteMatch[1]);
+    return result.error ? sendJson(res, result.status || 400, result) : sendJson(res, 200, result);
   }
   return sendJson(res, 404, { error: 'admin funding route not found' });
 }

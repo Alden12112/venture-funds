@@ -13,6 +13,7 @@ import {
   BadgeCheck,
   Headphones,
   Languages,
+  Landmark,
   MoreHorizontal,
 } from 'lucide-react';
 import { brand, shellLinks } from '@/data/brand';
@@ -32,6 +33,7 @@ const iconMap = {
   BellRing: Bell,
   Settings2: SunMedium,
   ShieldCheck: BadgeCheck,
+  Landmark,
 };
 
 const navKeyByPath: Record<string, TranslationKey> = {
@@ -40,6 +42,7 @@ const navKeyByPath: Record<string, TranslationKey> = {
   '/app/news': 'nav.news',
   '/app/support': 'nav.support',
   '/app/ledger': 'nav.ledger',
+  '/app/funding': 'nav.funding',
   '/app/notifications': 'nav.notifications',
   '/app/settings': 'nav.settings',
 };

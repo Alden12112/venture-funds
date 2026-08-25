@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, CheckCircle2, ShieldCheck, Smartphone, Mail, Languages } from 'lucide-react';
+import { ArrowRight, CheckCircle2, ShieldCheck, Smartphone, Mail, Languages, RefreshCw } from 'lucide-react';
 import { authModes } from '@/data/navigation';
 import { brand } from '@/data/brand';
 import { useAuth } from '@/context/auth-context';
@@ -18,6 +18,9 @@ export function AuthPage() {
   const [delivery, setDelivery] = useState<'email' | 'phone'>('email');
   const [status, setStatus] = useState<string>('');
   const [statusKind, setStatusKind] = useState<'success' | 'error'>('success');
+  const [registrationChallenge, setRegistrationChallenge] = useState<{ challengeId: string; prompt: string } | null>(null);
+  const [challengeAnswer, setChallengeAnswer] = useState('');
+  const [challengeLoading, setChallengeLoading] = useState(false);
   const [form, setForm] = useState({
     name: '',
     identifier: '',
@@ -43,6 +46,27 @@ export function AuthPage() {
   const currentMode = useMemo(() => {
     return authModes.find((item) => item.key === mode)?.key ?? 'login';
   }, [mode]);
+
+  const loadRegistrationChallenge = async () => {
+    setChallengeLoading(true);
+    try {
+      const challenge = await apiFetch<{ challengeId: string; prompt: string }>('/api/auth/registration-challenge');
+      setRegistrationChallenge(challenge);
+      setChallengeAnswer('');
+    } catch {
+      setRegistrationChallenge(null);
+    } finally {
+      setChallengeLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentMode === 'register') void loadRegistrationChallenge();
+    else {
+      setRegistrationChallenge(null);
+      setChallengeAnswer('');
+    }
+  }, [currentMode]);
 
   if (session) {
     return <Navigate to="/app/dashboard" replace />;
@@ -72,8 +96,12 @@ export function AuthPage() {
     }
 
     if (currentMode === 'register') {
-      if (!form.name.trim() || !form.gmail.trim() || !form.phone.trim() || !form.country.trim() || !form.password || !form.confirm) {
+      if (!form.name.trim() || !form.gmail.trim() || !form.phone.trim() || !form.country.trim() || !form.password || !form.confirm || !challengeAnswer.trim()) {
         setError('auth.errorRequired');
+        return;
+      }
+      if (!registrationChallenge) {
+        setError('auth.challengeUnavailable');
         return;
       }
       if (!isValidEmail(form.gmail)) {
@@ -101,12 +129,16 @@ export function AuthPage() {
             phone: buildInternationalPhone(selectedCountry, form.phone),
             country: selectedCountry.name,
             password: form.password,
+            challengeId: registrationChallenge.challengeId,
+            challengeAnswer,
           }),
         });
         setSuccess('auth.accountCreated');
         return;
       } catch (error) {
-        setError(error instanceof Error ? error.message : 'auth.registrationFailed');
+        const message = error instanceof Error ? error.message : 'auth.registrationFailed';
+        setError(message === 'registration challenge failed' ? 'auth.challengeFailed' : message);
+        void loadRegistrationChallenge();
         return;
       }
     }
@@ -237,6 +269,15 @@ export function AuthPage() {
                   <select required value={form.country} onChange={(event) => setCountry(event.target.value)}>
                     {countryDirectory.map((country) => <option key={`${country.code}-${country.name}`} value={country.name}>{country.name} (+{country.dialCode})</option>)}
                   </select>
+                </label>
+                <label className="field auth-challenge">
+                  <span>{t('auth.humanCheck')}</span>
+                  <div className="field-row">
+                    <span className="auth-challenge__prompt">{challengeLoading ? t('auth.challengeLoading') : registrationChallenge?.prompt ?? t('auth.challengeUnavailable')}</span>
+                    <input required inputMode="numeric" maxLength={3} value={challengeAnswer} placeholder={t('auth.challengeAnswer')} onChange={(event) => setChallengeAnswer(event.target.value.replace(/[^\d-]/g, '').slice(0, 3))} />
+                    <button type="button" className="btn btn--ghost btn--sm" onClick={() => void loadRegistrationChallenge()} disabled={challengeLoading} aria-label={t('auth.challengeRefresh')}><RefreshCw size={15} />{t('auth.challengeRefresh')}</button>
+                  </div>
+                  <small className="field-hint">{t('auth.validationNotice')}</small>
                 </label>
               </>
             ) : null}

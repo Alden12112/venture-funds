@@ -18,7 +18,7 @@ interface AuthContextValue {
   ready: boolean;
   signIn: (input: { id?: string; name: string; email: string; phone?: string; country?: string; role?: SessionRole; tradingScore?: number; token?: string }) => void;
   signOut: () => void;
-  updateProfile: (patch: Partial<Pick<UserProfile, 'name' | 'email' | 'phone' | 'country' | 'tier'>>) => void;
+  updateProfile: (patch: Partial<Pick<UserProfile, 'name' | 'email' | 'phone' | 'country'>>) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -126,7 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           role: next.role,
           status: current?.status ?? 'active',
           joinedAt: current?.joinedAt ?? new Date().toISOString(),
-          tier: current?.tier ?? 'Core',
+          tier: current?.tier === 'Core' || !current?.tier ? 'Professional' : current.tier,
           tradingScore: next.tradingScore,
         }));
         if (input.token) setAuthToken(input.token);
@@ -147,7 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             role: current?.role ?? 'user',
             status: current?.status ?? 'active',
             joinedAt: current?.joinedAt ?? new Date().toISOString(),
-            tier: patch.tier ?? current?.tier ?? 'Core',
+            tier: current?.tier === 'Core' || !current?.tier ? 'Professional' : current.tier,
             tradingScore: current?.tradingScore ?? 0,
           };
           return next;

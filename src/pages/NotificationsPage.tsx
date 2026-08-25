@@ -96,7 +96,7 @@ export function NotificationsPage() {
   const targetFor = (item: NotificationItem) => {
     if (item.targetPath) return item.targetPath;
     if (item.category === 'market') return '/app/market';
-    if (item.category === 'fund') return '/app/ledger';
+    if (item.category === 'fund') return '/app/funding';
     if (item.category === 'task') return '/app/news';
     return '/app/settings';
   };

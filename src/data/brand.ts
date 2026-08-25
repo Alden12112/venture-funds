@@ -4,7 +4,7 @@ import { BarChart3, BellRing, BriefcaseBusiness, FileClock, Headphones, Landmark
 export const brand = {
   name: 'AD88',
   english: 'AD88 Markets',
-  claim: 'A clear market operating system for research, paper execution, risk controls and account oversight.',
+  claim: 'A clear market operating system for research, execution safeguards, risk controls and account oversight.',
   preview: 'Institutional market operating system',
 };
 
@@ -14,6 +14,7 @@ export const shellLinks: ShellLink[] = [
   { to: '/app/news', label: 'Research', icon: 'Newspaper' },
   { to: '/app/support', label: 'Client Support', icon: 'Headphones' },
   { to: '/app/ledger', label: 'Activity', icon: 'FileClock' },
+  { to: '/app/funding', label: 'Funding', icon: 'Landmark' },
   { to: '/app/notifications', label: 'Alerts', icon: 'BellRing' },
   { to: '/app/settings', label: 'Settings', icon: 'Settings2' },
 ];
@@ -21,7 +22,7 @@ export const shellLinks: ShellLink[] = [
 export const brandMarkers = [
   {
     title: 'Market intelligence',
-    text: 'Prices, risk budget and paper positions in one disciplined view.',
+    text: 'Prices, risk budget and positions in one disciplined view.',
     icon: Landmark,
   },
   {

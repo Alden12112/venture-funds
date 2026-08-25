@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent, type WheelEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type WheelEvent } from 'react';
 import type { Candle } from '@/types';
 import { useElementSize } from '@/lib/useElementSize';
 import { formatNumber, getUiLocale } from '@/lib/format';
@@ -60,6 +60,14 @@ export function CandleChart({
   const [pendingPoint, setPendingPoint] = useState<[number, number] | null>(null);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState(0);
+  const [chartNode, setChartNode] = useState<SVGSVGElement | null>(null);
+  const zoomRef = useRef(1);
+  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
+  const setBoundedZoom = useCallback((next: number) => {
+    const normalized = Math.max(1, Math.min(6, Number(next.toFixed(1))));
+    zoomRef.current = normalized;
+    setZoom(normalized);
+  }, []);
   const width = Math.max(size.width, 320);
   const height = Math.max(size.height, 320);
   const displayCandles = useMemo(() => {
@@ -111,6 +119,36 @@ export function CandleChart({
     return { points, candles: visibleCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, latestCloseY: latest?.close ?? height / 2, timeTicks };
   }, [displayCandles, height, language, maxOffset, offset, visibleCandleCount, width]);
 
+  useEffect(() => {
+    if (!chartNode) return undefined;
+    const touchDistance = (first: Touch, second: Touch) => Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+    const startPinch = (event: TouchEvent) => {
+      if (event.touches.length !== 2) return;
+      pinchRef.current = { distance: touchDistance(event.touches[0], event.touches[1]), zoom: zoomRef.current };
+    };
+    const movePinch = (event: TouchEvent) => {
+      if (event.touches.length !== 2) return;
+      const origin = pinchRef.current ?? { distance: touchDistance(event.touches[0], event.touches[1]), zoom: zoomRef.current };
+      pinchRef.current = origin;
+      if (!origin.distance) return;
+      // Do not consume one-finger gestures: vertical page scrolling stays
+      // native on mobile. Only an intentional two-finger gesture zooms chart.
+      event.preventDefault();
+      setBoundedZoom(origin.zoom * (touchDistance(event.touches[0], event.touches[1]) / origin.distance));
+    };
+    const endPinch = () => { pinchRef.current = null; };
+    chartNode.addEventListener('touchstart', startPinch, { passive: true });
+    chartNode.addEventListener('touchmove', movePinch, { passive: false });
+    chartNode.addEventListener('touchend', endPinch, { passive: true });
+    chartNode.addEventListener('touchcancel', endPinch, { passive: true });
+    return () => {
+      chartNode.removeEventListener('touchstart', startPinch);
+      chartNode.removeEventListener('touchmove', movePinch);
+      chartNode.removeEventListener('touchend', endPinch);
+      chartNode.removeEventListener('touchcancel', endPinch);
+    };
+  }, [chartNode, setBoundedZoom]);
+
   if (!chart) {
     return <div className="chart-empty">{t('chart.insufficient')}</div>;
   }
@@ -140,11 +178,15 @@ export function CandleChart({
   };
 
   const changeZoom = (direction: 1 | -1) => {
-    setZoom((current) => Math.max(1, Math.min(6, Number((current + direction * 0.5).toFixed(1)))));
+    setBoundedZoom(zoomRef.current + direction * 0.5);
   };
 
   const handleWheel = (event: WheelEvent<SVGSVGElement>) => {
+    // The chart takes ownership of a desktop wheel only while the pointer is
+    // directly above it. Navigation and every other page region keep normal
+    // browser scrolling.
     event.preventDefault();
+    event.stopPropagation();
     changeZoom(event.deltaY < 0 ? 1 : -1);
   };
 
@@ -159,9 +201,9 @@ export function CandleChart({
         <button type="button" onClick={() => changeZoom(-1)} disabled={zoom <= 1} aria-label={t('chart.zoomOut')}>−</button>
         <span>{Math.round(zoom * 100)}%</span>
         <button type="button" onClick={() => changeZoom(1)} disabled={zoom >= 6} aria-label={t('chart.zoomIn')}>＋</button>
-        <button type="button" onClick={() => { setOffset(0); setZoom(1); }} aria-label={t('chart.latest')}>{t('chart.latest')}</button>
+        <button type="button" onClick={() => { setOffset(0); setBoundedZoom(1); }} aria-label={t('chart.latest')}>{t('chart.latest')}</button>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className={`chart chart--candle chart--draw-${drawTool}`} role="img" aria-label={t('chart.candlestick')} onClick={handleChartClick} onWheel={handleWheel} onDoubleClick={() => { setOffset(0); setZoom(1); }}>
+      <svg ref={setChartNode} viewBox={`0 0 ${width} ${height}`} className={`chart chart--candle chart--draw-${drawTool}`} role="img" aria-label={t('chart.candlestick')} onClick={handleChartClick} onWheel={handleWheel} onDoubleClick={() => { setOffset(0); setBoundedZoom(1); }}>
         <defs>
           <linearGradient id="candleGlow" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor="currentColor" stopOpacity="0.16" />

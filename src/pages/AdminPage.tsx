@@ -15,7 +15,7 @@ import { isValidEmail } from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
 import { SupportCenter } from '@/components/SupportCenter';
 import { labelCountry, labelNewsCategory, labelNewsSentiment } from '@/lib/news-labels';
-import { reviewFundingRequest } from '@/lib/funding';
+import { clearFundingHistory, deleteFundingHistoryItem, reviewFundingRequest } from '@/lib/funding';
 import type { FundingRequest } from '@/types';
 
 const tabs = ['Accounts', 'Registration Review', 'Deposit Review', 'Withdrawal Review', 'U Management', 'Monthly Report', 'Trade Audit', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
@@ -59,12 +59,16 @@ function FundingReviewPanel({
   requests,
   t,
   onReview,
+  onDelete,
+  onClearHistory,
   message,
 }: {
   kind: 'deposit' | 'withdraw';
   requests: FundingRequest[];
   t: (key: string) => string;
   onReview: (id: string, action: 'approve' | 'reject') => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+  onClearHistory: (kind: 'deposit' | 'withdraw') => Promise<void>;
   message: string;
 }) {
   const queue = requests.filter((request) => request.status === 'pending');
@@ -80,13 +84,13 @@ function FundingReviewPanel({
         <div className="panel__head"><div><span className="eyebrow">{kind === 'deposit' ? t('funding.deposit') : t('funding.withdraw')}</span><h2>{title}</h2><p>{t('admin.fundingReviewHint')}</p></div><StatusPill tone={queue.length ? 'warning' : 'muted'}>{queue.length} {t('admin.pending')}</StatusPill></div>
         {message ? <div className={`notice-banner ${message === t('admin.fundingReviewFailed') ? 'notice-banner--error' : ''}`}>{message}</div> : null}
         <div className="table-wrap"><table className="table table--interactive funding-admin-table"><thead><tr><th>{t('admin.requester')}</th><th>{t('admin.fundingMethod')}</th><th className="text-end">{t('admin.myrValue')}</th><th className="text-end">{t('admin.paperUValue')}</th><th>{t('admin.fundingRate')}</th><th>{t('admin.submitted')}</th><th>{t('admin.action')}</th></tr></thead><tbody>
-          {queue.length ? queue.map((request) => <tr key={request.id}><td><strong>{request.userName}</strong><div className="text-small text-muted">{request.email}</div>{request.accountReference ? <div className="text-small text-muted">{request.accountReference}</div> : null}</td><td>{methodLabel(request)}<div className="text-small text-muted">{request.supportRequired ? t('funding.supportReview') : t('funding.directReview')}</div></td><td className="text-end">{formatCurrency(request.amountMyr, 'MYR')}</td><td className="text-end"><strong>{request.amountU.toFixed(4)} U</strong></td><td>RM {request.rate.toFixed(4)} / U</td><td>{formatDateTime(request.createdAt)}</td><td><div className="admin-funding-actions"><button type="button" className="btn btn--primary btn--sm" onClick={() => void onReview(request.id, 'approve')}>{t('admin.approve')}</button><button type="button" className="btn btn--danger btn--sm" onClick={() => void onReview(request.id, 'reject')}>{t('admin.reject')}</button></div></td></tr>) : <tr><td colSpan={7}><div className="empty-inline"><span>{empty}</span></div></td></tr>}
+          {queue.length ? queue.map((request) => <tr key={request.id}><td><strong>{request.userName}</strong><div className="text-small text-muted">{request.email}</div>{request.accountHolder ? <div className="text-small text-muted">{t('funding.accountHolder')}: {request.accountHolder}</div> : null}{request.accountReference ? <div className="text-small text-muted">{t('funding.accountNumber')}: {request.accountReference}</div> : null}</td><td>{methodLabel(request)}<div className="text-small text-muted">{request.supportRequired ? t('funding.supportReview') : t('funding.directReview')}</div></td><td className="text-end">{formatCurrency(request.amountMyr, 'MYR')}</td><td className="text-end"><strong>{request.amountU.toFixed(4)} U</strong></td><td>RM {request.rate.toFixed(4)} / U</td><td>{formatDateTime(request.createdAt)}</td><td><div className="admin-funding-actions"><button type="button" className="btn btn--primary btn--sm" onClick={() => void onReview(request.id, 'approve')}>{t('admin.approve')}</button><button type="button" className="btn btn--danger btn--sm" onClick={() => void onReview(request.id, 'reject')}>{t('admin.reject')}</button></div></td></tr>) : <tr><td colSpan={7}><div className="empty-inline"><span>{empty}</span></div></td></tr>}
         </tbody></table></div>
       </article>
       <article className="panel">
-        <div className="panel__head"><div><h2>{t('admin.fundingHistory')}</h2><p>{t('admin.fundingHistoryHint')}</p></div><StatusPill tone={history.length ? 'info' : 'muted'}>{history.length} {t('admin.records')}</StatusPill></div>
-        <div className="stack-list">
-          {history.length ? history.map((request) => <div key={request.id} className="stack-list__row"><div><strong>{request.email}</strong><span>{methodLabel(request)} · {formatCurrency(request.amountMyr, 'MYR')} · {request.amountU.toFixed(4)} U</span><span>{request.reviewer ? `${t('admin.reviewedBy')}: ${request.reviewer}` : t('admin.review')}</span></div><div className="stack-list__meta"><StatusPill tone={request.status === 'approved' ? 'success' : 'critical'}>{statusLabel(request.status)}</StatusPill><span>{formatDateTime(request.reviewedAt ?? request.createdAt)}</span></div></div>) : <div className="state-block"><strong>{t('admin.fundingHistory')}</strong><p>{t('admin.fundingHistoryHint')}</p></div>}
+        <div className="panel__head"><div><h2>{t('admin.fundingHistory')}</h2><p>{t('admin.fundingHistoryHint')}</p></div><div className="history-actions"><StatusPill tone={history.length ? 'info' : 'muted'}>{history.length} {t('admin.records')}</StatusPill><button type="button" className="btn btn--danger btn--sm" disabled={!history.length} onClick={() => void onClearHistory(kind)}><Trash2 size={14} />{t('admin.clearFundingHistory')}</button></div></div>
+        <div className="stack-list funding-history-scroll funding-history-scroll--stack" tabIndex={0}>
+          {history.length ? history.map((request) => <div key={request.id} className="stack-list__row"><div><strong>{request.email}</strong><span>{methodLabel(request)} · {formatCurrency(request.amountMyr, 'MYR')} · {request.amountU.toFixed(4)} U</span>{request.accountHolder ? <span>{t('funding.accountHolder')}: {request.accountHolder}</span> : null}{request.accountReference ? <span>{t('funding.accountNumber')}: {request.accountReference}</span> : null}<span>{request.reviewer ? `${t('admin.reviewedBy')}: ${request.reviewer}` : t('admin.review')}</span></div><div className="stack-list__meta"><StatusPill tone={request.status === 'approved' ? 'success' : 'critical'}>{statusLabel(request.status)}</StatusPill><span>{formatDateTime(request.reviewedAt ?? request.createdAt)}</span><button type="button" className="btn btn--ghost btn--sm" onClick={() => void onDelete(request.id)}><Trash2 size={14} />{t('admin.delete')}</button></div></div>) : <div className="state-block"><strong>{t('admin.fundingHistory')}</strong><p>{t('admin.fundingHistoryHint')}</p></div>}
         </div>
       </article>
     </section>
@@ -290,6 +294,29 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       setRefreshKey((value) => value + 1);
     } catch (error) {
       setFundingMessage(error instanceof Error ? error.message : t('admin.fundingReviewFailed'));
+    }
+  };
+
+  const deleteFundingHistory = async (id: string) => {
+    if (!window.confirm(t('admin.deleteFundingConfirm'))) return;
+    try {
+      await deleteFundingHistoryItem(id);
+      setFundingMessage(t('admin.fundingHistoryDeleted'));
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setFundingMessage(error instanceof Error ? error.message : t('admin.fundingHistoryDeleteFailed'));
+    }
+  };
+
+  const clearFundingHistoryForKind = async (kind: 'deposit' | 'withdraw') => {
+    if (!window.confirm(t('admin.clearFundingHistoryConfirm'))) return;
+    if (!window.confirm(t('admin.clearFundingHistoryConfirmAgain'))) return;
+    try {
+      const result = await clearFundingHistory(kind);
+      setFundingMessage(t('admin.fundingHistoryCleared').replace('{count}', String(result.deleted)));
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setFundingMessage(error instanceof Error ? error.message : t('admin.fundingHistoryDeleteFailed'));
     }
   };
 
@@ -508,6 +535,8 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
           requests={visibleFundingRequests.filter((request) => request.kind === 'deposit')}
           t={t}
           onReview={reviewFunding}
+          onDelete={deleteFundingHistory}
+          onClearHistory={clearFundingHistoryForKind}
           message={fundingMessage}
         />
       ) : null}
@@ -518,6 +547,8 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
           requests={visibleFundingRequests.filter((request) => request.kind === 'withdraw')}
           t={t}
           onReview={reviewFunding}
+          onDelete={deleteFundingHistory}
+          onClearHistory={clearFundingHistoryForKind}
           message={fundingMessage}
         />
       ) : null}

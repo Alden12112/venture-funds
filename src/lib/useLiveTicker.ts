@@ -146,7 +146,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
   const displayPricesRef = useRef<PriceMap>(fallbackPrices);
   const displayBidsRef = useRef<PriceMap>({});
   const displayAsksRef = useRef<PriceMap>({});
-  const smoothingTimerRef = useRef<number | null>(null);
+  const smoothingFrameRef = useRef<number | null>(null);
   const directionsRef = useRef<DirectionMap>({});
   const inFlight = useRef(false);
   const symbolsKey = useMemo(
@@ -162,7 +162,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
   }, [fallbackPrices]);
 
   useEffect(() => () => {
-    if (smoothingTimerRef.current != null) window.clearTimeout(smoothingTimerRef.current);
+    if (smoothingFrameRef.current != null) window.cancelAnimationFrame(smoothingFrameRef.current);
   }, []);
 
   const applyQuoteBatch = (fresh: Array<{
@@ -204,7 +204,7 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
     const fromAsks = { ...displayAsksRef.current };
     const epsilon = (value: number) => Math.max(Math.abs(value) * 1e-10, 1e-7);
     const needsMotion = fresh.some((quote) => Math.abs((fromPrices[quote.symbol] ?? quote.price) - quote.price) > epsilon(quote.price));
-    if (smoothingTimerRef.current != null) window.clearTimeout(smoothingTimerRef.current);
+    if (smoothingFrameRef.current != null) window.cancelAnimationFrame(smoothingFrameRef.current);
 
     const publishFrame = (progress: number) => {
       const eased = 1 - Math.pow(1 - progress, 2);
@@ -233,16 +233,23 @@ export function useIndicativeQuotePulse(symbols: string[], fallbackPrices: Price
 
     if (!needsMotion) {
       publishFrame(1);
-      smoothingTimerRef.current = null;
+      smoothingFrameRef.current = null;
       return;
     }
     const startedAt = Date.now();
-    const durationMs = 1_700;
+    // Every in-between frame remains on the straight path between two
+    // verified upstream snapshots. This makes metals, energy and FX appear
+    // continuous without generating an invented price or overshooting a tick.
+    const largestRelativeMove = fresh.reduce((largest, quote) => {
+      const start = fromPrices[quote.symbol] ?? quote.price;
+      return Math.max(largest, Math.abs(quote.price - start) / Math.max(Math.abs(start), 1e-9));
+    }, 0);
+    const durationMs = largestRelativeMove < 0.00008 ? 1_450 : Math.min(1_850, Math.max(1_100, 1_250 + largestRelativeMove * 180_000));
     const tick = () => {
       const progress = Math.min(1, (Date.now() - startedAt) / durationMs);
       publishFrame(progress);
-      if (progress < 1) smoothingTimerRef.current = window.setTimeout(tick, 120);
-      else smoothingTimerRef.current = null;
+      if (progress < 1) smoothingFrameRef.current = window.requestAnimationFrame(tick);
+      else smoothingFrameRef.current = null;
     };
     tick();
   };

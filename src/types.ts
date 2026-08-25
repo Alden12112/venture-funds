@@ -154,15 +154,15 @@ export interface LedgerBundle {
 }
 
 /**
- * Funding is deliberately limited to a paper-account review workflow. It is
- * not a banking, wallet, settlement, or payout instruction.
+ * Funding requests are retained for internal review only. They are not a
+ * banking, wallet, settlement, or payout instruction.
  */
 export type FundingKind = 'deposit' | 'withdraw';
 
 export type FundingMethod = 'tng' | 'bank';
 
 export interface FundingRate {
-  /** MYR per 1 paper U before the funding-side adjustment. */
+  /** MYR per 1 U before the review-side adjustment. */
   baseRate: number;
   /** Deposit quote: base MYR/U + 0.05. */
   depositRate: number;
@@ -181,9 +181,9 @@ export interface FundingRequest {
   kind: FundingKind;
   method: FundingMethod;
   bankName?: string;
-  /** Optional display-only holder name for a sandbox review. */
+  /** Complete holder name is restricted to administrator review responses. */
   accountHolder?: string;
-  /** A masked account / wallet reference only; never a full bank credential. */
+  /** Full reference is restricted to administrator review responses; client responses are masked. */
   accountReference?: string;
   amountMyr: number;
   amountU: number;
