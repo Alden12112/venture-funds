@@ -174,22 +174,6 @@ export async function createRemoteCreditRequest(identity: CreditIdentity, amount
   return request;
 }
 
-export async function reserveRemoteMargin(amount: number) {
-  try {
-    return await apiFetch<CreditAccount>('/api/credits/reserve', { method: 'POST', body: JSON.stringify({ amount }) });
-  } catch {
-    return null;
-  }
-}
-
-export async function settleRemoteMargin(amount: number, pnl: number) {
-  try {
-    return await apiFetch<CreditAccount>('/api/credits/settle', { method: 'POST', body: JSON.stringify({ amount, pnl }) });
-  } catch {
-    return null;
-  }
-}
-
 export async function loadRemoteAdminCredits() {
   const [accounts, requests] = await Promise.all([
     apiFetch<CreditAccount[]>('/api/admin/credits/accounts'),

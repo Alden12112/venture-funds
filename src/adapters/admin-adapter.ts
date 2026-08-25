@@ -1,7 +1,8 @@
-import type { AdminBundle, BlacklistEntry, LedgerBundle, PaperPosition, RegisteredUser, TradeAuditEvent, UserProfile } from '@/types';
+import type { AdminBundle, BlacklistEntry, FundingRequest, LedgerBundle, PaperPosition, RegisteredUser, TradeAuditEvent, UserProfile } from '@/types';
 import { loadLedgerBundle } from '@/adapters/ledger-adapter';
 import { loadRemoteAdminCredits } from '@/lib/credits';
 import { apiFetch } from '@/lib/api';
+import { loadAdminFundingRequests } from '@/lib/funding';
 
 function delay<T>(value: T, ms = 180): Promise<T> {
   return new Promise((resolve) => {
@@ -42,11 +43,13 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
   const emptyMarketStatus: AdminBundle['marketStatus'] = {
     status: 'offline', quoteCount: 0, ageSeconds: null, cacheSeconds: 8,
   };
-  const [remoteState, tradeEvents, ledger, remoteCredits, blacklist, notifications, marketStatus] = await Promise.all([
+  const emptyFundingRequests: FundingRequest[] = [];
+  const [remoteState, tradeEvents, ledger, remoteCredits, fundingRequests, blacklist, notifications, marketStatus] = await Promise.all([
     safe('workspace', () => apiFetch<{ paperPositions?: PaperPosition[] }>('/api/sync?scope=all'), {}),
     safe('trades', () => apiFetch<TradeAuditEvent[]>('/api/admin/trades'), []),
     safe('ledger', () => loadLedgerBundle('all'), emptyLedger),
     safe('credits', () => loadRemoteAdminCredits(), { accounts: [], requests: [] }),
+    safe('funding', () => loadAdminFundingRequests(), emptyFundingRequests),
     safe('blacklist', () => apiFetch<BlacklistEntry[]>('/api/admin/blacklist'), []),
     safe('notifications', () => apiFetch<AdminBundle['notifications']>('/api/admin/notifications'), []),
     safe('market', () => apiFetch<AdminBundle['marketStatus']>('/api/market/status'), emptyMarketStatus),
@@ -85,6 +88,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     tradeEvents,
     creditAccounts,
     creditRequests,
+    fundingRequests,
     ledgerEntries: ledger.entries,
     notifications,
     marketStatus,

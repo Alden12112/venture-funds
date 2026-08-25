@@ -153,6 +153,53 @@ export interface LedgerBundle {
   source: SourceMeta;
 }
 
+/**
+ * Funding is deliberately limited to a paper-account review workflow. It is
+ * not a banking, wallet, settlement, or payout instruction.
+ */
+export type FundingKind = 'deposit' | 'withdraw';
+
+export type FundingMethod = 'tng' | 'bank';
+
+export interface FundingRate {
+  /** MYR per 1 paper U before the funding-side adjustment. */
+  baseRate: number;
+  /** Deposit quote: base MYR/U + 0.05. */
+  depositRate: number;
+  /** Withdrawal quote: base MYR/U - 0.05. */
+  withdrawalRate: number;
+  source: string;
+  updatedAt: string;
+  cacheState: 'fresh' | 'cached' | 'fallback';
+}
+
+export interface FundingRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  email: string;
+  kind: FundingKind;
+  method: FundingMethod;
+  bankName?: string;
+  /** Optional display-only holder name for a sandbox review. */
+  accountHolder?: string;
+  /** A masked account / wallet reference only; never a full bank credential. */
+  accountReference?: string;
+  amountMyr: number;
+  amountU: number;
+  rate: number;
+  baseRate: number;
+  rateSource: string;
+  rateUpdatedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  reviewedAt?: string;
+  reviewer?: string;
+  reviewerNote?: string;
+  supportRequired?: boolean;
+  ledgerEntryId?: string;
+}
+
 export interface AutomationTask {
   id: string;
   name: string;
@@ -215,6 +262,7 @@ export interface AdminBundle {
   tradeEvents: TradeAuditEvent[];
   creditAccounts: CreditAccount[];
   creditRequests: CreditRequest[];
+  fundingRequests: FundingRequest[];
   ledgerEntries: LedgerEntry[];
   blacklist: BlacklistEntry[];
   notifications: NotificationItem[];

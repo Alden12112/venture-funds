@@ -10,16 +10,22 @@ import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadMarketBundle } from '@/adapters/market-adapter';
 import { formatCurrency, formatPercent, formatCompact, formatNumber, formatDateTime } from '@/lib/format';
 import { useIndicativeQuotePulse, useLiveTickers } from '@/lib/useLiveTicker';
-import { readStorage, writeStorage } from '@/lib/storage';
+import { writeStorage } from '@/lib/storage';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
 import { assetClassKey, assetNameKey, getExecutionQuote, getMarketProduct, getTradeSpec, marketProducts } from '@/data/assets';
 import { marketFilters } from '@/data/navigation';
 import { apiFetch } from '@/lib/api';
-import { loadRemoteCreditAccount, readCreditAccounts, reserveRemoteMargin, settleRemoteMargin, writeCreditAccounts } from '@/lib/credits';
+import { loadRemoteCreditAccount, readCreditAccounts, writeCreditAccounts } from '@/lib/credits';
 import type { CreditAccount, PaperPosition, TimeframeCode, TradeSide } from '@/types';
 
 const timeframes: TimeframeCode[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
+
+type PaperWorkspaceResponse = {
+  positions: PaperPosition[];
+  creditAccount: CreditAccount;
+  position?: PaperPosition;
+};
 
 function computePnl(position: PaperPosition, exitPrice: number, lots = position.remainingLots ?? position.lots) {
   const units = lots * position.contractSize;
@@ -55,7 +61,7 @@ export function MarketPage() {
   const [leverage, setLeverage] = useState(initialTradeSpec.defaultLeverage);
   const [stopLoss, setStopLoss] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
-  const [positions, setPositions] = useState<PaperPosition[]>(() => readStorage('paperPositions', []));
+  const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [selectedPositionId, setSelectedPositionId] = useState<string>('');
   const [partialLots, setPartialLots] = useState(0.01);
   const [editStopLoss, setEditStopLoss] = useState('');
@@ -63,7 +69,6 @@ export function MarketPage() {
   const [chartTool, setChartTool] = useState<'cursor' | 'trendline' | 'horizontal' | 'vertical'>('cursor');
   const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
   const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(null);
-  const [positionsHydratedFor, setPositionsHydratedFor] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<{ tone: 'success' | 'warning' | 'error'; message: string } | null>(null);
   const market = useAsyncResource(() => loadMarketBundle(symbol, timeframe), [symbol, timeframe, refreshKey]);
@@ -104,48 +109,32 @@ export function MarketPage() {
 
   useEffect(() => {
     if (!session?.id) {
-      setPositionsHydratedFor(null);
-      return;
-    }
-    let active = true;
-    setPositionsHydratedFor(null);
-    void apiFetch<{ paperPositions?: PaperPosition[] }>('/api/sync').then((remoteState) => {
-      if (!active) return;
-      const remotePositions = Array.isArray(remoteState.paperPositions) ? remoteState.paperPositions : [];
-      setPositions(remotePositions);
-      writeStorage('paperPositions', remotePositions, { sync: false });
-      setPositionsHydratedFor(session.id);
-    }).catch(() => {
-      // Keep the local paper workspace usable if the API is temporarily
-      // unreachable, but never overwrite the server before the first sync
-      // attempt has completed.
-      if (active) setPositionsHydratedFor(session.id);
-    });
-    return () => { active = false; };
-  }, [session?.id]);
-
-  useEffect(() => {
-    if (!session) {
+      setPositions([]);
       setCreditAccount(null);
       return;
     }
-    let cancelled = false;
-    void loadRemoteCreditAccount(session).then((account) => {
-      if (!cancelled) setCreditAccount(account);
-    }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [session?.id]);
-
-  useEffect(() => {
-    const refresh = (event: Event) => {
-      const key = (event as CustomEvent<{ key?: string }>).detail?.key;
-      if (key === 'creditAccounts' || key === 'paperPositions') {
-        if (key === 'paperPositions') setPositions(readStorage('paperPositions', []));
-        if (session) void loadRemoteCreditAccount(session).then(setCreditAccount).catch(() => undefined);
+    let active = true;
+    const refreshWorkspace = async () => {
+      try {
+        const [remotePositions, account] = await Promise.all([
+          apiFetch<PaperPosition[]>('/api/paper/positions'),
+          loadRemoteCreditAccount(session),
+        ]);
+        if (!active) return;
+        setPositions(remotePositions);
+        writeStorage('paperPositions', remotePositions, { sync: false, notify: false });
+        setCreditAccount(account);
+      } catch {
+        // Do not replace a rendered position state with a browser-generated
+        // fallback. The server remains the source of truth for paper orders.
       }
     };
-    window.addEventListener('ad88:storage-sync', refresh);
-    return () => window.removeEventListener('ad88:storage-sync', refresh);
+    void refreshWorkspace();
+    const timer = window.setInterval(() => void refreshWorkspace(), 8_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
   }, [session?.id]);
 
   const fallbackPrices = useMemo(() => {
@@ -253,86 +242,43 @@ export function MarketPage() {
   const sellPrice = executionQuote.bid;
   const buyPrice = executionQuote.ask;
 
-  const auditTrade = (event: { positionId: string; symbol: string; side: TradeSide; action: 'open' | 'close' | 'partial-close' | 'risk-update'; lots: number; price: number; contractSize?: number; leverage?: number; margin?: number; pnl?: number }) => {
-    void apiFetch('/api/trades', { method: 'POST', body: JSON.stringify(event) }).catch(() => undefined);
-  };
-
   const announceAction = (tone: 'success' | 'warning' | 'error', message: string) => {
     setActionFeedback({ tone, message });
   };
 
-  const syncPositions = async (nextPositions: PaperPosition[]) => {
-    writeStorage('paperPositions', nextPositions, { sync: false });
-    if (!session || positionsHydratedFor !== session.id) return;
-    await apiFetch('/api/sync', {
-      method: 'PUT',
-      body: JSON.stringify({ key: 'paperPositions', value: nextPositions }),
-    });
+  const applyPaperWorkspace = (result: PaperWorkspaceResponse) => {
+    const remotePositions = Array.isArray(result.positions) ? result.positions : [];
+    setPositions(remotePositions);
+    writeStorage('paperPositions', remotePositions, { sync: false, notify: false });
+    if (!result.creditAccount) return;
+    const accounts = readCreditAccounts();
+    writeCreditAccounts([result.creditAccount, ...accounts.filter((item) => item.userId !== result.creditAccount.userId && item.email.toLowerCase() !== result.creditAccount.email.toLowerCase())]);
+    setCreditAccount(result.creditAccount);
   };
 
-  const reserveMargin = (amount: number) => {
-    if (!session) return false;
-    const accounts = readCreditAccounts();
-    const current = accounts.find((item) => item.userId === session.id || item.email.toLowerCase() === session.email.toLowerCase());
-    if (!current || current.available < amount) return false;
-    const next = { ...current, available: Number((current.available - amount).toFixed(2)), updatedAt: new Date().toISOString() };
-    writeCreditAccounts(accounts.map((item) => item.userId === current.userId ? next : item));
-    setCreditAccount(next);
-    void reserveRemoteMargin(amount).then((remote) => { if (remote) setCreditAccount(remote); });
-    return true;
-  };
-
-  const settlePaperTrade = async (amount: number, pnl = 0) => {
-    if (!session || amount <= 0) return null;
-    const accounts = readCreditAccounts();
-    const current = accounts.find((item) => item.userId === session.id || item.email.toLowerCase() === session.email.toLowerCase());
-    if (current) {
-      const next = {
-        ...current,
-        balance: Number((current.balance + pnl).toFixed(2)),
-        available: Number((current.available + amount + pnl).toFixed(2)),
-        updatedAt: new Date().toISOString(),
-      };
-      writeCreditAccounts(accounts.map((item) => item.userId === current.userId ? next : item));
-      setCreditAccount(next);
+  const openPosition = async (orderSide: TradeSide = side) => {
+    if (!canOpen || busyAction) return;
+    setBusyAction('open');
+    try {
+      const result = await apiFetch<PaperWorkspaceResponse>('/api/paper/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          symbol,
+          side: orderSide,
+          lots,
+          leverage,
+          stopLoss: stopLoss || undefined,
+          takeProfit: takeProfit || undefined,
+        }),
+      });
+      applyPaperWorkspace(result);
+      if (result.position) setSelectedPositionId(result.position.id);
+      announceAction('success', t('market.openSuccess'));
+    } catch {
+      announceAction('error', t('market.paperActionFailed'));
+    } finally {
+      setBusyAction(null);
     }
-    return settleRemoteMargin(amount, pnl).then((remote) => {
-      if (remote) setCreditAccount(remote);
-      return remote;
-    });
-  };
-
-  const openPosition = (orderSide: TradeSide = side, orderPrice = orderPreviewPrice) => {
-    const orderNotional = lots * contractSize * orderPrice;
-    const orderMargin = leverage ? orderNotional / leverage : orderNotional;
-    if (!canOpen || !orderPrice || !reserveMargin(orderMargin)) return;
-    const positionId = crypto.randomUUID();
-    const next: PaperPosition = {
-      id: positionId,
-      userId: session?.id,
-      userName: session?.name,
-      symbol,
-      side: orderSide,
-      lots,
-      contractSize,
-      leverage,
-      entryPrice: orderPrice,
-      markPrice: orderPrice,
-      notional: orderNotional,
-      margin: orderMargin,
-      stopLoss: stopLoss ? Number(stopLoss) : undefined,
-      takeProfit: takeProfit ? Number(takeProfit) : undefined,
-      openedAt: new Date().toISOString(),
-      remainingLots: lots,
-      closedLots: 0,
-      status: 'open',
-    };
-    const nextPositions = [next, ...positions];
-    setPositions(nextPositions);
-    void syncPositions(nextPositions).catch(() => announceAction('warning', t('market.positionSyncWarning')));
-    setSelectedPositionId(next.id);
-    auditTrade({ positionId, symbol, side: orderSide, action: 'open', lots, price: orderPrice, contractSize, leverage, margin: orderMargin });
-    announceAction('success', t('market.openSuccess'));
   };
 
   useEffect(() => {
@@ -347,20 +293,13 @@ export function MarketPage() {
       announceAction('error', t('market.positionActionUnavailable'));
       return;
     }
-    const closeLots = position.remainingLots ?? position.lots;
-    const pnl = computePnl(position, position.markPrice, closeLots);
-    const releasedMargin = position.margin * (closeLots / position.lots);
-    const nextPositions = positions.map((item) => item.id === id
-      ? { ...item, remainingLots: 0, closedLots: item.lots, status: 'closed' as const, closedAt: new Date().toISOString() }
-      : item);
     setBusyAction(`close:${id}`);
-    setPositions(nextPositions);
-    auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: 'close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: releasedMargin, pnl });
     try {
-      await Promise.all([syncPositions(nextPositions), settlePaperTrade(releasedMargin, pnl)]);
+      const result = await apiFetch<PaperWorkspaceResponse>(`/api/paper/positions/${encodeURIComponent(id)}/close`, { method: 'POST', body: JSON.stringify({}) });
+      applyPaperWorkspace(result);
       announceAction('success', t('market.closeSuccess'));
     } catch {
-      announceAction('warning', t('market.positionSyncWarning'));
+      announceAction('error', t('market.paperActionFailed'));
     } finally {
       setBusyAction(null);
     }
@@ -368,31 +307,14 @@ export function MarketPage() {
 
   const closeAllPositions = async () => {
     if (busyAction || !livePositions.length) return;
-    const now = new Date().toISOString();
-    const totals = livePositions.reduce((result, position) => {
-      const closeLots = position.remainingLots ?? position.lots;
-      return {
-        margin: result.margin + position.margin * (closeLots / position.lots),
-        pnl: result.pnl + computePnl(position, position.markPrice, closeLots),
-      };
-    }, { margin: 0, pnl: 0 });
-    const ids = new Set(livePositions.map((position) => position.id));
-    const nextPositions = positions.map((item) => ids.has(item.id)
-      ? { ...item, remainingLots: 0, closedLots: item.lots, status: 'closed' as const, closedAt: now }
-      : item);
     setBusyAction('close-all');
-    setPositions(nextPositions);
-    livePositions.forEach((position) => {
-      const closeLots = position.remainingLots ?? position.lots;
-      const pnl = computePnl(position, position.markPrice, closeLots);
-      auditTrade({ positionId: position.id, symbol: position.symbol, side: position.side, action: 'close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin * (closeLots / position.lots), pnl });
-    });
     try {
-      await Promise.all([syncPositions(nextPositions), settlePaperTrade(totals.margin, totals.pnl)]);
+      const result = await apiFetch<PaperWorkspaceResponse>('/api/paper/positions/close-all', { method: 'POST', body: JSON.stringify({}) });
+      applyPaperWorkspace(result);
       setSelectedPositionId('');
       announceAction('success', t('market.closeAllSuccess'));
     } catch {
-      announceAction('warning', t('market.positionSyncWarning'));
+      announceAction('error', t('market.paperActionFailed'));
     } finally {
       setBusyAction(null);
     }
@@ -407,50 +329,33 @@ export function MarketPage() {
     }
     const remaining = position.remainingLots ?? position.lots;
     const closeLots = Math.min(Math.max(Number(partialLots) || 0.01, 0.01), remaining);
-    const pnl = computePnl(position, position.markPrice, closeLots);
-    const releasedMargin = position.margin * (closeLots / position.lots);
-    const nextPositions = positions.map((item) => {
-      if (item.id !== id) return item;
-      const currentRemaining = item.remainingLots ?? item.lots;
-      const nextRemaining = Math.max(0, Number((currentRemaining - closeLots).toFixed(2)));
-      const nextClosed = Number(((item.closedLots ?? 0) + closeLots).toFixed(2));
-      return {
-        ...item,
-        remainingLots: nextRemaining,
-        closedLots: nextClosed,
-        status: nextRemaining > 0 ? 'partial' as const : 'closed' as const,
-        closedAt: nextRemaining > 0 ? item.closedAt : new Date().toISOString(),
-      };
-    });
     setBusyAction(`partial:${id}`);
-    setPositions(nextPositions);
-    auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: closeLots >= remaining ? 'close' : 'partial-close', lots: closeLots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: releasedMargin, pnl });
     try {
-      await Promise.all([syncPositions(nextPositions), settlePaperTrade(releasedMargin, pnl)]);
-      announceAction(closeLots >= remaining ? 'success' : 'success', closeLots >= remaining ? t('market.closeSuccess') : t('market.partialCloseSuccess'));
+      const result = await apiFetch<PaperWorkspaceResponse>(`/api/paper/positions/${encodeURIComponent(id)}/close`, { method: 'POST', body: JSON.stringify({ lots: closeLots }) });
+      applyPaperWorkspace(result);
+      announceAction('success', closeLots >= remaining ? t('market.closeSuccess') : t('market.partialCloseSuccess'));
     } catch {
-      announceAction('warning', t('market.positionSyncWarning'));
+      announceAction('error', t('market.paperActionFailed'));
     } finally {
       setBusyAction(null);
     }
   };
 
-  const saveRiskSettings = (id: string) => {
-    const position = userPositions.find((item) => item.id === id);
-    if (position) {
-      auditTrade({ positionId: id, symbol: position.symbol, side: position.side, action: 'risk-update', lots: position.remainingLots ?? position.lots, price: position.markPrice, contractSize: position.contractSize, leverage: position.leverage, margin: position.margin });
+  const saveRiskSettings = async (id: string) => {
+    if (busyAction) return;
+    setBusyAction(`risk:${id}`);
+    try {
+      const result = await apiFetch<PaperWorkspaceResponse>(`/api/paper/positions/${encodeURIComponent(id)}/risk`, {
+        method: 'PUT',
+        body: JSON.stringify({ stopLoss: editStopLoss || undefined, takeProfit: editTakeProfit || undefined }),
+      });
+      applyPaperWorkspace(result);
+      announceAction('success', t('market.riskSaved'));
+    } catch {
+      announceAction('error', t('market.paperActionFailed'));
+    } finally {
+      setBusyAction(null);
     }
-    const nextPositions = positions.map((item) => item.id === id
-      ? {
-          ...item,
-          stopLoss: editStopLoss ? Number(editStopLoss) : undefined,
-          takeProfit: editTakeProfit ? Number(editTakeProfit) : undefined,
-        }
-      : item);
-    setPositions(nextPositions);
-    void syncPositions(nextPositions)
-      .then(() => announceAction('success', t('market.riskSaved')))
-      .catch(() => announceAction('warning', t('market.positionSyncWarning')));
   };
 
   if (market.status === 'loading') {
@@ -609,7 +514,7 @@ export function MarketPage() {
           </div>
           <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={livePrice} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           <div className="execution-bar">
-            <button type="button" className="execution-quote execution-quote--sell" onClick={() => openPosition('short', sellPrice)} disabled={!canOpen || Boolean(busyAction)}>
+            <button type="button" className="execution-quote execution-quote--sell" onClick={() => void openPosition('short')} disabled={!canOpen || Boolean(busyAction)}>
               <span>{t('market.sellBid')}</span><strong>{formatNumber(sellPrice)}</strong><small>{t('market.openShort')}</small>
             </button>
             <div className="execution-bar__middle">
@@ -617,7 +522,7 @@ export function MarketPage() {
               <strong>{formatNumber(livePrice)}</strong>
               <label><span>{t('market.orderLots')}</span><input type="number" min={tradeSpec.minimumLots} step="0.01" value={lotsInput} onChange={(event) => updateLots(event.target.value)} onBlur={() => { if (!Number.isFinite(Number(lotsInput)) || Number(lotsInput) < tradeSpec.minimumLots) { setLots(tradeSpec.minimumLots); setLotsInput(String(tradeSpec.minimumLots)); } }} /></label>
             </div>
-            <button type="button" className="execution-quote execution-quote--buy" onClick={() => openPosition('long', buyPrice)} disabled={!canOpen || Boolean(busyAction)}>
+            <button type="button" className="execution-quote execution-quote--buy" onClick={() => void openPosition('long')} disabled={!canOpen || Boolean(busyAction)}>
               <span>{t('market.buyAsk')}</span><strong>{formatNumber(buyPrice)}</strong><small>{t('market.openLong')}</small>
             </button>
           </div>
@@ -679,7 +584,7 @@ export function MarketPage() {
             <div><span>{t('market.pnlPerMove')}</span><strong>{formatCurrency(pnlForOneQuoteMove)}</strong><small>{t('market.pnlPerMoveHint')}</small></div>
           </div>
 
-          <button type="button" className="btn btn--primary btn--block" onClick={() => openPosition()} disabled={!canOpen || Boolean(busyAction)} aria-busy={Boolean(busyAction)}>
+          <button type="button" className="btn btn--primary btn--block" onClick={() => void openPosition()} disabled={!canOpen || Boolean(busyAction)} aria-busy={Boolean(busyAction)}>
             {t('market.placeSandboxOrder')}
           </button>
           <div className="risk-note">
@@ -785,7 +690,7 @@ export function MarketPage() {
                     </label>
                   </div>
                   <div className="position-editor__actions">
-                    <button type="button" className="btn btn--ghost" onClick={() => saveRiskSettings(selectedPosition.id)}>
+                    <button type="button" className="btn btn--ghost" onClick={() => void saveRiskSettings(selectedPosition.id)} disabled={Boolean(busyAction)} aria-busy={busyAction === `risk:${selectedPosition.id}`}>
                        {t('market.saveRisk')}
                     </button>
                     <button type="button" className="btn btn--danger" onClick={() => void closePartialPosition(selectedPosition.id)} disabled={Boolean(busyAction)} aria-busy={busyAction === `partial:${selectedPosition.id}`}>

@@ -35,6 +35,8 @@ const memoryCreditAccounts = new Map();
 const memoryCreditRequests = new Map();
 const memoryBlacklist = new Map();
 const memoryNotifications = [];
+const memoryLedgerEntries = [];
+const memoryFundingRequests = new Map();
 const marketProxyCache = new Map();
 const yahooQuoteCache = new Map();
 // Keep the server snapshot inside the requested 0–10 second display window.
@@ -59,6 +61,12 @@ const twelveQuoteWindowLimit = 6;
 let twelveQuoteWindow = { startedAt: 0, used: 0 };
 const spotMetalCache = new Map();
 const spotMetalTtlMs = 2_000;
+// Funding uses a once-daily MYR reference quote. It exists only to calculate
+// paper-U review requests and is not a payment or wallet integration.
+const fundingRateTtlMs = 24 * 60 * 60 * 1000;
+let fundingRateCache = { expiresAt: 0, value: null };
+let fundingRateRequest = null;
+const fundingBankOptions = new Set(['Maybank', 'CIMB Bank', 'Public Bank', 'RHB Bank', 'Hong Leong Bank', 'Bank Islam']);
 let marketQuoteSnapshotCache = { expiresAt: 0, value: null, builtAt: 0, snapshotId: '' };
 let marketQuoteSnapshotRequest = null;
 const newsProxyCache = new Map();
@@ -346,6 +354,32 @@ async function initDatabase() {
       ref_id TEXT NOT NULL,
       direction TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS ad88_funding_requests (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      user_name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      method TEXT NOT NULL,
+      bank_name TEXT,
+      account_holder TEXT,
+      account_reference TEXT,
+      amount_myr NUMERIC NOT NULL,
+      amount_u NUMERIC NOT NULL,
+      rate NUMERIC NOT NULL,
+      base_rate NUMERIC NOT NULL,
+      rate_source TEXT NOT NULL,
+      rate_updated_at TIMESTAMPTZ NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      reviewed_at TIMESTAMPTZ,
+      reviewer TEXT,
+      reviewer_note TEXT,
+      support_required BOOLEAN NOT NULL DEFAULT FALSE,
+      ledger_entry_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS ad88_funding_requests_user_created_idx ON ad88_funding_requests (user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS ad88_funding_requests_status_created_idx ON ad88_funding_requests (status, created_at DESC);
     CREATE TABLE IF NOT EXISTS ad88_credit_accounts (
       user_id TEXT PRIMARY KEY,
       user_name TEXT NOT NULL,
@@ -457,6 +491,7 @@ async function deleteAccount(id) {
     await pool.query('DELETE FROM ad88_support_messages WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_trade_events WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_ledger_entries WHERE user_id = $1', [id]);
+    await pool.query('DELETE FROM ad88_funding_requests WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_credit_requests WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_credit_accounts WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_notifications WHERE user_id = $1', [id]);
@@ -469,6 +504,8 @@ async function deleteAccount(id) {
       memoryCreditRequests.forEach((item, key) => { if (item.userId === id) memoryCreditRequests.delete(key); });
       memoryCreditAccounts.delete(id);
       memoryNotifications.splice(0, memoryNotifications.length, ...memoryNotifications.filter((item) => item.userId !== id));
+      memoryFundingRequests.forEach((item, key) => { if (item.userId === id) memoryFundingRequests.delete(key); });
+      memoryLedgerEntries.splice(0, memoryLedgerEntries.length, ...memoryLedgerEntries.filter((item) => item.userId !== id));
     }
     memoryState.delete(id);
   }
@@ -736,6 +773,216 @@ async function getOrCreateCreditAccount(session) {
   return created;
 }
 
+function normalizePaperPosition(value, session) {
+  const symbol = String(value?.symbol || '').trim().toUpperCase();
+  const spec = getPaperInstrumentSpec(symbol);
+  const side = value?.side === 'short' ? 'short' : value?.side === 'long' ? 'long' : null;
+  const lots = Number(value?.lots);
+  const entryPrice = Number(value?.entryPrice);
+  const leverage = Math.min(50, Math.max(1, Number(value?.leverage) || spec.defaultLeverage));
+  if (!marketQuoteCatalogue[symbol] || !side || !Number.isFinite(lots) || lots < spec.minimumLots || lots > 1_000 || !Number.isFinite(entryPrice) || entryPrice <= 0) return null;
+  const totalLots = Number(lots.toFixed(2));
+  const rawRemaining = Number(value?.remainingLots ?? totalLots);
+  const remainingLots = Math.min(totalLots, Math.max(0, Number.isFinite(rawRemaining) ? rawRemaining : totalLots));
+  const closedLots = Math.min(totalLots, Math.max(0, Number(value?.closedLots ?? totalLots - remainingLots) || 0));
+  const status = remainingLots <= 0 ? 'closed' : remainingLots < totalLots ? 'partial' : 'open';
+  const notional = totalLots * spec.contractSize * entryPrice;
+  return {
+    id: String(value?.id || randomUUID()).slice(0, 120),
+    userId: session.sub,
+    userName: session.name,
+    symbol,
+    side,
+    lots: totalLots,
+    contractSize: spec.contractSize,
+    leverage,
+    entryPrice,
+    markPrice: Number(value?.markPrice) || entryPrice,
+    notional,
+    margin: Number((notional / leverage).toFixed(2)),
+    stopLoss: Number.isFinite(Number(value?.stopLoss)) && Number(value.stopLoss) > 0 ? Number(value.stopLoss) : undefined,
+    takeProfit: Number.isFinite(Number(value?.takeProfit)) && Number(value.takeProfit) > 0 ? Number(value.takeProfit) : undefined,
+    openedAt: value?.openedAt || new Date().toISOString(),
+    remainingLots: Number(remainingLots.toFixed(2)),
+    closedLots: Number(closedLots.toFixed(2)),
+    status,
+    closedAt: status === 'closed' ? value?.closedAt || new Date().toISOString() : undefined,
+  };
+}
+
+async function getPaperPositions(session) {
+  let stored;
+  if (pool) {
+    const result = await pool.query("SELECT state_value FROM ad88_user_state WHERE user_id = $1 AND state_key = 'paperPositions' LIMIT 1", [session.sub]);
+    stored = result.rows[0]?.state_value;
+  } else {
+    stored = memoryState.get(session.sub)?.paperPositions;
+  }
+  return (Array.isArray(stored) ? stored : [])
+    .map((item) => normalizePaperPosition(item, session))
+    .filter(Boolean);
+}
+
+async function writePaperPositions(session, positions) {
+  if (pool) {
+    await pool.query("INSERT INTO ad88_user_state (user_id, state_key, state_value) VALUES ($1, 'paperPositions', $2::jsonb) ON CONFLICT (user_id, state_key) DO UPDATE SET state_value = EXCLUDED.state_value, updated_at = NOW()", [session.sub, JSON.stringify(positions)]);
+  } else {
+    const current = memoryState.get(session.sub) || {};
+    current.paperPositions = positions;
+    memoryState.set(session.sub, current);
+  }
+  return positions;
+}
+
+async function recordPaperTradeEvent(event) {
+  if (pool) {
+    await pool.query('INSERT INTO ad88_trade_events (id, position_id, user_id, user_name, user_email, symbol, side, action, lots, price, contract_size, leverage, margin, pnl, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)', [event.id, event.positionId ?? null, event.userId, event.userName, event.userEmail, event.symbol, event.side, event.action, event.lots, event.price, event.contractSize ?? null, event.leverage ?? null, event.margin ?? null, event.pnl ?? null, event.createdAt]);
+  } else {
+    memoryTradeEvents.push(event);
+  }
+  return normalizeTradeEvent(event);
+}
+
+async function getPaperMarketQuote(symbol) {
+  const snapshot = overlayMt5Quotes(await getMarketQuoteSnapshot());
+  const quote = snapshot[symbol];
+  if (!quote || quote.fallback || !Number.isFinite(Number(quote.price)) || Number(quote.price) <= 0) {
+    throw new Error('live paper quote unavailable');
+  }
+  return getPaperExecutionQuote(symbol, quote);
+}
+
+function paperTradeEvent(session, position, action, lots, price, margin, pnl) {
+  return {
+    id: randomUUID(),
+    positionId: position.id,
+    userId: session.sub,
+    userName: session.name,
+    userEmail: session.email,
+    symbol: position.symbol,
+    side: position.side,
+    action,
+    lots,
+    price,
+    contractSize: position.contractSize,
+    leverage: position.leverage,
+    margin,
+    pnl,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+async function closePaperPosition(session, positionId, requestedLots) {
+  const positions = await getPaperPositions(session);
+  const position = positions.find((item) => item.id === positionId && item.status !== 'closed' && (item.remainingLots ?? item.lots) > 0);
+  if (!position) return { error: 'paper position not found', status: 404 };
+  const remainingLots = Number(position.remainingLots ?? position.lots);
+  const rawLots = requestedLots == null ? remainingLots : Number(requestedLots);
+  const closeLots = Math.min(remainingLots, Math.max(0.01, Number(((Number.isFinite(rawLots) ? rawLots : remainingLots)).toFixed(2))));
+  if (!Number.isFinite(closeLots) || closeLots <= 0) return { error: 'invalid paper close size', status: 400 };
+  const quote = await getPaperMarketQuote(position.symbol);
+  const exitPrice = position.side === 'long' ? quote.bid : quote.ask;
+  const pnl = Number(((position.side === 'long' ? exitPrice - position.entryPrice : position.entryPrice - exitPrice) * position.contractSize * closeLots).toFixed(2));
+  const releasedMargin = Number((position.margin * (closeLots / position.lots)).toFixed(2));
+  const nextRemaining = Number(Math.max(0, remainingLots - closeLots).toFixed(2));
+  const nextPositions = positions.map((item) => item.id !== position.id ? item : {
+    ...item,
+    markPrice: exitPrice,
+    remainingLots: nextRemaining,
+    closedLots: Number(((item.closedLots ?? 0) + closeLots).toFixed(2)),
+    status: nextRemaining > 0 ? 'partial' : 'closed',
+    closedAt: nextRemaining > 0 ? item.closedAt : new Date().toISOString(),
+  });
+  const account = await getOrCreateCreditAccount(session);
+  const nextAccount = await updateCreditAccount({
+    ...account,
+    balance: Number((account.balance + pnl).toFixed(2)),
+    available: Number((account.available + releasedMargin + pnl).toFixed(2)),
+    updatedAt: new Date().toISOString(),
+  });
+  await writePaperPositions(session, nextPositions);
+  const event = await recordPaperTradeEvent(paperTradeEvent(session, position, nextRemaining > 0 ? 'partial-close' : 'close', closeLots, exitPrice, releasedMargin, pnl));
+  return { positions: nextPositions, creditAccount: nextAccount, position: nextPositions.find((item) => item.id === position.id), event };
+}
+
+async function handlePaperTrading(req, res, requestUrl) {
+  if (appSurface !== 'frontend') return sendJson(res, 404, { error: 'not found' });
+  const session = requireSession(req, res);
+  if (!session) return true;
+  if (session.role === 'admin') return sendJson(res, 403, { error: 'administrators use the separate workspace' });
+  if (req.method === 'GET' && requestUrl.pathname === '/api/paper/positions') {
+    return sendJson(res, 200, await getPaperPositions(session));
+  }
+  if (req.method === 'POST' && requestUrl.pathname === '/api/paper/orders') {
+    const input = await readBody(req);
+    const symbol = String(input.symbol || '').trim().toUpperCase();
+    const side = input.side === 'short' ? 'short' : input.side === 'long' ? 'long' : null;
+    const spec = getPaperInstrumentSpec(symbol);
+    const lots = Number(input.lots);
+    const leverage = Math.min(50, Math.max(1, Number(input.leverage) || spec.defaultLeverage));
+    if (!marketQuoteCatalogue[symbol] || !side || !Number.isFinite(lots) || lots < spec.minimumLots || lots > 1_000) return sendJson(res, 400, { error: 'invalid paper order' });
+    let quote;
+    try {
+      quote = await getPaperMarketQuote(symbol);
+    } catch (error) {
+      return sendJson(res, 503, { error: error instanceof Error ? error.message : 'live paper quote unavailable' });
+    }
+    const normalizedLots = Number(lots.toFixed(2));
+    const entryPrice = side === 'long' ? quote.ask : quote.bid;
+    const notional = normalizedLots * spec.contractSize * entryPrice;
+    const margin = Number((notional / leverage).toFixed(2));
+    const account = await getOrCreateCreditAccount(session);
+    if (account.available < margin) return sendJson(res, 409, { error: 'insufficient paper margin', creditAccount: account });
+    const position = {
+      id: randomUUID(), userId: session.sub, userName: session.name, symbol, side, lots: normalizedLots, contractSize: spec.contractSize, leverage,
+      entryPrice, markPrice: entryPrice, notional, margin,
+      stopLoss: Number.isFinite(Number(input.stopLoss)) && Number(input.stopLoss) > 0 ? Number(input.stopLoss) : undefined,
+      takeProfit: Number.isFinite(Number(input.takeProfit)) && Number(input.takeProfit) > 0 ? Number(input.takeProfit) : undefined,
+      openedAt: new Date().toISOString(), remainingLots: normalizedLots, closedLots: 0, status: 'open',
+    };
+    const positions = [position, ...(await getPaperPositions(session))];
+    const creditAccount = await updateCreditAccount({ ...account, available: Number((account.available - margin).toFixed(2)), updatedAt: new Date().toISOString() });
+    await writePaperPositions(session, positions);
+    const event = await recordPaperTradeEvent(paperTradeEvent(session, position, 'open', normalizedLots, entryPrice, margin));
+    return sendJson(res, 201, { position, positions, creditAccount, event });
+  }
+  if (req.method === 'POST' && requestUrl.pathname === '/api/paper/positions/close-all') {
+    const positions = (await getPaperPositions(session)).filter((item) => item.status !== 'closed' && (item.remainingLots ?? item.lots) > 0);
+    if (!positions.length) return sendJson(res, 200, { positions: [], creditAccount: await getOrCreateCreditAccount(session), closed: 0 });
+    let latest;
+    for (const position of positions) {
+      latest = await closePaperPosition(session, position.id);
+      if (latest?.error) return sendJson(res, latest.status || 400, latest);
+    }
+    return sendJson(res, 200, { ...latest, closed: positions.length });
+  }
+  const closeMatch = requestUrl.pathname.match(/^\/api\/paper\/positions\/([^/]+)\/close$/);
+  if (req.method === 'POST' && closeMatch) {
+    const input = await readBody(req);
+    try {
+      const result = await closePaperPosition(session, closeMatch[1], input.lots);
+      return result.error ? sendJson(res, result.status || 400, result) : sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, 503, { error: error instanceof Error ? error.message : 'paper close unavailable' });
+    }
+  }
+  const riskMatch = requestUrl.pathname.match(/^\/api\/paper\/positions\/([^/]+)\/risk$/);
+  if (req.method === 'PUT' && riskMatch) {
+    const input = await readBody(req);
+    const positions = await getPaperPositions(session);
+    const target = positions.find((item) => item.id === riskMatch[1] && item.status !== 'closed');
+    if (!target) return sendJson(res, 404, { error: 'paper position not found' });
+    const stopLoss = input.stopLoss === '' || input.stopLoss == null ? undefined : Number(input.stopLoss);
+    const takeProfit = input.takeProfit === '' || input.takeProfit == null ? undefined : Number(input.takeProfit);
+    if ((stopLoss !== undefined && (!Number.isFinite(stopLoss) || stopLoss <= 0)) || (takeProfit !== undefined && (!Number.isFinite(takeProfit) || takeProfit <= 0))) return sendJson(res, 400, { error: 'invalid paper risk settings' });
+    const nextPositions = positions.map((item) => item.id === target.id ? { ...item, stopLoss, takeProfit } : item);
+    await writePaperPositions(session, nextPositions);
+    const event = await recordPaperTradeEvent(paperTradeEvent(session, target, 'risk-update', Number(target.remainingLots ?? target.lots), target.markPrice, 0));
+    return sendJson(res, 200, { positions: nextPositions, creditAccount: await getOrCreateCreditAccount(session), position: nextPositions.find((item) => item.id === target.id), event });
+  }
+  return sendJson(res, 404, { error: 'paper route not found' });
+}
+
 async function listCreditAccounts() {
   if (pool) {
     const result = await pool.query('SELECT * FROM ad88_credit_accounts ORDER BY updated_at DESC');
@@ -787,20 +1034,11 @@ async function handleCredits(req, res, requestUrl) {
     }
     return sendJson(res, 201, normalizeCreditRequest(request));
   }
-  if (req.method === 'POST' && requestUrl.pathname === '/api/credits/reserve') {
-    const amount = Number((await readBody(req)).amount);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000) return sendJson(res, 400, { error: 'invalid reserve amount' });
-    const account = await getOrCreateCreditAccount(session);
-    if (account.available < amount) return sendJson(res, 409, { error: 'insufficient margin', account });
-    return sendJson(res, 200, await updateCreditAccount({ ...account, available: Number((account.available - amount).toFixed(2)), updatedAt: new Date().toISOString() }));
-  }
-  if (req.method === 'POST' && requestUrl.pathname === '/api/credits/settle') {
-    const input = await readBody(req);
-    const amount = Number(input.amount);
-    const pnl = Number(input.pnl || 0);
-    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(pnl) || Math.abs(pnl) > 1_000_000) return sendJson(res, 400, { error: 'invalid settlement' });
-    const account = await getOrCreateCreditAccount(session);
-    return sendJson(res, 200, await updateCreditAccount({ ...account, balance: Number((account.balance + pnl).toFixed(2)), available: Number((account.available + amount + pnl).toFixed(2)), updatedAt: new Date().toISOString() }));
+  if (req.method === 'POST' && (requestUrl.pathname === '/api/credits/reserve' || requestUrl.pathname === '/api/credits/settle')) {
+    // Margin reservation and settlement are deliberately not browser-writeable.
+    // A paper order must pass through /api/paper so the server owns the quote,
+    // contract, position state and resulting account movement.
+    return sendJson(res, 410, { error: 'paper margin operations are server managed' });
   }
   return sendJson(res, 404, { error: 'credits route not found' });
 }
@@ -923,6 +1161,9 @@ async function handleSync(req, res, requestUrl) {
     const input = await readBody(req);
     const key = String(input.key || '').replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 80);
     if (!key || key === 'session' || key === 'auth-token') return sendJson(res, 400, { error: 'invalid sync key' });
+    // Paper positions are now server-issued records.  Do not let a browser
+    // replace the ledger with a handcrafted snapshot.
+    if (key === 'paperPositions') return sendJson(res, 403, { error: 'paper positions are managed by the paper-trading service' });
     if (pool) {
       await pool.query(`INSERT INTO ad88_user_state (user_id, state_key, state_value) VALUES ($1,$2,$3::jsonb) ON CONFLICT (user_id, state_key) DO UPDATE SET state_value = EXCLUDED.state_value, updated_at = NOW()`, [session.sub, key, JSON.stringify(input.value)]);
     } else {
@@ -1074,7 +1315,12 @@ async function listLedgerEntries(session, all = false) {
       : await pool.query('SELECT ledger.*, account.email AS user_email, account.name AS user_name FROM ad88_ledger_entries ledger LEFT JOIN ad88_accounts account ON account.id = ledger.user_id WHERE ledger.user_id = $1 ORDER BY ledger.time DESC LIMIT 500', [session.sub]);
     return result.rows.map(normalizeLedgerEntry);
   }
-  return [];
+  return memoryLedgerEntries
+    .filter((item) => all || item.userId === session.sub)
+    .slice()
+    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+    .slice(0, 500)
+    .map(normalizeLedgerEntry);
 }
 
 async function handleLedger(req, res, requestUrl) {
@@ -1083,6 +1329,339 @@ async function handleLedger(req, res, requestUrl) {
   if (req.method !== 'GET' || requestUrl.pathname !== '/api/ledger') return sendJson(res, 404, { error: 'ledger route not found' });
   const all = session.role === 'admin' && requestUrl.searchParams.get('scope') === 'all';
   return sendJson(res, 200, await listLedgerEntries(session, all));
+}
+
+function roundFundingAmount(value, decimals) {
+  const factor = 10 ** decimals;
+  return Math.round((Number(value) + Number.EPSILON) * factor) / factor;
+}
+
+function buildFundingRate(baseRate, source, cacheState = 'fresh') {
+  const normalizedBase = roundFundingAmount(baseRate, 4);
+  return {
+    baseRate: normalizedBase,
+    depositRate: roundFundingAmount(normalizedBase + 0.05, 4),
+    withdrawalRate: roundFundingAmount(Math.max(0.01, normalizedBase - 0.05), 4),
+    source,
+    updatedAt: new Date().toISOString(),
+    cacheState,
+  };
+}
+
+async function getFundingRate() {
+  if (fundingRateCache.value && fundingRateCache.expiresAt > Date.now()) return fundingRateCache.value;
+  if (fundingRateRequest) return fundingRateRequest;
+  fundingRateRequest = (async () => {
+    try {
+      // This is a public daily FX reference, not a payment-processor quote.
+      const response = await fetch('https://api.frankfurter.app/latest?from=USD&to=MYR', {
+        headers: { accept: 'application/json', 'user-agent': 'AD88-paper-funding/1.0' },
+        signal: AbortSignal.timeout(4_500),
+      });
+      if (!response.ok) throw new Error(`daily FX reference returned ${response.status}`);
+      const payload = await response.json();
+      const baseRate = Number(payload?.rates?.MYR);
+      if (!Number.isFinite(baseRate) || baseRate <= 0) throw new Error('daily FX reference did not include MYR');
+      const value = buildFundingRate(baseRate, 'Daily MYR reference', 'fresh');
+      fundingRateCache = { expiresAt: Date.now() + fundingRateTtlMs, value };
+      return value;
+    } catch {
+      const prior = fundingRateCache.value;
+      const value = prior
+        ? { ...prior, cacheState: 'fallback' }
+        : buildFundingRate(4.1, 'AD88 daily-reference fallback', 'fallback');
+      // A short fallback cache avoids retrying an unavailable public endpoint
+      // on every client request while still retrying long before the next day.
+      fundingRateCache = { expiresAt: Date.now() + 15 * 60 * 1000, value };
+      return value;
+    } finally {
+      fundingRateRequest = null;
+    }
+  })();
+  return fundingRateRequest;
+}
+
+function sanitizeFundingText(value, limit = 80) {
+  return String(value || '').replace(/[\u0000-\u001f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+function normalizeFundingRequest(row) {
+  return {
+    id: row.id,
+    userId: row.userId ?? row.user_id,
+    userName: row.userName ?? row.user_name,
+    email: row.email,
+    kind: row.kind,
+    method: row.method,
+    bankName: row.bankName ?? row.bank_name ?? undefined,
+    accountHolder: row.accountHolder ?? row.account_holder ?? undefined,
+    accountReference: row.accountReference ?? row.account_reference ?? undefined,
+    amountMyr: Number(row.amountMyr ?? row.amount_myr ?? 0),
+    amountU: Number(row.amountU ?? row.amount_u ?? 0),
+    rate: Number(row.rate ?? 0),
+    baseRate: Number(row.baseRate ?? row.base_rate ?? 0),
+    rateSource: row.rateSource ?? row.rate_source ?? 'AD88 daily reference',
+    rateUpdatedAt: row.rateUpdatedAt ?? row.rate_updated_at,
+    status: row.status,
+    createdAt: row.createdAt ?? row.created_at,
+    reviewedAt: row.reviewedAt ?? row.reviewed_at ?? undefined,
+    reviewer: row.reviewer ?? undefined,
+    reviewerNote: row.reviewerNote ?? row.reviewer_note ?? undefined,
+    supportRequired: Boolean(row.supportRequired ?? row.support_required),
+    ledgerEntryId: row.ledgerEntryId ?? row.ledger_entry_id ?? undefined,
+  };
+}
+
+async function findFundingRequest(id) {
+  if (pool) {
+    const result = await pool.query('SELECT * FROM ad88_funding_requests WHERE id = $1 LIMIT 1', [id]);
+    return result.rows[0] ? normalizeFundingRequest(result.rows[0]) : null;
+  }
+  const request = memoryFundingRequests.get(id);
+  return request ? normalizeFundingRequest(request) : null;
+}
+
+async function listFundingRequests(session, admin = false) {
+  if (pool) {
+    const result = admin
+      ? await pool.query('SELECT * FROM ad88_funding_requests ORDER BY created_at DESC LIMIT 500')
+      : await pool.query('SELECT * FROM ad88_funding_requests WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100', [session.sub]);
+    return result.rows.map(normalizeFundingRequest);
+  }
+  return [...memoryFundingRequests.values()]
+    .filter((item) => admin || item.userId === session.sub)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, admin ? 500 : 100)
+    .map(normalizeFundingRequest);
+}
+
+async function saveFundingRequest(request) {
+  if (pool) {
+    await pool.query(
+      `INSERT INTO ad88_funding_requests (
+        id,user_id,user_name,email,kind,method,bank_name,account_holder,account_reference,
+        amount_myr,amount_u,rate,base_rate,rate_source,rate_updated_at,status,created_at,
+        reviewed_at,reviewer,reviewer_note,support_required,ledger_entry_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+      [
+        request.id, request.userId, request.userName, request.email, request.kind, request.method,
+        request.bankName ?? null, request.accountHolder ?? null, request.accountReference ?? null,
+        request.amountMyr, request.amountU, request.rate, request.baseRate, request.rateSource,
+        request.rateUpdatedAt, request.status, request.createdAt, request.reviewedAt ?? null,
+        request.reviewer ?? null, request.reviewerNote ?? null, Boolean(request.supportRequired), request.ledgerEntryId ?? null,
+      ],
+    );
+  } else {
+    memoryFundingRequests.set(request.id, { ...request });
+  }
+  return normalizeFundingRequest(request);
+}
+
+async function updateFundingRequest(id, fields) {
+  const current = await findFundingRequest(id);
+  if (!current) return null;
+  const next = { ...current, ...fields };
+  if (pool) {
+    await pool.query(
+      `UPDATE ad88_funding_requests SET
+        status=$2, reviewed_at=$3, reviewer=$4, reviewer_note=$5, ledger_entry_id=$6
+       WHERE id=$1`,
+      [next.id, next.status, next.reviewedAt ?? null, next.reviewer ?? null, next.reviewerNote ?? null, next.ledgerEntryId ?? null],
+    );
+  } else {
+    memoryFundingRequests.set(next.id, next);
+  }
+  return normalizeFundingRequest(next);
+}
+
+function fundingMethodLabel(request) {
+  return request.method === 'tng' ? 'TNG eWallet' : request.bankName || 'Bank support';
+}
+
+function fundingLedgerNote(request) {
+  const action = request.kind === 'deposit' ? 'paper deposit review' : 'paper withdrawal review';
+  return `${fundingMethodLabel(request)} · ${action} · MYR ${request.amountMyr.toFixed(2)} @ MYR ${request.rate.toFixed(4)}/U`;
+}
+
+async function createFundingLedgerEntry(request) {
+  const entry = {
+    id: randomUUID(),
+    userId: request.userId,
+    type: request.kind,
+    amount: request.amountU,
+    currency: 'U',
+    status: 'pending',
+    time: request.createdAt,
+    note: fundingLedgerNote(request),
+    refId: `FND-${request.id.slice(0, 8).toUpperCase()}`,
+    direction: request.kind === 'deposit' ? 'in' : 'out',
+  };
+  if (pool) {
+    await pool.query(
+      'INSERT INTO ad88_ledger_entries (id,user_id,type,amount,currency,status,time,note,ref_id,direction) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [entry.id, entry.userId, entry.type, entry.amount, entry.currency, entry.status, entry.time, entry.note, entry.refId, entry.direction],
+    );
+  } else {
+    memoryLedgerEntries.push(entry);
+  }
+  return entry;
+}
+
+async function updateFundingLedgerEntry(entryId, status, note) {
+  if (!entryId) return;
+  if (pool) {
+    await pool.query('UPDATE ad88_ledger_entries SET status=$2, note=$3 WHERE id=$1', [entryId, status, note]);
+    return;
+  }
+  const index = memoryLedgerEntries.findIndex((entry) => entry.id === entryId);
+  if (index >= 0) memoryLedgerEntries[index] = { ...memoryLedgerEntries[index], status, note };
+}
+
+async function createPaperFundingRequest(session, input) {
+  const kind = input.kind === 'withdraw' ? 'withdraw' : input.kind === 'deposit' ? 'deposit' : null;
+  const method = input.method === 'bank' ? 'bank' : input.method === 'tng' ? 'tng' : null;
+  if (!kind || !method) return { error: 'invalid funding request', status: 400 };
+
+  const bankName = method === 'bank' ? sanitizeFundingText(input.bankName, 60) : undefined;
+  if (method === 'bank' && !fundingBankOptions.has(bankName)) return { error: 'invalid bank method', status: 400 };
+  const accountHolder = sanitizeFundingText(input.accountHolder, 80) || undefined;
+  const referenceDigits = String(input.accountReference || '').replace(/\D/g, '').slice(-4);
+  const accountReference = referenceDigits ? `•••• ${referenceDigits}` : undefined;
+  const rateSnapshot = await getFundingRate();
+  const rate = kind === 'deposit' ? rateSnapshot.depositRate : rateSnapshot.withdrawalRate;
+  const rawAmount = kind === 'deposit' ? Number(input.amountMyr) : Number(input.amountU);
+  if (!Number.isFinite(rawAmount) || rawAmount <= 0 || rawAmount > 1_000_000) return { error: 'invalid funding amount', status: 400 };
+  const amountMyr = kind === 'deposit'
+    ? roundFundingAmount(rawAmount, 2)
+    : roundFundingAmount(rawAmount * rate, 2);
+  const amountU = kind === 'deposit'
+    ? roundFundingAmount(rawAmount / rate, 4)
+    : roundFundingAmount(rawAmount, 4);
+  if (amountMyr < 1 || amountU <= 0) return { error: 'funding amount is below the paper-review minimum', status: 400 };
+
+  let withdrawalReserved = false;
+  let account;
+  if (kind === 'withdraw') {
+    account = await getOrCreateCreditAccount(session);
+    if (account.available + 0.000001 < amountU) return { error: 'insufficient available paper U for withdrawal review', status: 409, creditAccount: account };
+    await updateCreditAccount({
+      ...account,
+      available: roundFundingAmount(account.available - amountU, 2),
+      pending: roundFundingAmount(account.pending + amountU, 2),
+      updatedAt: new Date().toISOString(),
+    });
+    withdrawalReserved = true;
+  }
+
+  const request = {
+    id: randomUUID(),
+    userId: session.sub,
+    userName: session.name,
+    email: session.email,
+    kind,
+    method,
+    bankName,
+    accountHolder,
+    accountReference,
+    amountMyr,
+    amountU,
+    rate,
+    baseRate: rateSnapshot.baseRate,
+    rateSource: rateSnapshot.source,
+    rateUpdatedAt: rateSnapshot.updatedAt,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+    supportRequired: method === 'bank' || Boolean(input.supportRequired),
+  };
+  try {
+    await saveFundingRequest(request);
+    const ledgerEntry = await createFundingLedgerEntry(request);
+    const saved = await updateFundingRequest(request.id, { ledgerEntryId: ledgerEntry.id });
+    return { request: saved ?? { ...request, ledgerEntryId: ledgerEntry.id } };
+  } catch (error) {
+    if (withdrawalReserved && account) {
+      await updateCreditAccount({
+        ...account,
+        updatedAt: new Date().toISOString(),
+      }).catch(() => undefined);
+    }
+    throw error;
+  }
+}
+
+async function reviewPaperFundingRequest(session, id, approved, reviewerNote) {
+  const request = await findFundingRequest(id);
+  if (!request || request.status !== 'pending') return { error: 'funding request not found', status: 404 };
+  const reviewNote = sanitizeFundingText(reviewerNote, 320);
+  const reviewedAt = new Date().toISOString();
+  const account = await getOrCreateCreditAccount({ sub: request.userId, name: request.userName, email: request.email });
+  if (approved && request.kind === 'withdraw' && account.balance + 0.000001 < request.amountU) {
+    return { error: 'paper balance changed before the withdrawal could be approved', status: 409 };
+  }
+  if (approved && request.kind === 'deposit') {
+    await updateCreditAccount({
+      ...account,
+      balance: roundFundingAmount(account.balance + request.amountU, 2),
+      available: roundFundingAmount(account.available + request.amountU, 2),
+      grantedTotal: roundFundingAmount(account.grantedTotal + request.amountU, 2),
+      updatedAt: reviewedAt,
+    });
+  }
+  if (request.kind === 'withdraw') {
+    await updateCreditAccount({
+      ...account,
+      balance: approved ? roundFundingAmount(account.balance - request.amountU, 2) : account.balance,
+      available: approved ? account.available : roundFundingAmount(account.available + request.amountU, 2),
+      pending: roundFundingAmount(Math.max(0, account.pending - request.amountU), 2),
+      updatedAt: reviewedAt,
+    });
+  }
+  const nextStatus = approved ? 'approved' : 'rejected';
+  const reviewed = await updateFundingRequest(request.id, {
+    status: nextStatus,
+    reviewedAt,
+    reviewer: session.name || session.email,
+    reviewerNote: reviewNote || undefined,
+  });
+  const suffix = approved ? 'review approved' : 'review rejected';
+  await updateFundingLedgerEntry(request.ledgerEntryId, nextStatus, `${fundingLedgerNote(request)} · ${suffix}`);
+  const action = request.kind === 'deposit' ? 'Deposit' : 'Withdrawal';
+  await createNotification(
+    request.userId,
+    'fund',
+    `${action} review ${approved ? 'approved' : 'rejected'}`,
+    `${request.amountU.toFixed(2)} U · MYR ${request.amountMyr.toFixed(2)} · ${fundingMethodLabel(request)}.`,
+    approved ? 'success' : 'warning',
+    '/app/ledger',
+  );
+  return { request: reviewed };
+}
+
+async function handleFunding(req, res, requestUrl) {
+  if (appSurface !== 'frontend') return sendJson(res, 404, { error: 'not found' });
+  const session = requireSession(req, res);
+  if (!session) return true;
+  if (session.role === 'admin') return sendJson(res, 403, { error: 'administrators use the separate workspace' });
+  if (req.method === 'GET' && requestUrl.pathname === '/api/funding/rate') return sendJson(res, 200, await getFundingRate());
+  if (req.method === 'GET' && requestUrl.pathname === '/api/funding/requests') return sendJson(res, 200, await listFundingRequests(session));
+  if (req.method === 'POST' && requestUrl.pathname === '/api/funding/requests') {
+    const result = await createPaperFundingRequest(session, await readBody(req));
+    return result.error ? sendJson(res, result.status || 400, result) : sendJson(res, 201, result.request);
+  }
+  return sendJson(res, 404, { error: 'funding route not found' });
+}
+
+async function handleAdminFunding(req, res, requestUrl) {
+  const session = requireSession(req, res, 'admin');
+  if (!session) return true;
+  if (req.method === 'GET' && requestUrl.pathname === '/api/admin/funding/requests') return sendJson(res, 200, await listFundingRequests(session, true));
+  const match = requestUrl.pathname.match(/^\/api\/admin\/funding\/requests\/([^/]+)\/(approve|reject)$/);
+  if (req.method === 'POST' && match) {
+    const input = await readBody(req);
+    const result = await reviewPaperFundingRequest(session, match[1], match[2] === 'approve', input.reviewerNote);
+    return result.error ? sendJson(res, result.status || 400, result) : sendJson(res, 200, result.request);
+  }
+  return sendJson(res, 404, { error: 'admin funding route not found' });
 }
 
 async function handleSupport(req, res, requestUrl) {
@@ -1164,6 +1743,62 @@ const marketQuoteCatalogue = {
   EURUSD: 'EURUSD=X', GBPUSD: 'GBPUSD=X', NZDUSD: 'NZDUSD=X', USDCHF: 'CHF=X', EURGBP: 'EURGBP=X', EURJPY: 'EURJPY=X', GBPJPY: 'GBPJPY=X', EURCHF: 'EURCHF=X', USDCNH: 'CNH=X', USDSGD: 'SGD=X', USDHKD: 'HKD=X', USDTRY: 'TRY=X', USDZAR: 'ZAR=X', USDJPY: 'JPY=X', AUDUSD: 'AUDUSD=X', USDCAD: 'CAD=X',
   SPX: '^GSPC', NAS100: '^NDX', DAX: '^GDAXI', FTSE: '^FTSE', CAC: '^FCHI', NIKKEI: '^N225', HSI: '^HSI', DJ30: '^DJI', RUSSELL: '^RUT',
 };
+
+// Paper orders are calculated from this server-owned contract catalogue.  The
+// UI can preview the same values, but it cannot decide a contract size,
+// margin requirement or realized PnL.  This keeps the sandbox coherent across
+// tabs/devices and makes the admin audit a record of server-issued actions.
+const paperContractSizes = {
+  XAU: 100, XAG: 5_000, CL: 1_000, NG: 10_000, HG: 25_000, SCCO: 1,
+  BRN: 1_000, HO: 42_000, RB: 42_000, LGO: 100, PL: 50, PA: 100,
+  CORN: 5_000, WHEAT: 5_000, COFFEE: 37_500, SUGAR: 11_200,
+  COCOA: 10_000, COTTON: 50_000, OATS: 5_000, LUMBER: 110,
+  SOYBEAN: 5_000, SOYMEAL: 100, SOYOIL: 60_000, CATTLE: 40_000,
+  HOGS: 40_000, ORANGE: 15_000,
+};
+const paperLeverageOverrides = {
+  XAU: 20, XAG: 20, CL: 20, NG: 20, HG: 20, BRN: 20, HO: 20, RB: 20, LGO: 20, PL: 20, PA: 20,
+  SCCO: 10, CORN: 10, WHEAT: 10, COFFEE: 10, SUGAR: 10, COCOA: 10, COTTON: 10, OATS: 10, LUMBER: 10,
+  SOYBEAN: 10, SOYMEAL: 10, SOYOIL: 10, CATTLE: 10, HOGS: 10, ORANGE: 10,
+};
+const paperCryptoSymbols = new Set(['BTC', 'ETH', 'SOL', 'XRP', 'LINK', 'AVAX', 'DOGE', 'ADA', 'LTC', 'BCH']);
+const paperForexSymbols = new Set(['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'NZDUSD', 'USDCHF', 'EURGBP', 'EURJPY', 'GBPJPY', 'EURCHF', 'USDCNH', 'USDSGD', 'USDHKD', 'USDTRY', 'USDZAR']);
+const paperForexLeverage = { USDCNH: 20, USDSGD: 20, USDHKD: 20, USDTRY: 10, USDZAR: 10 };
+const paperExecutionSpecs = {
+  XAU: [0.30, 2], XAG: [0.035, 3], CL: [0.03, 3], NG: [0.006, 4], HG: [0.004, 4], SCCO: [0.04, 2],
+  BRN: [0.03, 3], HO: [0.004, 4], RB: [0.004, 4], LGO: [0.80, 2], PL: [0.45, 2], PA: [0.65, 2],
+  CORN: [0.25, 2], WHEAT: [0.25, 2], COFFEE: [0.30, 2], SUGAR: [0.04, 4], COCOA: [3, 2], COTTON: [0.08, 4], OATS: [0.15, 2], LUMBER: [1.5, 2],
+  SOYBEAN: [0.25, 2], SOYMEAL: [0.30, 2], SOYOIL: [0.04, 4], CATTLE: [0.08, 4], HOGS: [0.08, 4], ORANGE: [0.10, 2],
+  BTC: [8, 2], ETH: [0.60, 2], SOL: [0.05, 3], XRP: [0.0012, 4], LINK: [0.012, 3], AVAX: [0.012, 3], DOGE: [0.0008, 5], ADA: [0.0012, 5], LTC: [0.08, 2], BCH: [0.9, 2],
+  EURUSD: [0.00012, 5], GBPUSD: [0.00014, 5], USDJPY: [0.012, 3], AUDUSD: [0.00012, 5], USDCAD: [0.00014, 5], NZDUSD: [0.00014, 5], USDCHF: [0.00014, 5], EURGBP: [0.00014, 5],
+  EURJPY: [0.014, 3], GBPJPY: [0.016, 3], EURCHF: [0.00014, 5], USDCNH: [0.0005, 5], USDSGD: [0.00018, 5], USDHKD: [0.00016, 5], USDTRY: [0.012, 3], USDZAR: [0.006, 4],
+  SPX: [0.80, 2], NAS100: [2, 2], DAX: [1.2, 2], FTSE: [1.2, 2], CAC: [1.2, 2], NIKKEI: [12, 2], HSI: [10, 2], DJ30: [2.2, 2], RUSSELL: [0.65, 2],
+};
+
+function getPaperInstrumentSpec(symbol) {
+  if (paperCryptoSymbols.has(symbol)) return { contractSize: 1, defaultLeverage: 5, minimumLots: 0.01 };
+  if (paperForexSymbols.has(symbol)) return { contractSize: 100_000, defaultLeverage: paperForexLeverage[symbol] || 30, minimumLots: 0.01 };
+  return { contractSize: paperContractSizes[symbol] || 1, defaultLeverage: paperLeverageOverrides[symbol] || 10, minimumLots: 0.01 };
+}
+
+function roundPaperQuote(value, decimals) {
+  return Number(Number(value).toFixed(decimals));
+}
+
+function getPaperExecutionQuote(symbol, rawQuote) {
+  const reference = Number(rawQuote?.price);
+  const [spread, decimals] = paperExecutionSpecs[symbol] || [Math.max(reference * 0.0005, 0.01), reference < 1 ? 5 : 2];
+  const brokerBid = Number(rawQuote?.bid);
+  const brokerAsk = Number(rawQuote?.ask);
+  if (Number.isFinite(brokerBid) && brokerBid > 0 && Number.isFinite(brokerAsk) && brokerAsk >= brokerBid) {
+    return { bid: roundPaperQuote(brokerBid, decimals), ask: roundPaperQuote(brokerAsk, decimals), decimals };
+  }
+  return {
+    bid: roundPaperQuote(Math.max(0, reference - spread / 2), decimals),
+    ask: roundPaperQuote(reference + spread / 2, decimals),
+    decimals,
+  };
+}
 
 // Common MT5 broker symbols differ by suffix (for example XAUUSD.a). The
 // bridge normalizes only instruments that AD88 already supports. Unknown
@@ -2080,17 +2715,29 @@ const server = http.createServer(async (req, res) => {
       return forwardToRemoteApi(req, res, requestUrl, input, true);
     }
     if (appSurface === 'admin' && remoteApiOrigin && (requestUrl.pathname.startsWith('/api/admin/') || requestUrl.pathname.startsWith('/api/support/') || requestUrl.pathname.startsWith('/api/sync') || requestUrl.pathname.startsWith('/api/trades') || requestUrl.pathname.startsWith('/api/ledger') || requestUrl.pathname === '/api/market' || requestUrl.pathname === '/api/market/quotes' || requestUrl.pathname === '/api/market/status' || requestUrl.pathname === '/api/news')) {
+      // The bridge authenticates only the server-to-server hop. A browser
+      // request still must carry a valid administrator session before this
+      // service may attach that bridge to a protected frontend API request.
+      const privateAdminProxy = requestUrl.pathname.startsWith('/api/admin/')
+        || requestUrl.pathname.startsWith('/api/support/')
+        || requestUrl.pathname.startsWith('/api/sync')
+        || requestUrl.pathname.startsWith('/api/trades')
+        || requestUrl.pathname.startsWith('/api/ledger');
+      if (privateAdminProxy && !requireSession(req, res, 'admin')) return;
       return forwardToRemoteApi(req, res, requestUrl, undefined, true);
     }
     if (requestUrl.pathname.startsWith('/api/auth/')) {
       const handled = await handleAuth(req, res, requestUrl);
       if (handled !== false) return;
     }
+    if (requestUrl.pathname.startsWith('/api/paper/')) return handlePaperTrading(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/trades')) return handleAdminTrades(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/notifications')) return handleAdminNotifications(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/admin/funding/')) return handleAdminFunding(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/credits/')) return handleAdminCredits(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/')) return handleAdmin(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/trades')) return handleTrades(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/funding/')) return handleFunding(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/ledger')) return handleLedger(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/credits/')) return handleCredits(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/profile')) return handleProfile(req, res, requestUrl);

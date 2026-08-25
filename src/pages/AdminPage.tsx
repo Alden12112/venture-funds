@@ -15,13 +15,17 @@ import { isValidEmail } from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
 import { SupportCenter } from '@/components/SupportCenter';
 import { labelCountry, labelNewsCategory, labelNewsSentiment } from '@/lib/news-labels';
+import { reviewFundingRequest } from '@/lib/funding';
+import type { FundingRequest } from '@/types';
 
-const tabs = ['Accounts', 'Registration Review', 'U Management', 'Monthly Report', 'Trade Audit', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
+const tabs = ['Accounts', 'Registration Review', 'Deposit Review', 'Withdrawal Review', 'U Management', 'Monthly Report', 'Trade Audit', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
 type AdminTab = (typeof tabs)[number];
 
 const tabTranslationKey: Record<AdminTab, string> = {
   Accounts: 'admin.tab.accounts',
   'Registration Review': 'admin.tab.registrationReview',
+  'Deposit Review': 'admin.tab.depositReview',
+  'Withdrawal Review': 'admin.tab.withdrawalReview',
   'U Management': 'admin.tab.uManagement',
   'Monthly Report': 'admin.tab.monthlyReport',
   'Trade Audit': 'admin.tab.tradeAudit',
@@ -50,6 +54,45 @@ function saveAdminTab(tab: AdminTab) {
   if (typeof window !== 'undefined') window.sessionStorage.setItem('ad88.admin.active-tab', tab);
 }
 
+function FundingReviewPanel({
+  kind,
+  requests,
+  t,
+  onReview,
+  message,
+}: {
+  kind: 'deposit' | 'withdraw';
+  requests: FundingRequest[];
+  t: (key: string) => string;
+  onReview: (id: string, action: 'approve' | 'reject') => Promise<void>;
+  message: string;
+}) {
+  const queue = requests.filter((request) => request.status === 'pending');
+  const history = requests.filter((request) => request.status !== 'pending');
+  const title = kind === 'deposit' ? t('admin.depositReview') : t('admin.withdrawalReview');
+  const empty = kind === 'deposit' ? t('admin.noDepositRequests') : t('admin.noWithdrawalRequests');
+  const statusLabel = (status: FundingRequest['status']) => t(status === 'approved' ? 'status.approved' : status === 'rejected' ? 'status.rejected' : 'status.pending');
+  const methodLabel = (request: FundingRequest) => request.method === 'tng' ? t('funding.tng') : request.bankName || t('funding.bankSupport');
+
+  return (
+    <section className="content-grid content-grid--two funding-admin-grid">
+      <article className="panel">
+        <div className="panel__head"><div><span className="eyebrow">{kind === 'deposit' ? t('funding.deposit') : t('funding.withdraw')}</span><h2>{title}</h2><p>{t('admin.fundingReviewHint')}</p></div><StatusPill tone={queue.length ? 'warning' : 'muted'}>{queue.length} {t('admin.pending')}</StatusPill></div>
+        {message ? <div className={`notice-banner ${message === t('admin.fundingReviewFailed') ? 'notice-banner--error' : ''}`}>{message}</div> : null}
+        <div className="table-wrap"><table className="table table--interactive funding-admin-table"><thead><tr><th>{t('admin.requester')}</th><th>{t('admin.fundingMethod')}</th><th className="text-end">{t('admin.myrValue')}</th><th className="text-end">{t('admin.paperUValue')}</th><th>{t('admin.fundingRate')}</th><th>{t('admin.submitted')}</th><th>{t('admin.action')}</th></tr></thead><tbody>
+          {queue.length ? queue.map((request) => <tr key={request.id}><td><strong>{request.userName}</strong><div className="text-small text-muted">{request.email}</div>{request.accountReference ? <div className="text-small text-muted">{request.accountReference}</div> : null}</td><td>{methodLabel(request)}<div className="text-small text-muted">{request.supportRequired ? t('funding.supportReview') : t('funding.directReview')}</div></td><td className="text-end">{formatCurrency(request.amountMyr, 'MYR')}</td><td className="text-end"><strong>{request.amountU.toFixed(4)} U</strong></td><td>RM {request.rate.toFixed(4)} / U</td><td>{formatDateTime(request.createdAt)}</td><td><div className="admin-funding-actions"><button type="button" className="btn btn--primary btn--sm" onClick={() => void onReview(request.id, 'approve')}>{t('admin.approve')}</button><button type="button" className="btn btn--danger btn--sm" onClick={() => void onReview(request.id, 'reject')}>{t('admin.reject')}</button></div></td></tr>) : <tr><td colSpan={7}><div className="empty-inline"><span>{empty}</span></div></td></tr>}
+        </tbody></table></div>
+      </article>
+      <article className="panel">
+        <div className="panel__head"><div><h2>{t('admin.fundingHistory')}</h2><p>{t('admin.fundingHistoryHint')}</p></div><StatusPill tone={history.length ? 'info' : 'muted'}>{history.length} {t('admin.records')}</StatusPill></div>
+        <div className="stack-list">
+          {history.length ? history.map((request) => <div key={request.id} className="stack-list__row"><div><strong>{request.email}</strong><span>{methodLabel(request)} · {formatCurrency(request.amountMyr, 'MYR')} · {request.amountU.toFixed(4)} U</span><span>{request.reviewer ? `${t('admin.reviewedBy')}: ${request.reviewer}` : t('admin.review')}</span></div><div className="stack-list__meta"><StatusPill tone={request.status === 'approved' ? 'success' : 'critical'}>{statusLabel(request.status)}</StatusPill><span>{formatDateTime(request.reviewedAt ?? request.createdAt)}</span></div></div>) : <div className="state-block"><strong>{t('admin.fundingHistory')}</strong><p>{t('admin.fundingHistoryHint')}</p></div>}
+        </div>
+      </article>
+    </section>
+  );
+}
+
 export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const { session, signOut } = useAuth();
   const { language, setLanguage, t } = useLanguage();
@@ -63,6 +106,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [grantAmount, setGrantAmount] = useState(100);
   const [accountForm, setAccountForm] = useState({ name: '', email: '', phone: '', country: 'Malaysia', password: '', role: 'user' as 'user' | 'admin' });
   const [accountMessage, setAccountMessage] = useState('');
+  const [fundingMessage, setFundingMessage] = useState('');
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
 
@@ -183,6 +227,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const visibleNotifications = admin.data.notifications.filter((item) => matches(item.title) || matches(item.body) || matches(item.category));
   const visibleCreditAccounts = admin.data.creditAccounts.filter((item) => matches(item.userName) || matches(item.email) || matches(item.userId));
   const visibleBlacklist = admin.data.blacklist.filter((item) => matches(item.name) || matches(item.email) || matches(item.phone) || matches(item.reason));
+  const visibleFundingRequests = admin.data.fundingRequests.filter((item) => matches(item.userName) || matches(item.email) || matches(item.bankName) || matches(item.method) || matches(item.status));
   const pendingCreditRequests = admin.data.creditRequests.filter((item) => item.status === 'pending');
   const totalCredits = admin.data.creditAccounts.reduce((sum, account) => sum + account.balance, 0);
   const pendingCredits = pendingCreditRequests.reduce((sum, request) => sum + request.amount, 0);
@@ -195,6 +240,12 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const monthLedger = admin.data.ledgerEntries.filter((item) => isCurrentMonth(item.time));
   const monthPositions = admin.data.paperPositions.filter((item) => isCurrentMonth(item.openedAt));
   const monthNotifications = admin.data.notifications.filter((item) => isCurrentMonth(item.createdAt));
+  const monthDepositRequests = admin.data.fundingRequests.filter((item) => item.kind === 'deposit' && item.status === 'approved' && isCurrentMonth(item.createdAt));
+  const monthWithdrawalRequests = admin.data.fundingRequests.filter((item) => item.kind === 'withdraw' && item.status === 'approved' && isCurrentMonth(item.createdAt));
+  const monthDepositU = monthDepositRequests.reduce((sum, item) => sum + item.amountU, 0);
+  const monthWithdrawalU = monthWithdrawalRequests.reduce((sum, item) => sum + item.amountU, 0);
+  const monthDepositMyr = monthDepositRequests.reduce((sum, item) => sum + item.amountMyr, 0);
+  const monthWithdrawalMyr = monthWithdrawalRequests.reduce((sum, item) => sum + item.amountMyr, 0);
   const newsItems = news.status === 'success' ? news.data.items : [];
   const contentCount = newsItems.length;
   const report = admin.data.report;
@@ -212,6 +263,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   );
   const accountCountry = getCountryOption(accountForm.country);
   const accountPhoneMaxLength = Array.isArray(accountCountry.digits) ? accountCountry.digits[1] : accountCountry.digits;
+  const fundingMethodLabel = (request: FundingRequest) => request.method === 'tng' ? t('funding.tng') : request.bankName || t('funding.bankSupport');
 
   const adjustUForTarget = async (delta: number) => {
     const target = grantAccount ?? (grantUser ? { userId: grantUser.id, userName: grantUser.name, email: grantUser.email } : null);
@@ -228,6 +280,16 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const approveRequest = async (id: string) => {
     await approveRemoteCreditRequest(id, session?.name ?? 'AD88 Admin');
     setRefreshKey((value) => value + 1);
+  };
+
+  const reviewFunding = async (id: string, action: 'approve' | 'reject') => {
+    try {
+      await reviewFundingRequest(id, action);
+      setFundingMessage(action === 'approve' ? t('admin.fundingApproved') : t('admin.fundingRejected'));
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setFundingMessage(error instanceof Error ? error.message : t('admin.fundingReviewFailed'));
+    }
   };
 
   const createAccount = async () => {
@@ -319,6 +381,8 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
         <StatCard label={t('admin.metricAccounts')} value={String(report.totalAccounts)} note={t('admin.metricAccountsNote')} />
         <StatCard label={t('admin.metricNew')} value={String(report.monthlyRegistrations)} note={report.monthLabel} />
         <StatCard label={t('admin.metricLedger')} value={String(report.monthlyLedgerEntries)} note={`${t('admin.metricDeposit')} ${formatCurrency(report.monthlyInflow)}`} />
+        <StatCard label={t('admin.monthlyDeposits')} value={`${monthDepositU.toFixed(2)} U`} note={formatCurrency(monthDepositMyr, 'MYR')} />
+        <StatCard label={t('admin.monthlyWithdrawals')} value={`${monthWithdrawalU.toFixed(2)} U`} note={formatCurrency(monthWithdrawalMyr, 'MYR')} />
          <StatCard label={t('admin.uBalance')} value={String(totalCredits)} note={`${pendingCredits}${t('admin.uPending')}`} />
          <StatCard
            label={t('admin.marketSync')}
@@ -435,6 +499,26 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             </table>
           </div>
         </article>
+      ) : null}
+
+      {tab === 'Deposit Review' ? (
+        <FundingReviewPanel
+          kind="deposit"
+          requests={visibleFundingRequests.filter((request) => request.kind === 'deposit')}
+          t={t}
+          onReview={reviewFunding}
+          message={fundingMessage}
+        />
+      ) : null}
+
+      {tab === 'Withdrawal Review' ? (
+        <FundingReviewPanel
+          kind="withdraw"
+          requests={visibleFundingRequests.filter((request) => request.kind === 'withdraw')}
+          t={t}
+          onReview={reviewFunding}
+          message={fundingMessage}
+        />
       ) : null}
 
       {tab === 'U Management' ? (

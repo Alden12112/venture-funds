@@ -10,11 +10,11 @@ import type { SupportMessage } from '@/types';
 const whatsappUrl = 'https://wa.me/60178541111';
 const telegramUrl = 'https://t.me/Alden_1022';
 
-export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
+export function SupportCenter({ adminMode = false, initialDraft = '' }: { adminMode?: boolean; initialDraft?: string }) {
   const { session } = useAuth();
   const { t } = useLanguage();
   const [messages, setMessages] = useState<SupportMessage[]>([]);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(initialDraft);
   const [activeThreadId, setActiveThreadId] = useState('');
   const [status, setStatus] = useState('');
 
@@ -41,6 +41,10 @@ export function SupportCenter({ adminMode = false }: { adminMode?: boolean }) {
     const timer = window.setInterval(() => void loadMessages(), 5000);
     return () => window.clearInterval(timer);
   }, [session?.id, adminMode]);
+
+  useEffect(() => {
+    if (!adminMode && initialDraft) setDraft((current) => current || initialDraft);
+  }, [adminMode, initialDraft]);
 
   const threads = useMemo(() => {
     const grouped = new Map<string, SupportMessage[]>();
