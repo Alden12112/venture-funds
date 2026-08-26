@@ -41,30 +41,30 @@ const marketVisuals: Partial<Record<MarketProductSymbol, string>> = {
   // The hero artwork uses local editorial imagery for the two instruments
   // users scan first. Small row marks remain vector-like for fast scanning.
   XAU: '/assets/market/gold-bullion.png',
-  XAG: '/assets/market/metals-luminous.svg',
-  HG: '/assets/market/metals-luminous.svg',
-  SCCO: '/assets/market/metals-luminous.svg',
-  PL: '/assets/market/metals-luminous.svg',
-  PA: '/assets/market/metals-luminous.svg',
+  XAG: '/assets/market/metals-silver.svg',
+  HG: '/assets/market/metals-copper.svg',
+  SCCO: '/assets/market/metals-copper.svg',
+  PL: '/assets/market/metals-platinum.svg',
+  PA: '/assets/market/metals-platinum.svg',
   CL: '/assets/market/crude-pumpjack.png',
-  NG: '/assets/market/energy-current.svg',
+  NG: '/assets/market/energy-gas.svg',
   BRN: '/assets/market/crude-pumpjack.png',
-  HO: '/assets/market/energy-current.svg',
-  RB: '/assets/market/energy-current.svg',
-  EURUSD: '/assets/market/fx-orbit.svg',
-  GBPUSD: '/assets/market/fx-orbit.svg',
-  USDJPY: '/assets/market/fx-orbit.svg',
-  AUDUSD: '/assets/market/fx-orbit.svg',
-  USDCAD: '/assets/market/fx-orbit.svg',
-  USDCHF: '/assets/market/fx-orbit.svg',
-  EURJPY: '/assets/market/fx-orbit.svg',
-  SPX: '/assets/market/index-signal.svg',
-  NAS100: '/assets/market/index-signal.svg',
-  DAX: '/assets/market/index-signal.svg',
-  FTSE: '/assets/market/index-signal.svg',
-  NIKKEI: '/assets/market/index-signal.svg',
-  HSI: '/assets/market/index-signal.svg',
-  DJ30: '/assets/market/index-signal.svg',
+  HO: '/assets/market/energy-refinery.svg',
+  RB: '/assets/market/energy-refinery.svg',
+  EURUSD: '/assets/market/fx-crossflow.svg',
+  GBPUSD: '/assets/market/fx-crossflow.svg',
+  USDJPY: '/assets/market/fx-crossflow.svg',
+  AUDUSD: '/assets/market/fx-crossflow.svg',
+  USDCAD: '/assets/market/fx-crossflow.svg',
+  USDCHF: '/assets/market/fx-crossflow.svg',
+  EURJPY: '/assets/market/fx-crossflow.svg',
+  SPX: '/assets/market/index-grid.svg',
+  NAS100: '/assets/market/index-grid.svg',
+  DAX: '/assets/market/index-grid.svg',
+  FTSE: '/assets/market/index-grid.svg',
+  NIKKEI: '/assets/market/index-grid.svg',
+  HSI: '/assets/market/index-grid.svg',
+  DJ30: '/assets/market/index-grid.svg',
 };
 
 // Crisp coin marks are used throughout the live table, ticker and positions.
@@ -77,6 +77,16 @@ const marketIcons: Partial<Record<MarketProductSymbol, string>> = {
   XRP: '/assets/crypto/xrp.png',
   DOGE: '/assets/crypto/doge.png',
 };
+
+// The first view is an editorial market shelf, not an arbitrary catalogue
+// order. Keep the instruments with the clearest local artwork in front while
+// preserving a deterministic order for the remaining symbols. This is also
+// used by the table and chip selector, so the two surfaces never disagree.
+const featuredArtworkOrder: MarketProductSymbol[] = [
+  'BTC', 'ETH', 'XAU', 'CL', 'NG', 'XAG', 'HG', 'SCCO', 'BRN', 'SOL', 'XRP', 'DOGE',
+  'HO', 'RB', 'PL', 'PA', 'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'EURJPY',
+  'SPX', 'NAS100', 'DAX', 'FTSE', 'NIKKEI', 'HSI', 'DJ30',
+];
 
 // Provider payloads stay normalized in English; the interface resolves the
 // same stable symbol into the language selected by the user.
@@ -192,6 +202,19 @@ export function getMarketVisual(symbol: string) {
 
 export function getMarketIcon(symbol: string) {
   return marketIcons[symbol.toUpperCase() as MarketProductSymbol];
+}
+
+export function getMarketArtworkPriority(symbol: string) {
+  const normalized = symbol.toUpperCase() as MarketProductSymbol;
+  const order = featuredArtworkOrder.indexOf(normalized);
+  const hasEditorialArtwork = Boolean(marketVisuals[normalized]);
+  const hasRecognizableIcon = Boolean(marketIcons[normalized]);
+  const rank = order < 0 ? 0 : featuredArtworkOrder.length - order;
+  // Rank is the primary signal so BTC → ETH → XAU remains the deliberate
+  // opening shelf. Artwork availability only breaks ties and keeps any
+  // future unranked item with a real visual above a text-only fallback.
+  const assetSignal = hasEditorialArtwork ? 20 : hasRecognizableIcon ? 10 : 0;
+  return rank * 1_000 + assetSignal;
 }
 
 export function getTradeSpec(symbol: string): TradeSpec {

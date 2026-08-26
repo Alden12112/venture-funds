@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-label="Abstract silver market artwork">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#101b27"/><stop offset=".58" stop-color="#263b4a"/><stop offset="1" stop-color="#10161f"/></linearGradient>
+    <linearGradient id="silver" x1="0" x2="1"><stop stop-color="#7f98a7"/><stop offset=".48" stop-color="#f4fbff"/><stop offset="1" stop-color="#829baa"/></linearGradient>
+    <linearGradient id="blue" x1="0" x2="1"><stop stop-color="#5dd4cc"/><stop offset="1" stop-color="#a9d9ff"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="14" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <g fill="none" stroke="#d9f4ff" opacity=".12"><path d="M0 120h1200M0 240h1200M0 360h1200M0 480h1200M0 600h1200"/><path d="M120 0v720M300 0v720M480 0v720M660 0v720M840 0v720M1020 0v720"/></g>
+  <g opacity=".28" fill="none" stroke="#b9e8f5"><path d="M-20 530C190 390 300 590 500 430s340-38 740-246"/><path d="M-20 610C190 480 340 660 540 500s360-24 720-206"/></g>
+  <g filter="url(#glow)" opacity=".94">
+    <path d="M-30 555L160 476l112 43 126-136 124 62 134-154 120 55 136-100 168 36" fill="none" stroke="url(#silver)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M-10 625L180 548l118 43 123-116 128 46 126-98 130 30 134-74 174 29" fill="none" stroke="url(#blue)" stroke-width="8" stroke-linecap="round" opacity=".9"/>
+  </g>
+  <g fill="#ecfbff"><circle cx="398" cy="383" r="7"/><circle cx="656" cy="300" r="6"/><circle cx="947" cy="218" r="5"/></g>
+</svg>

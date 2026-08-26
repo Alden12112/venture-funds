@@ -1999,6 +1999,7 @@ table {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  filter: saturate(1.08) contrast(1.04);
   transform: scale(1.035);
   transition: transform 500ms ease;
 }
@@ -2018,6 +2019,80 @@ table {
   background: rgba(8, 17, 29, .48);
   backdrop-filter: blur(8px);
 }
+
+/* Artwork fallback for instruments that only have a compact mark. It keeps
+   the selected-instrument treatment visually substantial while making the
+   distinction from a bundled editorial image explicit in the markup. */
+.instrument-banner__art--fallback {
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 76% 22%, rgba(255, 255, 255, .2), transparent 23%),
+    linear-gradient(145deg, #173246, #101923 68%);
+}
+
+.instrument-banner__art--fallback::before {
+  position: absolute;
+  inset: 0;
+  content: '';
+  opacity: .46;
+  background:
+    linear-gradient(115deg, transparent 0 42%, rgba(255, 255, 255, .12) 42.4% 42.8%, transparent 43.2%),
+    repeating-linear-gradient(0deg, transparent 0 17px, rgba(174, 229, 224, .11) 17px 18px),
+    repeating-linear-gradient(90deg, transparent 0 23px, rgba(174, 229, 224, .08) 23px 24px);
+  pointer-events: none;
+}
+
+.instrument-banner__art--fallback::after {
+  background: linear-gradient(145deg, rgba(8, 17, 29, .02), rgba(8, 17, 29, .54));
+}
+
+.instrument-banner__fallback-grid,
+.instrument-banner__fallback-orbit {
+  position: absolute;
+  z-index: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.instrument-banner__fallback-grid {
+  width: 120px;
+  height: 28px;
+  right: -18px;
+  bottom: 18px;
+  border-top: 2px solid rgba(134, 235, 207, .78);
+  border-radius: 50%;
+  transform: rotate(-18deg);
+  box-shadow: 0 -10px 0 rgba(134, 235, 207, .22), 0 -20px 0 rgba(134, 235, 207, .11);
+}
+
+.instrument-banner__fallback-orbit {
+  width: 70px;
+  height: 70px;
+  top: -28px;
+  right: 10px;
+  border: 1px solid rgba(221, 246, 237, .42);
+  border-radius: 50%;
+  transform: rotate(22deg) skewX(-18deg);
+  box-shadow: 0 0 0 12px rgba(221, 246, 237, .06), 0 0 28px rgba(102, 226, 196, .2);
+}
+
+.instrument-banner__art--fallback .instrument-banner__art-mark {
+  right: 12px;
+  bottom: 10px;
+  padding: 4px;
+  background: rgba(8, 17, 29, .34);
+}
+
+.instrument-banner__art--fallback .asset-logo--lg {
+  width: 48px;
+  height: 48px;
+}
+
+.instrument-banner__art--fallback.instrument-banner__art--bitcoin { background: linear-gradient(145deg, #4b2f13, #151b28 72%); }
+.instrument-banner__art--fallback.instrument-banner__art--ethereum { background: linear-gradient(145deg, #27386a, #111b2b 72%); }
+.instrument-banner__art--fallback.instrument-banner__art--solana { background: linear-gradient(145deg, #164b54, #111e2b 72%); }
+.instrument-banner__art--fallback.instrument-banner__art--xrp { background: linear-gradient(145deg, #234568, #101d2a 72%); }
+.instrument-banner__art--fallback.instrument-banner__art--doge { background: linear-gradient(145deg, #5b451a, #1b202a 72%); }
 
 .instrument-banner__copy,
 .instrument-banner__quote {

@@ -13,7 +13,7 @@ import { useIndicativeQuotePulse, useLiveTickers } from '@/lib/useLiveTicker';
 import { writeStorage } from '@/lib/storage';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
-import { assetClassKey, assetNameKey, getExecutionQuote, getMarketIcon, getMarketProduct, getMarketVisual, getTradeSpec, marketProducts } from '@/data/assets';
+import { assetClassKey, assetNameKey, getExecutionQuote, getMarketArtworkPriority, getMarketIcon, getMarketProduct, getMarketVisual, getTradeSpec, marketProducts } from '@/data/assets';
 import { marketFilters } from '@/data/navigation';
 import { apiFetch } from '@/lib/api';
 import { loadRemoteCreditAccount, readCreditAccounts, writeCreditAccounts } from '@/lib/credits';
@@ -46,7 +46,16 @@ function AssetLogo({ symbol, size = 'md' }: { symbol: string; size?: 'sm' | 'md'
 
 function InstrumentArtwork({ symbol }: { symbol: string }) {
   const image = getMarketVisual(symbol);
-  if (!image) return <AssetLogo symbol={symbol} size="lg" />;
+  const product = getMarketProduct(symbol);
+  if (!image) {
+    return (
+      <div className={`instrument-banner__art instrument-banner__art--fallback instrument-banner__art--${product.tone}`} aria-hidden="true">
+        <span className="instrument-banner__fallback-grid" />
+        <span className="instrument-banner__fallback-orbit" />
+        <span className="instrument-banner__art-mark"><AssetLogo symbol={symbol} size="lg" /></span>
+      </div>
+    );
+  }
   return (
     <div className="instrument-banner__art" aria-hidden="true">
       <img src={image} alt="" decoding="async" />
@@ -222,7 +231,7 @@ export function MarketPage() {
         : quotePulse.quoteUpdatedAt[asset.symbol]
           ? new Date(quotePulse.quoteUpdatedAt[asset.symbol]).toISOString()
           : asset.updatedAt,
-    }));
+    })).sort((left, right) => getMarketArtworkPriority(right.symbol) - getMarketArtworkPriority(left.symbol));
   }, [live.lastTickAt, live.prices, market, quotePulse.changes, quotePulse.displayPrices, quotePulse.prices, quotePulse.quoteUpdatedAt]);
   const filteredRows = useMemo(() => {
     if (assetClassFilter === 'All') return rows;

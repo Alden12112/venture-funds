@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-label="Abstract copper market artwork">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1b1215"/><stop offset=".54" stop-color="#482622"/><stop offset="1" stop-color="#20151b"/></linearGradient>
+    <linearGradient id="copper" x1="0" x2="1"><stop stop-color="#8e3f31"/><stop offset=".5" stop-color="#f3a26d"/><stop offset="1" stop-color="#9a3d2e"/></linearGradient>
+    <linearGradient id="rose" x1="0" x2="1"><stop stop-color="#f2c28c"/><stop offset="1" stop-color="#d65d4b"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="15" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <g fill="none" stroke="#f5c9a7" opacity=".12"><circle cx="950" cy="120" r="250"/><circle cx="950" cy="120" r="180"/><path d="M0 170C220 90 330 310 540 198s380-38 660-124"/><path d="M0 260C220 180 350 395 560 285s370-35 640-108"/></g>
+  <g filter="url(#glow)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M-40 560C140 470 250 560 390 438s240-38 370-156 235-20 520-180" stroke="url(#copper)" stroke-width="46"/>
+    <path d="M-20 635C170 535 280 648 430 510s260-32 390-142 240-12 430-116" stroke="url(#rose)" stroke-width="10"/>
+  </g>
+  <g fill="#ffd4aa"><circle cx="391" cy="438" r="7"/><circle cx="762" cy="282" r="6"/><circle cx="1008" cy="153" r="5"/></g>
+</svg>

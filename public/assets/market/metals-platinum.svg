@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-label="Abstract platinum market artwork">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#111925"/><stop offset=".56" stop-color="#33445b"/><stop offset="1" stop-color="#151c2a"/></linearGradient>
+    <linearGradient id="platinum" x1="0" x2="1"><stop stop-color="#8394b4"/><stop offset=".5" stop-color="#f8fbff"/><stop offset="1" stop-color="#9eacd0"/></linearGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="18" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <g fill="none" stroke="#c8ddff" opacity=".16"><path d="M90 90h1020M90 210h1020M90 330h1020M90 450h1020M90 570h1020"/><path d="M180 50v600M360 50v600M540 50v600M720 50v600M900 50v600"/></g>
+  <g filter="url(#soft)" fill="none" stroke="url(#platinum)" stroke-linecap="round">
+    <path d="M-25 570L125 522l105 20 100-105 118 55 130-166 104 73 126-112 106 33 150-142" stroke-width="42"/>
+    <path d="M-10 642L160 585l110 30 108-82 118 36 124-90 114 32 118-68 164 35" stroke-width="7" opacity=".82"/>
+  </g>
+  <g fill="#f7fbff"><circle cx="330" cy="437" r="7"/><circle cx="548" cy="296" r="6"/><circle cx="887" cy="213" r="5"/></g>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-label="Abstract natural gas market artwork">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0f1b27"/><stop offset=".52" stop-color="#263b43"/><stop offset="1" stop-color="#16202c"/></linearGradient>
+    <linearGradient id="gas" x1="0" x2="1"><stop stop-color="#42c9bd"/><stop offset=".48" stop-color="#e5d77b"/><stop offset="1" stop-color="#ef8d55"/></linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="18"/></filter>
+  </defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <circle cx="895" cy="162" r="210" fill="#69dbca" opacity=".12" filter="url(#blur)"/>
+  <g fill="none" stroke="#b5eadd" opacity=".18"><path d="M-20 170C210 290 370 92 590 240s360 54 650-102"/><path d="M-20 270C220 390 390 190 620 335s340 38 620-92"/><path d="M-20 370C240 500 420 290 665 420s340 12 555-52"/></g>
+  <g fill="none" stroke="url(#gas)" stroke-linecap="round">
+    <path d="M-40 576C170 410 300 602 480 456s302-54 438-163 182-35 330-125" stroke-width="45"/>
+    <path d="M-20 645C200 485 330 678 530 515s312-42 456-142 180-20 280-72" stroke-width="10" opacity=".9"/>
+  </g>
+  <g fill="#eaf6be"><circle cx="484" cy="452" r="7"/><circle cx="918" cy="291" r="6"/><circle cx="1086" cy="193" r="5"/></g>
+</svg>

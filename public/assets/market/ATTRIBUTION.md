@@ -10,7 +10,9 @@ not as official exchange, bank, wallet, broker, or payment-provider branding.
 
 Source: https://unsplash.com/license
 
-The abstract category artwork (`metals-luminous.svg`, `energy-current.svg`,
-`fx-orbit.svg`, and `index-signal.svg`) is original AD88 code-native artwork,
+The abstract category artwork (`metals-luminous.svg`, `metals-silver.svg`,
+`metals-copper.svg`, `metals-platinum.svg`, `energy-current.svg`,
+`energy-gas.svg`, `energy-refinery.svg`, `fx-orbit.svg`, `fx-crossflow.svg`,
+`index-signal.svg`, and `index-grid.svg`) is original AD88 code-native artwork,
 created for this project and not copied from a broker, exchange or trading
 terminal.

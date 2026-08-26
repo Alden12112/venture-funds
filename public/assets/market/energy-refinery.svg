@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-label="Abstract refined energy market artwork">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#18151d"/><stop offset=".5" stop-color="#4a2825"/><stop offset="1" stop-color="#1d1a25"/></linearGradient>
+    <linearGradient id="flow" x1="0" x2="1"><stop stop-color="#d95a3e"/><stop offset=".45" stop-color="#f2c36b"/><stop offset="1" stop-color="#cc6651"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="13" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <g opacity=".2" stroke="#ffd9a5" fill="none"><path d="M90 80v520M260 80v520M430 80v520M600 80v520M770 80v520M940 80v520M1110 80v520"/><path d="M60 130h1080M60 260h1080M60 390h1080M60 520h1080"/></g>
+  <g filter="url(#glow)" fill="none" stroke="url(#flow)" stroke-linecap="round">
+    <path d="M-35 563C170 410 276 616 475 448s320-55 442-172 191-20 328-113" stroke-width="48"/>
+    <path d="M-20 642C172 510 320 670 520 520s316-42 446-145 180-20 256-65" stroke-width="9"/>
+  </g>
+  <g fill="#ffe4b4"><circle cx="472" cy="450" r="7"/><circle cx="917" cy="276" r="6"/><circle cx="1080" cy="176" r="5"/></g>
+</svg>
