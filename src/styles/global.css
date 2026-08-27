@@ -779,16 +779,16 @@ table {
   width: 42px;
   height: 42px;
   flex: 0 0 42px;
-  overflow: visible;
+  overflow: hidden;
   padding: 0;
   border: 0;
-  border-radius: 0;
-  background: transparent;
+  border-radius: 12px;
+  background: #f5fbf6;
   box-shadow: none;
 }
 
 .ad88-brand-mark::after { display: none; }
-.ad88-brand-mark svg { display: block; width: 100%; height: 100%; filter: drop-shadow(0 9px 18px rgba(18, 42, 50, .24)); }
+.ad88-brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; transform: scale(1.52); transform-origin: 50% 0%; filter: drop-shadow(0 8px 14px rgba(18, 42, 50, .2)); }
 .ad88-brand-mark--compact { width: 34px; height: 34px; flex-basis: 34px; }
 
 .brand-lockup__name {
@@ -982,6 +982,12 @@ table {
 .session-chip__role {
   color: var(--muted);
   font-size: 12px;
+}
+
+.preview-shell__head > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
 .preview-metrics,
@@ -1414,6 +1420,30 @@ table {
 .asset-logo--orange { background: linear-gradient(135deg, #e49438, #b85320); }
 .asset-logo--forex { background: linear-gradient(135deg, #4d83a2, #2e5a79); }
 .asset-logo--index { background: linear-gradient(135deg, #80649a, #4f3d70); }
+
+/* VENTURE FUNDS token treatment: one calm, circular language for every
+   instrument while the mark and live price remain the primary identifiers. */
+.asset-logo,
+.asset-logo--image {
+  background:
+    radial-gradient(circle at 28% 20%, rgba(232, 255, 242, .24), transparent 23%),
+    linear-gradient(145deg, #285e4b 0%, #1b4039 48%, #132832 100%);
+  border-color: rgba(163, 239, 207, .42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .32), inset 0 -10px 16px rgba(6, 22, 28, .26), 0 9px 20px rgba(8, 14, 24, .18);
+}
+
+.asset-logo::after {
+  position: absolute;
+  inset: 3px;
+  border: 1px solid rgba(165, 240, 207, .28);
+  border-radius: inherit;
+  content: '';
+  pointer-events: none;
+}
+
+.asset-logo--image { padding: 2px; }
+.asset-logo--image.asset-logo--sm { padding: 1px; }
+.asset-logo--image.asset-logo--lg { padding: 3px; }
 
 .ticker-strip {
   display: flex;
@@ -4938,6 +4968,43 @@ table {
 .research-ad-slot__visual span { font-size: 9px; font-weight: 850; letter-spacing: .1em; }
 .research-ad-slot h2 { margin: 4px 0 6px; font-size: 17px; }
 .research-ad-slot p { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.venture-campaign-rail {
+  display: grid;
+  grid-template-columns: minmax(225px, .62fr) minmax(0, 1.38fr);
+  gap: 18px;
+  align-items: stretch;
+  min-width: 0;
+  padding: 18px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 8% 12%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-strong) 92%, var(--accent-soft)), var(--surface));
+  box-shadow: 0 18px 42px rgba(18, 44, 48, .08);
+}
+.venture-campaign-rail__copy { display: grid; align-content: center; gap: 9px; min-width: 0; padding: 8px 2px; }
+.venture-campaign-rail__copy .eyebrow { display: inline-flex; align-items: center; gap: 6px; }
+.venture-campaign-rail__copy h2 { max-width: 300px; margin: 0; color: var(--text); font-size: clamp(22px, 3vw, 34px); letter-spacing: -.045em; line-height: 1.02; }
+.venture-campaign-rail__copy p { max-width: 340px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.venture-campaign-rail__status { display: inline-flex; align-items: center; gap: 7px; width: fit-content; margin-top: 4px; color: var(--accent-strong); font-size: 10px; font-weight: 780; letter-spacing: .04em; text-transform: uppercase; }
+.venture-campaign-rail__status .status-dot { width: 7px; height: 7px; }
+.venture-campaign-rail__gallery { display: grid; grid-template-columns: 1.45fr 1fr 1fr; grid-template-rows: repeat(2, minmax(82px, 1fr)); gap: 9px; min-width: 0; min-height: 206px; }
+.venture-campaign-rail__item { position: relative; min-width: 0; min-height: 0; margin: 0; overflow: hidden; border: 1px solid rgba(255, 255, 255, .16); border-radius: 12px; background: #0b1b17; box-shadow: 0 8px 22px rgba(7, 23, 20, .18); }
+.venture-campaign-rail__item:first-child { grid-row: 1 / -1; }
+.venture-campaign-rail__item img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform .45s ease, filter .45s ease; }
+.venture-campaign-rail__item::after { position: absolute; inset: 0; background: linear-gradient(180deg, transparent 48%, rgba(3, 13, 11, .78)); content: ''; pointer-events: none; }
+.venture-campaign-rail__item:hover img { transform: scale(1.045); filter: saturate(1.08); }
+.venture-campaign-rail__item figcaption { position: absolute; z-index: 1; right: 10px; bottom: 8px; left: 10px; display: flex; align-items: center; gap: 6px; overflow: hidden; color: #f5f7e9; font-size: 9px; font-weight: 780; letter-spacing: .06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.venture-campaign-rail__item figcaption span { color: #f2c978; font-variant-numeric: tabular-nums; }
+.venture-campaign-rail--compact { grid-template-columns: 1fr; gap: 12px; padding: 12px; border-radius: 14px; }
+.venture-campaign-rail--compact .venture-campaign-rail__copy { gap: 6px; padding: 1px; }
+.venture-campaign-rail--compact .venture-campaign-rail__copy h2 { max-width: none; font-size: 17px; letter-spacing: -.03em; }
+.venture-campaign-rail--compact .venture-campaign-rail__copy p { font-size: 11px; line-height: 1.45; }
+.venture-campaign-rail--compact .venture-campaign-rail__status { display: none; }
+.venture-campaign-rail--compact .venture-campaign-rail__gallery { grid-template-columns: 1.18fr 1fr; grid-template-rows: repeat(2, minmax(68px, 1fr)); min-height: 150px; gap: 7px; }
+.venture-campaign-rail--compact .venture-campaign-rail__item figcaption { right: 7px; bottom: 6px; left: 7px; font-size: 8px; }
 .research-reading-room .panel__head,
 .research-calendar-mini .panel__head { align-items: start; }
 .research-reading-room .panel__head h2 { display: inline-flex; align-items: center; gap: 7px; }
@@ -5014,6 +5081,7 @@ table {
   .research-calendar-kpis > div + div { border-top: 1px solid var(--border); border-left: 0; }
   .research-side-rail { grid-template-columns: 1fr 1fr; }
   .research-ad-slot { grid-column: span 2; }
+  .venture-campaign-rail { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
@@ -5023,6 +5091,9 @@ table {
   .research-side-rail { grid-template-columns: 1fr; }
   .research-ad-slot { grid-column: auto; grid-template-columns: 78px minmax(0, 1fr); min-height: 132px; }
   .research-ad-slot__visual { min-height: 92px; }
+  .venture-campaign-rail { gap: 13px; padding: 14px; border-radius: 15px; }
+  .venture-campaign-rail__copy h2 { font-size: 25px; }
+  .venture-campaign-rail__gallery { min-height: 190px; }
   .research-reading-room__rows strong { font-size: 17px; }
   .admin-credit-actions { justify-content: flex-start; }
   .admin-tab-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -5388,13 +5459,10 @@ table {
 .scenario-history__reference { justify-items: end; text-align: right; }
 .scenario-history__reference strong, .scenario-history__clock strong { font-size: 12px; font-variant-numeric: tabular-nums; }
 .scenario-history__clock { justify-items: end; grid-template-columns: auto auto; column-gap: 5px; text-align: right; }
-.scenario-history__clock svg, .scenario-result-dot { width: 14px; height: 14px; grid-row: span 2; align-self: center; color: var(--accent-strong); }
+.scenario-history__clock svg { width: 14px; height: 14px; grid-row: span 2; align-self: center; color: var(--accent-strong); }
 .scenario-history__mini-progress { grid-column: 1 / -1; width: 100%; height: 3px; overflow: hidden; border-radius: 99px; background: color-mix(in srgb, var(--muted) 14%, transparent); }
 .scenario-history__mini-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .5s linear; }
 .scenario-history__clock .scenario-history__view { grid-column: 1 / -1; justify-self: end; }
-.scenario-result-dot { display: block; border: 3px solid var(--success); border-radius: 50%; box-shadow: 0 0 0 3px var(--success-soft); }
-.scenario-history__row--not-confirmed .scenario-result-dot, .scenario-history__row--void .scenario-result-dot { border-color: var(--critical); box-shadow: 0 0 0 3px var(--critical-soft); }
-.scenario-history__row--flat .scenario-result-dot { border-color: var(--muted); box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 12%, transparent); }
 .scenario-history__empty { min-height: 126px; }
 .scenario-history__view {
   display: inline-flex;
@@ -5557,11 +5625,6 @@ table {
 .scenario-result-dialog__details > div { display: grid; gap: 5px; min-width: 0; padding: 12px 13px; background: #fff; }
 .scenario-result-dialog__details span { color: #7a879a; font-size: 10px; }
 .scenario-result-dialog__details strong { overflow: hidden; color: #142033; font-size: 12px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
-.scenario-result-dialog__analysis { display: grid; gap: 6px; margin-top: 14px; padding: 12px 13px; border: 1px solid #dce7f3; border-radius: 13px; background: #f7fbff; }
-.scenario-result-dialog__analysis-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.scenario-result-dialog__analysis-head span { color: #718198; font-size: 10px; font-weight: 820; letter-spacing: .08em; text-transform: uppercase; }
-.scenario-result-dialog__analysis-head strong { color: #1e4f84; font-size: 12px; }
-.scenario-result-dialog__analysis p { margin: 0; color: #617189; font-size: 11px; line-height: 1.5; }
 .scenario-result-dialog__footer { align-items: flex-start; justify-content: flex-start; margin-top: 16px; padding-top: 14px; border-top: 1px solid #e8edf3; color: #6d7b91; font-size: 11px; line-height: 1.45; }
 .scenario-result-dialog__footer svg { flex: 0 0 auto; color: #4e85c4; }
 .scenario-result-dialog__footer > div { display: grid; gap: 6px; min-width: 0; }

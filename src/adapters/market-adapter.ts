@@ -202,7 +202,7 @@ function snapshotAsset(product: typeof marketProducts[number], quote: MarketSnap
     bid: toNumber(quote?.bid) || undefined,
     ask: toNumber(quote?.ask) || undefined,
     dataState: quote?.dataState ?? 'live',
-    provider: quote?.dataState === 'broker' ? 'Broker reference feed' : 'AD88 market proxy',
+    provider: quote?.dataState === 'broker' ? 'Broker reference feed' : 'VENTURE FUNDS market proxy',
     providerCacheState: 'fresh',
   };
 }
@@ -295,7 +295,7 @@ export async function loadMarketBundle(symbol = 'BTC', timeframe: TimeframeCode 
     endpoint: selectedProduct.assetClass === 'crypto' ? `${coinbaseBase}/products/*` : '/api/market',
     latencyMs: Math.max(1, Date.now() - requestStartedAt),
     health: selectedLoaded.fallback ? 'degraded' : 'healthy',
-    lineage: selectedProduct.assetClass === 'crypto' ? 'Coinbase Exchange → adapter → chart' : selectedLoaded.lineage ?? 'market provider → AD88 server proxy → adapter → chart',
+    lineage: selectedProduct.assetClass === 'crypto' ? 'Coinbase Exchange → adapter → chart' : selectedLoaded.lineage ?? 'market provider → VENTURE FUNDS server proxy → adapter → chart',
   };
   let selected: MarketQuote = { ...selectedLoaded, source };
   let orderBook = selectedLoaded.orderBook ?? buildSyntheticBook(selectedLoaded.price, selectedProduct);

@@ -17,6 +17,7 @@ import { createRemoteCreditRequest, loadRemoteCreditAccount, loadRemoteCreditReq
 import type { CreditAccount, CreditRequest } from '@/types';
 import { assetNameKey } from '@/data/assets';
 import { labelCalendarTitle, labelCountry, labelMarket, labelNewsCategory, labelNewsImpact, labelNewsSummary } from '@/lib/news-labels';
+import { VentureCampaignRail } from '@/components/VentureCampaignRail';
 
 const dashboardStatusKeys: Record<string, string> = {
   approved: 'status.approved', settled: 'status.settled', pending: 'status.pending', rejected: 'status.rejected',
@@ -120,7 +121,9 @@ export function DashboardPage() {
          <div><ShieldCheck size={18} /><span><strong>{t('dashboard.riskFirst')}</strong><small>{t('dashboard.riskFirstText')}</small></span></div>
          <div><Radar size={18} /><span><strong>{t('dashboard.dataIntegrity')}</strong><small>{t('dashboard.dataIntegrityText')}</small></span></div>
          <div><AlertTriangle size={18} /><span><strong>{t('dashboard.paperEnvironment')}</strong><small>{t('dashboard.paperEnvironmentText')}</small></span></div>
-      </section>
+       </section>
+
+      <VentureCampaignRail />
 
       <section className="content-grid content-grid--two command-center__primary-grid">
         <article className="panel credit-console">

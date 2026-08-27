@@ -211,7 +211,7 @@ function requireSession(req, res, role) {
     const bridgeBuffer = Buffer.from(bridge);
     const expectedBuffer = Buffer.from(adminBridgeToken);
     if (timingSafeEqual(bridgeBuffer, expectedBuffer)) {
-      return { sub: 'env-admin', email: adminEmail, name: 'AD88 Administrator', phone: '', role: 'admin' };
+      return { sub: 'env-admin', email: adminEmail, name: 'VENTURE FUNDS Administrator', phone: '', role: 'admin' };
     }
   }
   const session = verifyToken(getToken(req));
@@ -660,7 +660,7 @@ async function handleAuth(req, res, requestUrl) {
     const identifier = String(input.identifier || '').trim();
     const password = String(input.password || '');
     if (appSurface === 'admin' && adminEmail && identifier.toLowerCase() === adminEmail && adminPassword && password === adminPassword) {
-      const account = { id: 'env-admin', name: 'AD88 Administrator', email: adminEmail, phone: '', country: 'Global', role: 'admin', status: 'active', tier: 'Enterprise', tradingScore: 100, joinedAt: new Date().toISOString() };
+      const account = { id: 'env-admin', name: 'VENTURE FUNDS Administrator', email: adminEmail, phone: '', country: 'Global', role: 'admin', status: 'active', tier: 'Enterprise', tradingScore: 100, joinedAt: new Date().toISOString() };
       return sendJson(res, 200, sessionResponse(account));
     }
     const account = await findAccount(identifier);
@@ -681,7 +681,7 @@ async function handleAuth(req, res, requestUrl) {
     if (!session) return true;
     if (session.sub === 'env-admin') {
       return sendJson(res, 200, {
-        id: 'env-admin', name: 'AD88 Administrator', email: adminEmail,
+        id: 'env-admin', name: 'VENTURE FUNDS Administrator', email: adminEmail,
         phone: '', country: 'Global', role: 'admin', status: 'active',
         tier: 'Enterprise', tradingScore: 100, joinedAt: new Date().toISOString(),
       });
@@ -728,7 +728,7 @@ async function blacklistAccount(accountId, session, reason) {
     country: account.country,
     reason: String(reason || 'Registration review was not approved').trim().slice(0, 240),
     blacklistedAt: new Date().toISOString(),
-    blacklistedBy: session.email || session.name || 'AD88 Admin',
+    blacklistedBy: session.email || session.name || 'VENTURE FUNDS Admin',
   };
   if (pool) {
     const existing = await pool.query('SELECT id FROM ad88_blacklist WHERE user_id = $1 LIMIT 1', [account.id]);
@@ -1412,10 +1412,24 @@ function normalizeSupportMessage(row) {
   };
 }
 
+function kualaLumpurMidnightMs(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kuala_Lumpur',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  // Kuala Lumpur is UTC+08:00 year-round. The cutoff is the start of the
+  // current local day, so messages sent today remain available until the next
+  // local midnight.
+  return Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day)) - 8 * 60 * 60 * 1000;
+}
+
 async function pruneSupportMessages() {
-  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const cutoff = kualaLumpurMidnightMs();
   if (pool) {
-    await pool.query("DELETE FROM ad88_support_messages WHERE created_at < NOW() - INTERVAL '7 days'");
+    await pool.query('DELETE FROM ad88_support_messages WHERE created_at < to_timestamp($1 / 1000.0)', [cutoff]);
     return;
   }
   const retained = memorySupportMessages.filter((item) => new Date(item.createdAt).getTime() >= cutoff);
@@ -1568,7 +1582,7 @@ async function voidTimedScenario(session, id, reason) {
 async function updateTimedScenarioNote(session, id, note) {
   const cleanNote = String(note ?? '').trim().slice(0, 600);
   const updatedAt = new Date().toISOString();
-  const updatedBy = String(session.email || session.name || 'AD88 Admin').slice(0, 240);
+  const updatedBy = String(session.email || session.name || 'VENTURE FUNDS Admin').slice(0, 240);
   if (pool) {
     const result = await pool.query(
       'UPDATE ad88_timed_scenarios SET admin_note=$2, admin_note_updated_at=$3, admin_note_updated_by=$4 WHERE id=$1 RETURNING *',
@@ -1787,7 +1801,7 @@ async function getFundingRate() {
     try {
       // This is a public daily FX reference, not a payment-processor quote.
       const response = await fetch('https://api.frankfurter.app/latest?from=USD&to=MYR', {
-        headers: { accept: 'application/json', 'user-agent': 'AD88-paper-funding/1.0' },
+        headers: { accept: 'application/json', 'user-agent': 'venture-funds-paper-funding/1.0' },
         signal: AbortSignal.timeout(4_500),
       });
       if (!response.ok) throw new Error(`daily FX reference returned ${response.status}`);
@@ -1801,7 +1815,7 @@ async function getFundingRate() {
       const prior = fundingRateCache.value;
       const value = prior
         ? { ...prior, cacheState: 'fallback' }
-        : buildFundingRate(4.1, 'AD88 daily-reference fallback', 'fallback');
+        : buildFundingRate(4.1, 'VENTURE FUNDS daily-reference fallback', 'fallback');
       // A short fallback cache avoids retrying an unavailable public endpoint
       // on every client request while still retrying long before the next day.
       fundingRateCache = { expiresAt: Date.now() + 15 * 60 * 1000, value };
@@ -1867,7 +1881,7 @@ function normalizeFundingRequest(row, { includeSensitive = false } = {}) {
     amountU: Number(row.amountU ?? row.amount_u ?? 0),
     rate: Number(row.rate ?? 0),
     baseRate: Number(row.baseRate ?? row.base_rate ?? 0),
-    rateSource: row.rateSource ?? row.rate_source ?? 'AD88 daily reference',
+    rateSource: row.rateSource ?? row.rate_source ?? 'VENTURE FUNDS daily reference',
     rateUpdatedAt: row.rateUpdatedAt ?? row.rate_updated_at,
     status: row.status,
     createdAt: row.createdAt ?? row.created_at,
@@ -2467,7 +2481,7 @@ function buildTwelveChartPayload(payload, requestedInterval) {
     ad88Fallback: false,
     ad88Source: 'Twelve Data',
     ad88Cache: 'fresh',
-    ad88Lineage: 'Twelve Data → AD88 server proxy → market workspace',
+    ad88Lineage: 'Twelve Data → VENTURE FUNDS server proxy → market workspace',
     chart: {
       result: [{
         meta: {
@@ -2652,7 +2666,7 @@ function buildIndicativeReferenceChart(symbol, quote, interval = '15m') {
     ad88Source: quote.provider,
     ad88Cache: 'fresh',
     ad88ChartMode: 'indicative',
-    ad88Lineage: `${quote.provider} snapshot → AD88 indicative chart → market workspace`,
+    ad88Lineage: `${quote.provider} snapshot → VENTURE FUNDS indicative chart → market workspace`,
     chart: { result: [{ meta: { regularMarketPrice: base, regularMarketTime: Math.floor(new Date(quote.quoteUpdatedAt).getTime() / 1000), previousClose, chartPreviousClose: previousClose, regularMarketDayHigh: Math.max(...closes), regularMarketDayLow: Math.min(...closes), regularMarketVolume: 0 }, timestamp: timestamps, indicators: { quote: [{ open: closes, high: closes.map((value) => value * 1.0005), low: closes.map((value) => value * 0.9995), close: closes, volume: closes.map(() => 0) }] } }] },
   };
 }
@@ -2666,7 +2680,7 @@ async function loadYahooQuote(providerSymbol) {
       const upstream = new URL(`https://${host}/v8/finance/chart/${encodeURIComponent(providerSymbol)}`);
       upstream.searchParams.set('range', '1d');
       upstream.searchParams.set('interval', '1m');
-      const response = await fetch(upstream, { headers: { 'User-Agent': 'AD88/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
+      const response = await fetch(upstream, { headers: { 'User-Agent': 'VENTURE-FUNDS/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
       if (!response.ok) continue;
       const payload = await response.json();
       const meta = payload?.chart?.result?.[0]?.meta;
@@ -2770,7 +2784,7 @@ async function buildMarketQuoteSnapshot() {
     }
     if (!quote) {
       const [price, change] = marketFallbackPrices[providerSymbol] || internalFallbackPrices[symbol] || [100, 0];
-      quote = { price, change24h: change, volume24h: 0, quoteUpdatedAt: new Date().toISOString(), provider: 'AD88 fallback', fallback: true };
+      quote = { price, change24h: change, volume24h: 0, quoteUpdatedAt: new Date().toISOString(), provider: 'VENTURE FUNDS fallback', fallback: true };
     }
     return [symbol, quote];
   }));
@@ -3105,13 +3119,13 @@ async function proxyMarket(res, requestUrl) {
     const candidates = [upstream, new URL(upstream.toString().replace('query1.finance.yahoo.com', 'query2.finance.yahoo.com'))];
     for (const candidate of candidates) {
       try {
-        const response = await fetch(candidate, { headers: { 'User-Agent': 'AD88/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
+        const response = await fetch(candidate, { headers: { 'User-Agent': 'VENTURE-FUNDS/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
         const body = await response.text();
         lastStatus = response.status;
         lastBody = body;
         if (!response.ok) continue;
         const payload = JSON.parse(body);
-        const normalizedBody = JSON.stringify({ ...payload, ad88Fallback: false, ad88Source: 'Yahoo Finance', ad88Cache: 'fresh', ad88Lineage: `${candidate.hostname} → AD88 server proxy → market workspace` });
+        const normalizedBody = JSON.stringify({ ...payload, ad88Fallback: false, ad88Source: 'Yahoo Finance', ad88Cache: 'fresh', ad88Lineage: `${candidate.hostname} → VENTURE FUNDS server proxy → market workspace` });
         marketProxyCache.set(cacheKey, { expiresAt: Date.now() + cacheTtlMs, body: normalizedBody, provider: 'yahoo' });
         res.statusCode = 200;
         res.setHeader('content-type', 'application/json; charset=utf-8');
@@ -3127,7 +3141,7 @@ async function proxyMarket(res, requestUrl) {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json; charset=utf-8');
       res.setHeader('x-ad88-cache', 'fallback');
-      res.end(JSON.stringify({ ...buildMarketFallback(symbol), ad88Source: 'AD88 market fallback', ad88Cache: 'stale' }));
+      res.end(JSON.stringify({ ...buildMarketFallback(symbol), ad88Source: 'VENTURE FUNDS market fallback', ad88Cache: 'stale' }));
       return;
     }
     res.statusCode = lastStatus;
@@ -3169,7 +3183,7 @@ async function proxyNews(res, requestUrl) {
   let lastError = '';
   for (const upstream of yahooUrls) {
     try {
-      const response = await fetch(upstream, { headers: { 'User-Agent': 'AD88/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
+      const response = await fetch(upstream, { headers: { 'User-Agent': 'VENTURE-FUNDS/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
       if (!response.ok) {
         lastError = `Yahoo ${response.status}`;
         continue;
@@ -3199,7 +3213,7 @@ async function proxyNews(res, requestUrl) {
     gdelt.searchParams.set('format', 'json');
     gdelt.searchParams.set('maxrecords', '12');
     gdelt.searchParams.set('sort', 'HybridRel');
-    const response = await fetch(gdelt, { headers: { 'User-Agent': 'AD88/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
+    const response = await fetch(gdelt, { headers: { 'User-Agent': 'VENTURE-FUNDS/1.0', accept: 'application/json' }, signal: AbortSignal.timeout(6500) });
     if (response.ok) {
       const payload = await response.json();
       const news = (Array.isArray(payload.articles) ? payload.articles : []).map((article, index) => ({
@@ -3236,11 +3250,11 @@ async function proxyNews(res, requestUrl) {
 
   const now = Math.floor(Date.now() / 1000);
   const fallbackNews = [
-    ['Bitcoin holds near recent range as liquidity stays cautious', 'AD88 Market Desk', 'Crypto', 'United States'],
-    ['Gold and dollar focus turns to the next inflation signal', 'AD88 Macro Desk', 'Metals / FX', 'United States'],
-    ['Crude oil and natural gas prices track inventory expectations', 'AD88 Energy Desk', 'Energy', 'United States'],
-    ['Copper demand outlook keeps industrial metals in focus', 'AD88 Metals Desk', 'Metals', 'China'],
-    ['Central-bank language keeps major currency pairs moving', 'AD88 FX Desk', 'FX', 'European Union'],
+    ['Bitcoin holds near recent range as liquidity stays cautious', 'VENTURE FUNDS Market Desk', 'Crypto', 'United States'],
+    ['Gold and dollar focus turns to the next inflation signal', 'VENTURE FUNDS Macro Desk', 'Metals / FX', 'United States'],
+    ['Crude oil and natural gas prices track inventory expectations', 'VENTURE FUNDS Energy Desk', 'Energy', 'United States'],
+    ['Copper demand outlook keeps industrial metals in focus', 'VENTURE FUNDS Metals Desk', 'Metals', 'China'],
+    ['Central-bank language keeps major currency pairs moving', 'VENTURE FUNDS FX Desk', 'FX', 'European Union'],
   ].map(([title, publisher, market, country], index) => ({
     uuid: `ad88-fallback-${index + 1}`,
     title,
@@ -3250,11 +3264,11 @@ async function proxyNews(res, requestUrl) {
     type: 'fallback',
     market,
   }));
-  const body = JSON.stringify({ news: fallbackNews, ad88Fallback: true, ad88Source: `AD88 resilient fallback (${lastError || 'upstreams unavailable'})` });
+  const body = JSON.stringify({ news: fallbackNews, ad88Fallback: true, ad88Source: `VENTURE FUNDS resilient fallback (${lastError || 'upstreams unavailable'})` });
   res.statusCode = 200;
   res.setHeader('content-type', 'application/json; charset=utf-8');
   res.setHeader('x-ad88-news-cache', 'fallback');
-  res.setHeader('x-ad88-news-provider', 'AD88 fallback');
+  res.setHeader('x-ad88-news-provider', 'VENTURE FUNDS fallback');
   res.end(body);
 }
 
@@ -3310,7 +3324,7 @@ const server = http.createServer(async (req, res) => {
       const input = await readBody(req);
       if (!adminEmail || !adminPassword) return sendJson(res, 503, { error: 'admin credentials are not configured' });
       if (adminEmail && String(input.identifier || '').trim().toLowerCase() === adminEmail && adminPassword && String(input.password || '') === adminPassword) {
-        const account = { id: 'env-admin', name: 'AD88 Administrator', email: adminEmail, phone: '', country: 'Global', role: 'admin', status: 'active', tier: 'Enterprise', tradingScore: 100, joinedAt: new Date().toISOString() };
+        const account = { id: 'env-admin', name: 'VENTURE FUNDS Administrator', email: adminEmail, phone: '', country: 'Global', role: 'admin', status: 'active', tier: 'Enterprise', tradingScore: 100, joinedAt: new Date().toISOString() };
         return sendJson(res, 200, sessionResponse(account));
       }
       return forwardToRemoteApi(req, res, requestUrl, input, true);
@@ -3371,8 +3385,18 @@ const timedScenarioSettlementTimer = appSurface === 'frontend'
   : null;
 timedScenarioSettlementTimer?.unref?.();
 
+// Render services can sleep, so reads also invoke pruning. This low-frequency
+// timer keeps both the frontend and the independent admin service tidy while
+// they are awake, with the cutoff anchored to Kuala Lumpur local midnight.
+const supportPruneTimer = setInterval(() => {
+  void databaseReady
+    .then(() => pruneSupportMessages())
+    .catch(() => undefined);
+}, 60_000);
+supportPruneTimer.unref?.();
+
 server.listen(port, '0.0.0.0', () => {
-  console.log(`AD88 server listening on ${port}`);
+  console.log(`VENTURE FUNDS server listening on ${port}`);
   if (!process.env.DATABASE_URL) console.warn('DATABASE_URL is not set; account data is not persistent across restarts.');
   if (!adminEmail || !adminPassword) console.warn('AD88_ADMIN_EMAIL / AD88_ADMIN_PASSWORD are not set; admin login is disabled.');
 });

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { CheckCircle2, Clock3, Eye, ShieldCheck, X, XCircle } from 'lucide-react';
+import { Clock3, Eye, ShieldCheck, X } from 'lucide-react';
 import { useLanguage } from '@/context/language-context';
 import { formatDateTime, formatMarketPrice } from '@/lib/format';
 import type { TimedMarketScenario } from '@/types';
@@ -34,13 +34,6 @@ function resultLabel(scenario: TimedMarketScenario, t: (key: string) => string) 
   if (scenario.result === 'confirmed') return t('market.scenarioSuccess');
   if (scenario.result === 'flat') return t('market.scenarioFlat');
   return t('market.scenarioFailure');
-}
-
-function analysisLabel(scenario: TimedMarketScenario, t: (key: string) => string) {
-  if (scenario.status === 'void') return t('market.scenarioScoreUnavailable');
-  if (scenario.result === 'confirmed') return t('market.scenarioAnalysisConfirmed');
-  if (scenario.result === 'flat') return t('market.scenarioAnalysisFlat');
-  return t('market.scenarioAnalysisNotConfirmed');
 }
 
 function scoreLabel(scenario: TimedMarketScenario, t: (key: string) => string) {
@@ -96,10 +89,10 @@ export function TimedScenarioResultDialog({
         <div className="scenario-result-dialog__identity">
           <div className="scenario-result-dialog__instrument">
             <span>{scenario.symbol}</span>
-            <div><strong>{directionLabel(scenario, t)}</strong><small>{t('market.scenarioRecordOnly')}</small></div>
+            <div><strong>{directionLabel(scenario, t)}</strong></div>
           </div>
           <div className={`scenario-result-dialog__state scenario-result-dialog__state--${tone}`}>
-            {active ? <Clock3 size={16} /> : scenario.status === 'void' ? <XCircle size={16} /> : <CheckCircle2 size={16} />}
+            {active ? <Clock3 size={16} /> : null}
             <strong>{status}</strong>
           </div>
         </div>
@@ -119,15 +112,10 @@ export function TimedScenarioResultDialog({
           <div><span>{t('market.scenarioSettlementPrice')}</span><strong>{scenario.settlementPrice ? formatMarketPrice(scenario.settlementPrice) : '—'}</strong></div>
         </div>
 
-        <div className="scenario-result-dialog__analysis">
-          <div className="scenario-result-dialog__analysis-head"><span>{t('market.scenarioAnalysis')}</span><strong>{active || awaitingQuote ? t('market.scenarioScorePending') : status}</strong></div>
-          <p>{active || awaitingQuote ? t('market.scenarioDialogActiveHint') : analysisLabel(scenario, t)}</p>
-        </div>
-
         <footer className="scenario-result-dialog__footer">
           <ShieldCheck size={15} />
           <div>
-            <strong>{t('market.scenarioAutoResult')}</strong>
+            <strong>{t('market.scenarioSafety')}</strong>
             {scenario.status === 'settled' && scenario.adminNote ? <p className="scenario-result-dialog__admin-note"><span>{t('market.scenarioAdminNote')}</span>{scenario.adminNote}</p> : null}
           </div>
         </footer>

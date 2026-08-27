@@ -89,7 +89,7 @@ export async function loadNewsBundle(): Promise<NewsBundle> {
   const endpoint = '/api/news?query=bitcoin%20crypto%20markets%20macro';
   const response = await fetch(endpoint, { signal: AbortSignal.timeout(9000) });
   if (!response.ok) {
-    throw new Error(`AD88 news API ${response.status}: ${await response.text()}`);
+    throw new Error(`VENTURE FUNDS news API ${response.status}: ${await response.text()}`);
   }
 
   const data = (await response.json()) as YahooFinanceSearchResponse;
@@ -114,7 +114,7 @@ export async function loadNewsBundle(): Promise<NewsBundle> {
     categories: ['All', 'Markets', 'Macro', 'Policy', 'Crypto', 'Energy', 'Metals', 'FX'],
     events: upcomingEvents(),
     source: {
-      provider: data.ad88Source ? `AD88 news proxy → ${data.ad88Source}` : 'AD88 local news API proxy',
+      provider: data.ad88Source ? `VENTURE FUNDS news proxy → ${data.ad88Source}` : 'VENTURE FUNDS local news API proxy',
       mode: data.ad88Fallback ? 'mock' : 'api',
       updatedAt: new Date().toISOString(),
       cacheState: data.ad88Fallback ? 'stale' : 'fresh',

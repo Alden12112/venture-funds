@@ -140,7 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile((current) => {
           const next: UserProfile = {
             id: current?.id ?? 'demo',
-            name: patch.name ?? current?.name ?? 'AD88 User',
+            name: patch.name ?? current?.name ?? 'VENTURE FUNDS User',
             email: patch.email ?? current?.email ?? 'demo@meridian.example',
             phone: patch.phone ?? current?.phone ?? '',
             country: patch.country ?? current?.country ?? 'Malaysia',

@@ -13,6 +13,6 @@ Source: https://unsplash.com/license
 The abstract category artwork (`metals-luminous.svg`, `metals-silver.svg`,
 `metals-copper.svg`, `metals-platinum.svg`, `energy-current.svg`,
 `energy-gas.svg`, `energy-refinery.svg`, `fx-orbit.svg`, `fx-crossflow.svg`,
-`index-signal.svg`, and `index-grid.svg`) is original AD88 code-native artwork,
+`index-signal.svg`, and `index-grid.svg`) is original VENTURE FUNDS code-native artwork,
 created for this project and not copied from a broker, exchange or trading
 terminal.

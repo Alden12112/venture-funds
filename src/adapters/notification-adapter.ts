@@ -8,12 +8,12 @@ export async function loadNotificationBundle(): Promise<NotificationBundle> {
   return {
     items: items.map((item) => ({ ...item, read: readState[item.id] ?? item.read })),
     source: {
-      provider: 'AD88 shared notification API',
+      provider: 'VENTURE FUNDS shared notification API',
       mode: 'api',
       updatedAt: items[0]?.createdAt ?? new Date().toISOString(),
       cacheState: 'fresh',
       health: 'healthy',
-      lineage: 'account events → AD88 API → notification center',
+      lineage: 'account events → VENTURE FUNDS API → notification center',
     },
   };
 }

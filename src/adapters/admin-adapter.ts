@@ -33,7 +33,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
   const emptyLedger: LedgerBundle = {
     entries: [],
     source: {
-      provider: 'AD88 account ledger API',
+      provider: 'VENTURE FUNDS account ledger API',
       mode: 'api',
       updatedAt: new Date().toISOString(),
       cacheState: 'offline',
@@ -116,7 +116,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     })),
     configs: [],
     source: {
-      provider: 'AD88 shared administration API',
+      provider: 'VENTURE FUNDS shared administration API',
       mode: 'api',
       updatedAt: new Date().toISOString(),
       cacheState: 'fresh',

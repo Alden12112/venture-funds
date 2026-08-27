@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowUpRight, BarChart3, CalendarClock, Clock3, Filter, Globe2, Megaphone, RefreshCcw, Search, Target } from 'lucide-react';
+import { ArrowUpRight, BarChart3, CalendarClock, Clock3, Filter, Globe2, RefreshCcw, Search, Target } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, EmptyState, LoadingState, StatusPill } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
@@ -7,6 +7,7 @@ import { loadNewsBundle } from '@/adapters/news-adapter';
 import { formatDateTime } from '@/lib/format';
 import { newsCategories } from '@/data/navigation';
 import { useLanguage } from '@/context/language-context';
+import { VentureCampaignRail } from '@/components/VentureCampaignRail';
 import { labelCalendarDescription, labelCalendarTitle, labelCountry, labelMarket, labelNewsCategory, labelNewsImpact, labelNewsSentiment, labelNewsSummary } from '@/lib/news-labels';
 import type { NewsEvent } from '@/types';
 
@@ -140,10 +141,7 @@ export function NewsPage() {
         </div>
 
         <aside className="research-side-rail">
-          <section className="research-ad-slot" aria-label={t('news.adTitle')}>
-            <div className="research-ad-slot__visual"><Megaphone size={22} /><span>AD88 / MEDIA</span></div>
-            <div><span className="eyebrow">{t('news.adEyebrow')}</span><h2>{t('news.adTitle')}</h2><p>{t('news.adHint')}</p></div>
-          </section>
+          <VentureCampaignRail compact />
           <section className="panel research-reading-room">
             <div className="panel__head"><div><h2><BarChart3 size={18} /> {t('news.readingRoom')}</h2><p>{t('news.readingRoomHint')}</p></div><Clock3 size={17} /></div>
             <div className="research-reading-room__rows"><div><span>{t('news.highImpact')}</span><strong>{highImpact}</strong></div><div><span>{t('news.linkedMarkets')}</span><strong>{new Set(filtered.flatMap((item) => item.markets)).size}</strong></div><div><span>{t('news.dataWindow')}</span><strong>{windowDays}d</strong></div></div>

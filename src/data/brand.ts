@@ -2,8 +2,8 @@ import type { ShellLink } from '@/types';
 import { BarChart3, BellRing, BriefcaseBusiness, FileClock, Headphones, Landmark, LayoutDashboard, Newspaper, Settings2 } from 'lucide-react';
 
 export const brand = {
-  name: 'AD88',
-  english: 'AD88 Markets',
+  name: 'VENTURE FUNDS',
+  english: 'VENTURE FUNDS',
   claim: 'A clear market operating system for research, execution safeguards, risk controls and account oversight.',
   preview: 'Institutional market operating system',
 };

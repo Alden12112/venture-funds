@@ -22,7 +22,7 @@ export function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const [saved, setSaved] = useState('');
   const [form, setForm] = useState({
-    name: profile?.name ?? session?.name ?? 'AD88 User',
+    name: profile?.name ?? session?.name ?? 'VENTURE FUNDS User',
     email: profile?.email ?? session?.email ?? 'demo@meridian.example',
     phone: profile?.phone ?? '+86 138 0000 8888',
     country: profile?.country ?? 'Malaysia',
@@ -40,7 +40,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     setForm({
-      name: profile?.name ?? session?.name ?? 'AD88 User',
+      name: profile?.name ?? session?.name ?? 'VENTURE FUNDS User',
       email: profile?.email ?? session?.email ?? 'demo@meridian.example',
       phone: profile?.phone ?? '+60 12 000 0000',
       country: profile?.country ?? 'Malaysia',

@@ -341,9 +341,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const reviewCreditRequest = async (id: string, action: 'approve' | 'reject') => {
     try {
       if (action === 'approve') {
-        await approveRemoteCreditRequest(id, session?.name ?? 'AD88 Admin');
+        await approveRemoteCreditRequest(id, session?.name ?? 'VENTURE FUNDS Admin');
       } else {
-        await rejectRemoteCreditRequest(id, session?.name ?? 'AD88 Admin');
+        await rejectRemoteCreditRequest(id, session?.name ?? 'VENTURE FUNDS Admin');
       }
       setCreditMessage(action === 'approve' ? t('admin.uApproved') : t('admin.uRejected'));
       setRefreshKey((value) => value + 1);

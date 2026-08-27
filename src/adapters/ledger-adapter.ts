@@ -7,12 +7,12 @@ export async function loadLedgerBundle(scope: 'self' | 'all' = 'self'): Promise<
   return {
     entries,
     source: {
-      provider: 'AD88 account ledger API',
+      provider: 'VENTURE FUNDS account ledger API',
       mode: 'api',
       updatedAt: new Date().toISOString(),
       cacheState: 'fresh',
       health: 'healthy',
-      lineage: 'account ledger → AD88 API → workspace',
+      lineage: 'account ledger → VENTURE FUNDS API → workspace',
     },
   };
 }

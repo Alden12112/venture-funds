@@ -140,7 +140,7 @@ export function SupportCenter({ adminMode = false, initialDraft = '' }: { adminM
             {visibleMessages.length ? visibleMessages.map((message) => (
               <div key={message.id} className={`support-message support-message--${message.senderRole}`}>
                 <div className="support-message__bubble">
-                   <strong>{message.senderRole === 'admin' ? `AD88 ${t('support.clientCare')}` : message.userName}</strong>
+                   <strong>{message.senderRole === 'admin' ? `VENTURE FUNDS ${t('support.clientCare')}` : message.userName}</strong>
                   <p>{message.body}</p>
                   <time>{formatDateTime(message.createdAt)}</time>
                 </div>

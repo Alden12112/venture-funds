@@ -65,7 +65,7 @@ export async function loadAutomationBundle(): Promise<AutomationBundle> {
   return delay({
     tasks,
     source: {
-      provider: 'AD88 workflow scheduler',
+      provider: 'VENTURE FUNDS workflow scheduler',
       mode: 'mock',
       updatedAt: tasks[0].lastRun,
       cacheState: 'fresh',
