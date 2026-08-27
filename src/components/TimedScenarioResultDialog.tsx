@@ -1,0 +1,137 @@
+import { useEffect } from 'react';
+import { CheckCircle2, Clock3, Eye, ShieldCheck, X, XCircle } from 'lucide-react';
+import { useLanguage } from '@/context/language-context';
+import { formatDateTime, formatMarketPrice } from '@/lib/format';
+import type { TimedMarketScenario } from '@/types';
+
+function remainingSeconds(scenario: TimedMarketScenario, now: number) {
+  return Math.max(0, Math.ceil((new Date(scenario.expiresAt).getTime() - now) / 1000));
+}
+
+function progressPercent(scenario: TimedMarketScenario, now: number) {
+  if (!scenario.durationSeconds) return 100;
+  const remaining = remainingSeconds(scenario, now);
+  return Math.max(0, Math.min(100, ((scenario.durationSeconds - remaining) / scenario.durationSeconds) * 100));
+}
+
+function formatCountdown(seconds: number) {
+  const safe = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const remainder = safe % 60;
+  return hours
+    ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+    : `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+}
+
+function directionLabel(scenario: TimedMarketScenario, t: (key: string) => string) {
+  return scenario.direction === 'up' ? t('market.scenarioUp') : t('market.scenarioDown');
+}
+
+function resultLabel(scenario: TimedMarketScenario, t: (key: string) => string) {
+  if (scenario.status === 'void') return t('market.scenarioCancelled');
+  if (scenario.status === 'active') return t('market.scenarioWaiting');
+  if (scenario.result === 'confirmed') return t('market.scenarioSuccess');
+  if (scenario.result === 'flat') return t('market.scenarioFlat');
+  return t('market.scenarioFailure');
+}
+
+function analysisLabel(scenario: TimedMarketScenario, t: (key: string) => string) {
+  if (scenario.status === 'void') return t('market.scenarioScoreUnavailable');
+  if (scenario.result === 'confirmed') return t('market.scenarioAnalysisConfirmed');
+  if (scenario.result === 'flat') return t('market.scenarioAnalysisFlat');
+  return t('market.scenarioAnalysisNotConfirmed');
+}
+
+function scoreLabel(scenario: TimedMarketScenario, t: (key: string) => string) {
+  if (scenario.status === 'active') return t('market.scenarioScorePending');
+  if (scenario.status === 'void') return t('market.scenarioScoreUnavailable');
+  return `${scenario.observationPoints} ${t('market.scenarioScaleShort')}`;
+}
+
+export function TimedScenarioResultDialog({
+  scenario,
+  now,
+  onClose,
+}: {
+  scenario: TimedMarketScenario;
+  now: number;
+  onClose: () => void;
+}) {
+  const { t } = useLanguage();
+  const remaining = remainingSeconds(scenario, now);
+  const active = scenario.status === 'active' && remaining > 0;
+  const awaitingQuote = scenario.status === 'active' && remaining <= 0;
+  const status = awaitingQuote ? t('market.scenarioAwaitingConfirmation') : resultLabel(scenario, t);
+  const tone = active ? 'active' : scenario.status === 'void' ? 'void' : scenario.result === 'confirmed' ? 'confirmed' : scenario.result === 'not-confirmed' ? 'not-confirmed' : 'flat';
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="scenario-result-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="scenario-result-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="scenario-result-dialog-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="scenario-result-dialog__head">
+          <div>
+            <span className="scenario-result-dialog__eyebrow"><Eye size={13} /> {t('market.scenarioDialogEyebrow')}</span>
+            <h2 id="scenario-result-dialog-title">{active || awaitingQuote ? t('market.scenarioDialogActiveTitle') : t('market.scenarioDialogResultTitle')}</h2>
+            <p>{active || awaitingQuote ? t('market.scenarioDialogActiveHint') : t('market.scenarioDialogResultHint')}</p>
+          </div>
+          <button type="button" className="scenario-result-dialog__close" onClick={onClose} aria-label={t('market.scenarioDialogClose')}>
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="scenario-result-dialog__identity">
+          <div className="scenario-result-dialog__instrument">
+            <span>{scenario.symbol}</span>
+            <div><strong>{directionLabel(scenario, t)}</strong><small>{t('market.scenarioRecordOnly')}</small></div>
+          </div>
+          <div className={`scenario-result-dialog__state scenario-result-dialog__state--${tone}`}>
+            {active ? <Clock3 size={16} /> : scenario.status === 'void' ? <XCircle size={16} /> : <CheckCircle2 size={16} />}
+            <strong>{status}</strong>
+          </div>
+        </div>
+
+        <div className={`scenario-result-dialog__timer scenario-result-dialog__timer--${tone}`}>
+          <span>{active ? t('market.scenarioRemaining') : awaitingQuote ? t('market.scenarioAwaitingConfirmation') : t('market.scenarioDialogResultLabel')}</span>
+          <strong>{active ? formatCountdown(remaining) : awaitingQuote ? '—' : status}</strong>
+          <div className="scenario-result-dialog__progress" aria-hidden="true"><span style={{ width: `${progressPercent(scenario, now)}%` }} /></div>
+        </div>
+
+        <div className="scenario-result-dialog__details">
+          <div><span>{t('market.scenarioSelected')}</span><strong>{scenario.symbol}</strong></div>
+          <div><span>{t('market.scenarioDialogDirection')}</span><strong>{directionLabel(scenario, t)}</strong></div>
+          <div><span>{t('market.scenarioReferencePrice')}</span><strong>{formatMarketPrice(scenario.referencePrice)}</strong></div>
+          <div><span>{t('market.scenarioScore')}</span><strong>{scoreLabel(scenario, t)}</strong></div>
+          <div><span>{t('market.scenarioExpires')}</span><strong>{formatDateTime(scenario.expiresAt)}</strong></div>
+          <div><span>{t('market.scenarioSettlementPrice')}</span><strong>{scenario.settlementPrice ? formatMarketPrice(scenario.settlementPrice) : '—'}</strong></div>
+        </div>
+
+        <div className="scenario-result-dialog__analysis">
+          <div className="scenario-result-dialog__analysis-head"><span>{t('market.scenarioAnalysis')}</span><strong>{active || awaitingQuote ? t('market.scenarioScorePending') : status}</strong></div>
+          <p>{active || awaitingQuote ? t('market.scenarioDialogActiveHint') : analysisLabel(scenario, t)}</p>
+        </div>
+
+        <footer className="scenario-result-dialog__footer">
+          <ShieldCheck size={15} />
+          <div>
+            <strong>{t('market.scenarioAutoResult')}</strong>
+            {scenario.status === 'settled' && scenario.adminNote ? <p className="scenario-result-dialog__admin-note"><span>{t('market.scenarioAdminNote')}</span>{scenario.adminNote}</p> : null}
+          </div>
+        </footer>
+      </section>
+    </div>
+  );
+}

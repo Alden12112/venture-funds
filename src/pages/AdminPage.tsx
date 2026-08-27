@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpFromLine, CalendarDays, ClipboardCheck, Clock3, FileText, HandCoins, Languages, LayoutDashboard, MessageCircle, MinusCircle, Newspaper, PlusCircle, ReceiptText, ShieldBan, ShieldCheck, Trash2, UserPlus, Users, WalletCards, XCircle, type LucideIcon } from 'lucide-react';
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpFromLine, CalendarDays, ClipboardCheck, Clock3, Eye, FileText, HandCoins, Languages, LayoutDashboard, MessageCircle, MinusCircle, Newspaper, PlusCircle, ReceiptText, ShieldBan, Trash2, UserPlus, Users, WalletCards, XCircle, type LucideIcon } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, LoadingState, StatCard, StatusPill, EmptyState } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
@@ -14,6 +14,7 @@ import { buildInternationalPhone, countryDirectory, getCountryOption, isValidCou
 import { isValidEmail } from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
 import { SupportCenter } from '@/components/SupportCenter';
+import { TimedScenarioResultDialog } from '@/components/TimedScenarioResultDialog';
 import { BrandMark } from '@/components/BrandMark';
 import { labelCountry, labelNewsCategory, labelNewsSentiment } from '@/lib/news-labels';
 import { clearFundingHistory, deleteFundingHistoryItem, reviewFundingRequest } from '@/lib/funding';
@@ -152,6 +153,11 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [fundingMessage, setFundingMessage] = useState('');
   const [creditMessage, setCreditMessage] = useState('');
   const [adminNow, setAdminNow] = useState(() => Date.now());
+  const [selectedTimedScenarioId, setSelectedTimedScenarioId] = useState<string | null>(null);
+  const [timedScenarioNoteEditorId, setTimedScenarioNoteEditorId] = useState<string | null>(null);
+  const [timedScenarioNoteDraft, setTimedScenarioNoteDraft] = useState('');
+  const [timedScenarioNoteSavingId, setTimedScenarioNoteSavingId] = useState<string | null>(null);
+  const [timedScenarioNoteMessage, setTimedScenarioNoteMessage] = useState('');
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
 
@@ -275,6 +281,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const visiblePositions = admin.data.paperPositions.filter((item) => matches(item.userName) || matches(item.userId) || matches(item.symbol));
   const visibleTradeEvents = admin.data.tradeEvents.filter((item) => matches(item.userName) || matches(item.userEmail) || matches(item.userId) || matches(item.symbol) || matches(item.action));
   const visibleTimedScenarios = admin.data.timedScenarios.filter((item) => matches(item.userName) || matches(item.userEmail) || matches(item.userId) || matches(item.symbol) || matches(item.direction) || matches(item.status));
+  const selectedTimedScenario = selectedTimedScenarioId
+    ? admin.data.timedScenarios.find((item) => item.id === selectedTimedScenarioId) ?? null
+    : null;
   const visibleLedger = admin.data.ledgerEntries.filter((item) => matches(item.userEmail) || matches(item.userName) || matches(item.note) || matches(item.type));
   const visibleNotifications = admin.data.notifications.filter((item) => matches(item.title) || matches(item.body) || matches(item.category));
   const visibleCreditAccounts = admin.data.creditAccounts.filter((item) => matches(item.userName) || matches(item.email) || matches(item.userId));
@@ -452,6 +461,36 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       setRefreshKey((value) => value + 1);
     } catch (error) {
       setAccountMessage(error instanceof Error ? error.message : t('admin.orderVoidFailed'));
+    }
+  };
+
+  const openTimedScenarioNoteEditor = (scenario: TimedMarketScenario) => {
+    setTimedScenarioNoteEditorId(scenario.id);
+    setTimedScenarioNoteDraft(scenario.adminNote ?? '');
+    setTimedScenarioNoteMessage('');
+  };
+
+  const cancelTimedScenarioNote = () => {
+    setTimedScenarioNoteEditorId(null);
+    setTimedScenarioNoteDraft('');
+  };
+
+  const saveTimedScenarioNote = async (scenario: TimedMarketScenario) => {
+    if (timedScenarioNoteSavingId) return;
+    setTimedScenarioNoteSavingId(scenario.id);
+    setTimedScenarioNoteMessage('');
+    try {
+      await apiFetch(`/api/admin/market-scenarios/${encodeURIComponent(scenario.id)}/note`, {
+        method: 'PATCH',
+        body: JSON.stringify({ note: timedScenarioNoteDraft }),
+      });
+      setTimedScenarioNoteMessage(t('admin.orderNoteSaved'));
+      cancelTimedScenarioNote();
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setTimedScenarioNoteMessage(error instanceof Error ? error.message : t('admin.orderNoteSaveFailed'));
+    } finally {
+      setTimedScenarioNoteSavingId(null);
     }
   };
 
@@ -860,8 +899,8 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <div><span className="eyebrow"><ClipboardCheck size={13} /> {t('admin.orderManagementEyebrow')}</span><h2>{t('admin.orderManagementTitle')}</h2><p>{t('admin.orderManagementHint')}</p></div>
               <StatusPill tone={visibleTimedScenarios.some((item) => item.status === 'active') ? 'warning' : 'muted'}>{visibleTimedScenarios.filter((item) => item.status === 'active').length} {t('admin.active')}</StatusPill>
             </div>
-            <div className="admin-order-trust"><ShieldCheck size={18} /><div><strong>{t('admin.orderManagementGuard')}</strong><span>{t('admin.orderManagementGuardHint')}</span></div></div>
-            <div className="admin-order-policy"><Clock3 size={15} /><span>{t('admin.orderServerResolution')}</span></div>
+            <div className="admin-order-status-note"><Clock3 size={15} /><span>{t('admin.orderServerResolution')}</span></div>
+            {timedScenarioNoteMessage ? <div className="admin-order-note-feedback" role="status" aria-live="polite"><FileText size={14} /> <span>{timedScenarioNoteMessage}</span></div> : null}
             <div className="metric-grid metric-grid--compact admin-order-metrics">
               <StatCard label={t('admin.orderTotal')} value={String(visibleTimedScenarios.length)} note={t('admin.crossDeviceAudit')} />
               <StatCard label={t('admin.orderActive')} value={String(visibleTimedScenarios.filter((item) => item.status === 'active').length)} note={t('admin.orderAwaitingExpiry')} />
@@ -877,13 +916,13 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                 const running = active && remaining > 0;
                 const progress = timedScenarioProgress(scenario, adminNow);
                 const direction = scenario.direction === 'up' ? t('market.scenarioUp') : t('market.scenarioDown');
-                const result = scenario.status === 'settled' ? (scenario.result === 'confirmed' ? t('market.scenarioConfirmed') : scenario.result === 'flat' ? t('market.scenarioFlat') : t('market.scenarioNotConfirmed')) : scenario.status === 'void' ? t('market.scenarioCancelled') : t('market.scenarioWaiting');
+                const result = scenario.status === 'settled' ? (scenario.result === 'confirmed' ? t('market.scenarioSuccess') : scenario.result === 'flat' ? t('market.scenarioFlat') : t('market.scenarioFailure')) : scenario.status === 'void' ? t('market.scenarioCancelled') : t('market.scenarioWaiting');
                 return (
                   <div key={scenario.id} className={`admin-order-row ${running ? 'admin-order-row--running' : ''}`}>
                     <div className="admin-order-row__main">
                       <div className="admin-order-row__title"><strong>{scenario.symbol}</strong><span>{direction}</span><StatusPill tone={running ? 'warning' : scenario.result === 'confirmed' ? 'success' : scenario.status === 'void' ? 'critical' : 'info'}>{result}</StatusPill></div>
                       <span>{scenario.userName} · {scenario.userEmail}</span>
-                      <span>{t('admin.orderReference')} {formatMarketCurrency(scenario.referencePrice)} · {t('admin.orderPoints')} {scenario.observationPoints} · {formatDateTime(scenario.createdAt)}</span>
+                      <span>{t('admin.orderReference')} {formatMarketCurrency(scenario.referencePrice)} · {t('market.scenarioScale')} {scenario.observationPoints} · {formatDateTime(scenario.createdAt)}</span>
                       {running ? <div className="admin-order-progress"><span style={{ width: `${progress}%` }} /></div> : null}
                       <div className="admin-order-row__details">
                         {running ? <span><Clock3 size={13} /> {t('admin.orderRemaining')} {formatAdminCountdown(remaining)}</span> : null}
@@ -891,9 +930,31 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                         {scenario.settledAt ? <span>{t('admin.orderSettledAt')} {formatDateTime(scenario.settledAt)}</span> : null}
                         {scenario.voidReason ? <span>{t('admin.orderVoidReason')} {scenario.voidReason}</span> : null}
                       </div>
+                      {timedScenarioNoteEditorId === scenario.id ? (
+                        <div className="admin-order-note-editor">
+                          <label className="field">
+                            <span>{t('admin.orderNoteLabel')}</span>
+                            <textarea value={timedScenarioNoteDraft} maxLength={600} rows={3} onChange={(event) => setTimedScenarioNoteDraft(event.target.value)} placeholder={t('admin.orderNotePlaceholder')} />
+                          </label>
+                          <div className="admin-order-note-editor__footer">
+                            <span>{timedScenarioNoteDraft.length} / 600</span>
+                            <div>
+                              <button type="button" className="btn btn--ghost btn--sm" onClick={cancelTimedScenarioNote}>{t('admin.cancel')}</button>
+                              <button type="button" className="btn btn--primary btn--sm" onClick={() => void saveTimedScenarioNote(scenario)} disabled={timedScenarioNoteSavingId === scenario.id}>
+                                {timedScenarioNoteSavingId === scenario.id ? t('admin.saving') : t('admin.saveNote')}
+                              </button>
+                            </div>
+                          </div>
+                          <small>{t('admin.orderNoteVisibility')}</small>
+                        </div>
+                      ) : scenario.adminNote ? (
+                        <div className="admin-order-note-preview"><FileText size={13} /><span><strong>{t('admin.orderNoteLabel')}</strong>{scenario.adminNote}</span></div>
+                      ) : null}
                     </div>
                     <div className="admin-order-row__actions">
                       {scenario.settlementPrice ? <span>{t('admin.orderExpiry')} {formatMarketCurrency(scenario.settlementPrice)}</span> : null}
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => setSelectedTimedScenarioId(scenario.id)}><Eye size={14} /> {t('admin.orderResult')}</button>
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => openTimedScenarioNoteEditor(scenario)}><FileText size={14} /> {scenario.adminNote ? t('admin.editNote') : t('admin.addNote')}</button>
                       {running ? <button type="button" className="btn btn--danger btn--sm" onClick={() => void voidTimedScenario(scenario)}><XCircle size={14} /> {t('admin.orderVoid')}</button> : null}
                     </div>
                   </div>
@@ -1009,6 +1070,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
           </div>
         </article>
       ) : null}
+      {selectedTimedScenario ? <TimedScenarioResultDialog scenario={selectedTimedScenario} now={adminNow} onClose={() => setSelectedTimedScenarioId(null)} /> : null}
     </div>
   );
 }

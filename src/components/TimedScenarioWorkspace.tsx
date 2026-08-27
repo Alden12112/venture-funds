@@ -5,6 +5,7 @@ import { useLanguage } from '@/context/language-context';
 import { apiFetch } from '@/lib/api';
 import { formatDateTime, formatMarketPrice } from '@/lib/format';
 import type { TimedMarketScenario, TimedScenarioDirection, TimedScenarioUnit } from '@/types';
+import { TimedScenarioResultDialog } from '@/components/TimedScenarioResultDialog';
 
 type Preset = { value: number; unit: TimedScenarioUnit };
 
@@ -56,9 +57,9 @@ function directionLabel(direction: TimedScenarioDirection, t: (key: string) => s
 function resultLabel(scenario: TimedMarketScenario, t: (key: string) => string) {
   if (scenario.status === 'void') return t('market.scenarioCancelled');
   if (scenario.status === 'active') return t('market.scenarioWaiting');
-  if (scenario.result === 'confirmed') return t('market.scenarioConfirmed');
+  if (scenario.result === 'confirmed') return t('market.scenarioSuccess');
   if (scenario.result === 'flat') return t('market.scenarioFlat');
-  return t('market.scenarioNotConfirmed');
+  return t('market.scenarioFailure');
 }
 
 export function TimedScenarioWorkspace({ symbol, price }: { symbol: string; price: number }) {
@@ -72,6 +73,7 @@ export function TimedScenarioWorkspace({ symbol, price }: { symbol: string; pric
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [focusedScenarioId, setFocusedScenarioId] = useState<string | null>(null);
 
   const durationSeconds = secondsFor(durationValue, durationUnit);
   const points = Number(observationPoints);
@@ -91,8 +93,16 @@ export function TimedScenarioWorkspace({ symbol, price }: { symbol: string; pric
   useEffect(() => {
     void loadScenarios();
     const clock = window.setInterval(() => setNow(Date.now()), 1_000);
-    const refresh = window.setInterval(() => void loadScenarios(), 5_000);
-    return () => { window.clearInterval(clock); window.clearInterval(refresh); };
+    const refresh = window.setInterval(() => void loadScenarios(), 2_000);
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'visible') void loadScenarios();
+    };
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    return () => {
+      window.clearInterval(clock);
+      window.clearInterval(refresh);
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+    };
   }, [session?.id]);
 
   useEffect(() => {
@@ -102,6 +112,7 @@ export function TimedScenarioWorkspace({ symbol, price }: { symbol: string; pric
   }, [feedback]);
 
   const visibleScenarios = useMemo(() => scenarios.slice(0, 5), [scenarios]);
+  const focusedScenario = focusedScenarioId ? scenarios.find((item) => item.id === focusedScenarioId) ?? null : null;
   const activeCount = scenarios.filter((item) => item.status === 'active').length;
   const activeScenario = scenarios.find((item) => item.status === 'active' && remainingSeconds(item, now) > 0);
   const activeRemaining = activeScenario ? remainingSeconds(activeScenario, now) : 0;
@@ -120,6 +131,7 @@ export function TimedScenarioWorkspace({ symbol, price }: { symbol: string; pric
         body: JSON.stringify({ symbol, direction, observationPoints: Math.round(points), durationSeconds }),
       });
       setScenarios((current) => [scenario, ...current.filter((item) => item.id !== scenario.id)]);
+      setFocusedScenarioId(scenario.id);
       setFeedback({ tone: 'success', message: t('market.scenarioCreated') });
     } catch { setFeedback({ tone: 'error', message: t('market.scenarioFailed') }); }
     finally { setBusy(false); }
@@ -149,10 +161,10 @@ export function TimedScenarioWorkspace({ symbol, price }: { symbol: string; pric
         </div>
 
         <div className="scenario-step scenario-step--points">
-          <div className="scenario-step__title"><span>02</span><div><strong>{t('market.scenarioPoints')}</strong><small>{t('market.scenarioPointsStepHint')}</small></div></div>
-          <label className="field scenario-points-field"><span>{t('market.scenarioPoints')}</span><input type="number" min="10" step="1" value={observationPoints} onChange={(event) => setObservationPoints(event.target.value)} aria-invalid={!pointsValid} /></label>
-          <div className="scenario-points-presets" aria-label={t('market.scenarioPointsPresets')}>{pointPresets.map((value) => <button key={value} type="button" className={`scenario-points-preset ${points === value ? 'is-active' : ''}`} onClick={() => setObservationPoints(String(value))}>{value}</button>)}</div>
-          <div className="scenario-nonmonetary-note"><BarChart3 size={15} /><span>{t('market.scenarioNonMonetary')}</span></div>
+          <div className="scenario-step__title"><span>02</span><div><strong>{t('market.scenarioScale')}</strong><small>{t('market.scenarioScaleHint')}</small></div></div>
+          <label className="field scenario-points-field"><span>{t('market.scenarioScale')}</span><input type="number" min="10" step="1" value={observationPoints} onChange={(event) => setObservationPoints(event.target.value)} aria-invalid={!pointsValid} /></label>
+          <div className="scenario-points-presets" aria-label={t('market.scenarioScalePresets')}>{pointPresets.map((value) => <button key={value} type="button" className={`scenario-points-preset ${points === value ? 'is-active' : ''}`} onClick={() => setObservationPoints(String(value))}>{value}</button>)}</div>
+          <div className="scenario-record-note"><BarChart3 size={15} /><span>{t('market.scenarioRecordOnly')}</span></div>
         </div>
 
         <div className="scenario-step scenario-step--direction">
@@ -162,12 +174,13 @@ export function TimedScenarioWorkspace({ symbol, price }: { symbol: string; pric
         </div>
       </div>
 
-      <div className="scenario-submit-row"><div className="scenario-submit-summary"><TimerReset size={16} /><span>{t('market.scenarioSubmitSummary').replace('{duration}', durationSeconds ? formatDuration(durationSeconds, t) : '—').replace('{points}', Number.isFinite(points) ? String(points) : '—')}</span></div><button type="button" className="btn btn--primary scenario-submit" onClick={() => void createScenario()} disabled={!session || busy || !durationValid || !pointsValid} aria-busy={busy}>{busy ? <LoaderCircle size={16} className="spin" /> : <Eye size={16} />} {busy ? t('market.scenarioSubmitting') : t('market.scenarioCreate')}</button></div>
+      <div className="scenario-submit-row"><div className="scenario-submit-summary"><TimerReset size={16} /><span>{t('market.scenarioSubmitSummary').replace('{duration}', durationSeconds ? formatDuration(durationSeconds, t) : '—').replace('{scale}', Number.isFinite(points) ? String(points) : '—')}</span></div><button type="button" className="btn btn--primary scenario-submit" onClick={() => void createScenario()} disabled={!session || busy || !durationValid || !pointsValid} aria-busy={busy}>{busy ? <LoaderCircle size={16} className="spin" /> : <Eye size={16} />} {busy ? t('market.scenarioSubmitting') : t('market.scenarioCreate')}</button></div>
 
       {activeScenario ? <section className="scenario-active-card" aria-live="polite"><div className="scenario-active-card__head"><div className="scenario-active-card__identity"><span className="scenario-active-card__pulse" /><div><span>{t('market.scenarioActiveNow')}</span><strong>{activeScenario.symbol} · {directionLabel(activeScenario.direction, t)}</strong></div></div><div className="scenario-active-card__countdown"><span>{t('market.scenarioRemaining')}</span><strong>{formatCountdown(activeRemaining)}</strong></div></div><div className="scenario-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(activeProgress)} aria-label={t('market.scenarioProgress')}><span style={{ width: `${activeProgress}%` }} /></div><div className="scenario-active-card__meta"><span><small>{t('market.scenarioReferencePrice')}</small><strong>{formatMarketPrice(activeScenario.referencePrice)}</strong></span><span><small>{t('market.scenarioElapsed')}</small><strong>{formatCountdown(elapsedSeconds)}</strong></span><span><small>{t('market.scenarioExpires')}</small><strong>{formatDateTime(activeScenario.expiresAt)}</strong></span></div></section> : null}
 
-      <div className="scenario-safety-note"><ShieldCheck size={15} /><span>{t('market.scenarioSafety')}</span></div>
-      <div className="scenario-history"><div className="scenario-history__head"><div><strong>{t('market.scenarioHistory')}</strong><span>{t('market.scenarioHistoryHint')}</span></div><span className="status-pill status-pill--muted">{visibleScenarios.length} / 5</span></div><div className="scenario-history__list">{visibleScenarios.length ? visibleScenarios.map((scenario) => { const remaining = remainingSeconds(scenario, now); const active = scenario.status === 'active' && remaining > 0; const displayStatus = active ? t('market.scenarioWaiting') : resultLabel(scenario, t); return <div key={scenario.id} className={`scenario-history__row scenario-history__row--${active ? 'active' : scenario.result ?? scenario.status}`}><div className="scenario-history__identity"><span className="scenario-history__symbol">{scenario.symbol}</span><div><strong>{directionLabel(scenario.direction, t)}</strong><span>{formatDuration(scenario.durationSeconds, t)} · {scenario.observationPoints} {t('market.scenarioPointsShort')}</span></div></div><div className="scenario-history__reference"><span>{t('market.scenarioReferencePrice')}</span><strong>{formatMarketPrice(scenario.referencePrice)}</strong></div><div className="scenario-history__clock">{active ? <><Clock3 size={14} /><strong>{formatCountdown(remaining)}</strong><span>{t('market.scenarioRemaining')}</span><span className="scenario-history__mini-progress"><span style={{ width: `${progressPercent(scenario, now)}%` }} /></span></> : <><span className="scenario-result-dot" /><strong>{displayStatus}</strong><span>{scenario.settlementPrice ? `${t('market.scenarioSettlementPrice')} ${formatMarketPrice(scenario.settlementPrice)}` : formatDateTime(scenario.settledAt ?? scenario.createdAt)}</span></>}</div></div>; }) : <div className="state-block scenario-history__empty"><strong>{t('market.scenarioNoRecords')}</strong><p>{t('market.scenarioNoRecordsHint')}</p></div>}</div></div>
+      <div className="scenario-safety-note"><ShieldCheck size={15} /><span>{t('market.scenarioAutoResult')}</span></div>
+      <div className="scenario-history"><div className="scenario-history__head"><div><strong>{t('market.scenarioHistory')}</strong><span>{t('market.scenarioHistoryHint')}</span></div><span className="status-pill status-pill--muted">{visibleScenarios.length} / 5</span></div><div className="scenario-history__list">{visibleScenarios.length ? visibleScenarios.map((scenario) => { const remaining = remainingSeconds(scenario, now); const active = scenario.status === 'active' && remaining > 0; const displayStatus = active ? t('market.scenarioWaiting') : resultLabel(scenario, t); return <div key={scenario.id} className={`scenario-history__row scenario-history__row--${active ? 'active' : scenario.result ?? scenario.status}`}><div className="scenario-history__identity"><span className="scenario-history__symbol">{scenario.symbol}</span><div><strong>{directionLabel(scenario.direction, t)}</strong><span>{formatDuration(scenario.durationSeconds, t)} · {scenario.observationPoints} {t('market.scenarioScaleShort')}</span></div></div><div className="scenario-history__reference"><span>{t('market.scenarioReferencePrice')}</span><strong>{formatMarketPrice(scenario.referencePrice)}</strong></div><div className="scenario-history__clock">{active ? <><Clock3 size={14} /><strong>{formatCountdown(remaining)}</strong><span>{t('market.scenarioRemaining')}</span><span className="scenario-history__mini-progress"><span style={{ width: `${progressPercent(scenario, now)}%` }} /></span></> : <><span className="scenario-result-dot" /><strong>{displayStatus}</strong><span>{scenario.settlementPrice ? `${t('market.scenarioSettlementPrice')} ${formatMarketPrice(scenario.settlementPrice)}` : formatDateTime(scenario.settledAt ?? scenario.createdAt)}</span>{scenario.status === 'settled' && scenario.adminNote ? <span className="scenario-history__note">{scenario.adminNote}</span> : null}</>}<button type="button" className="scenario-history__view" onClick={() => setFocusedScenarioId(scenario.id)} aria-label={`${t('market.scenarioViewResult')}: ${scenario.symbol}`}>{t('market.scenarioViewResult')}</button></div></div>; }) : <div className="state-block scenario-history__empty"><strong>{t('market.scenarioNoRecords')}</strong><p>{t('market.scenarioNoRecordsHint')}</p></div>}</div></div>
+      {focusedScenario ? <TimedScenarioResultDialog scenario={focusedScenario} now={now} onClose={() => setFocusedScenarioId(null)} /> : null}
     </section>
   );
 }

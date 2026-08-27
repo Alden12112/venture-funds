@@ -465,6 +465,9 @@ async function initDatabase() {
       result TEXT,
       settlement_price NUMERIC,
       settled_at TIMESTAMPTZ,
+      admin_note TEXT NOT NULL DEFAULT '',
+      admin_note_updated_at TIMESTAMPTZ,
+      admin_note_updated_by TEXT,
       voided_at TIMESTAMPTZ,
       voided_by TEXT,
       void_reason TEXT,
@@ -474,6 +477,9 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS ad88_timed_scenarios_status_expiry_idx ON ad88_timed_scenarios (status, expires_at ASC);
     ALTER TABLE ad88_support_messages ADD COLUMN IF NOT EXISTS user_phone TEXT NOT NULL DEFAULT '';
     ALTER TABLE ad88_trade_events ADD COLUMN IF NOT EXISTS pnl NUMERIC;
+    ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note TEXT NOT NULL DEFAULT '';
+    ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note_updated_at TIMESTAMPTZ;
+    ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note_updated_by TEXT;
     `);
     pool = candidate;
   } catch (error) {
@@ -1436,7 +1442,10 @@ function normalizeTradeEvent(row) {
   };
 }
 
-function normalizeTimedScenario(row) {
+function normalizeTimedScenario(row, includePrivateAdminFields = false) {
+  const status = row.status || 'active';
+  const note = String(row.adminNote ?? row.admin_note ?? '').trim();
+  const exposeNote = includePrivateAdminFields || status === 'settled';
   return {
     id: row.id,
     userId: row.userId ?? row.user_id,
@@ -1448,10 +1457,13 @@ function normalizeTimedScenario(row) {
     durationSeconds: Number(row.durationSeconds ?? row.duration_seconds ?? 0),
     referencePrice: Number(row.referencePrice ?? row.reference_price ?? 0),
     expiresAt: row.expiresAt ?? row.expires_at,
-    status: row.status || 'active',
+    status,
     result: row.result ?? undefined,
     settlementPrice: row.settlementPrice == null && row.settlement_price == null ? undefined : Number(row.settlementPrice ?? row.settlement_price),
     settledAt: row.settledAt ?? row.settled_at ?? undefined,
+    adminNote: exposeNote && note ? note : undefined,
+    adminNoteUpdatedAt: includePrivateAdminFields ? row.adminNoteUpdatedAt ?? row.admin_note_updated_at ?? undefined : undefined,
+    adminNoteUpdatedBy: includePrivateAdminFields ? row.adminNoteUpdatedBy ?? row.admin_note_updated_by ?? undefined : undefined,
     voidedAt: row.voidedAt ?? row.voided_at ?? undefined,
     voidedBy: row.voidedBy ?? row.voided_by ?? undefined,
     voidReason: row.voidReason ?? row.void_reason ?? undefined,
@@ -1459,35 +1471,43 @@ function normalizeTimedScenario(row) {
   };
 }
 
+let timedScenarioSettlementInFlight = false;
+
 async function settleDueTimedScenarios() {
-  const now = Date.now();
-  const due = pool
-    ? (await pool.query("SELECT * FROM ad88_timed_scenarios WHERE status = 'active' AND expires_at <= NOW() ORDER BY expires_at ASC LIMIT 100")).rows
-    : [...memoryTimedScenarios.values()].filter((item) => item.status === 'active' && new Date(item.expiresAt).getTime() <= now);
-  if (!due.length) return;
-  for (const row of due) {
-    const scenario = normalizeTimedScenario(row);
-    let quote;
-    try {
-      quote = await getPaperMarketQuote(scenario.symbol);
-    } catch {
-      // Keep the observation active when a verified quote is unavailable. It
-      // must never be resolved from a fabricated fallback value.
-      continue;
+  if (timedScenarioSettlementInFlight) return;
+  timedScenarioSettlementInFlight = true;
+  try {
+    const now = Date.now();
+    const due = pool
+      ? (await pool.query("SELECT * FROM ad88_timed_scenarios WHERE status = 'active' AND expires_at <= NOW() ORDER BY expires_at ASC LIMIT 100")).rows
+      : [...memoryTimedScenarios.values()].filter((item) => item.status === 'active' && new Date(item.expiresAt).getTime() <= now);
+    if (!due.length) return;
+    for (const row of due) {
+      const scenario = normalizeTimedScenario(row);
+      let quote;
+      try {
+        quote = await getPaperMarketQuote(scenario.symbol);
+      } catch {
+        // Keep the observation active when a verified quote is unavailable. It
+        // must never be resolved from a fabricated fallback value.
+        continue;
+      }
+      const settlementPrice = Number(quote.price ?? ((quote.bid + quote.ask) / 2));
+      const tolerance = Math.max(Math.abs(scenario.referencePrice) * 0.000001, 0.00000001);
+      const result = Math.abs(settlementPrice - scenario.referencePrice) <= tolerance
+        ? 'flat'
+        : ((scenario.direction === 'up' && settlementPrice > scenario.referencePrice) || (scenario.direction === 'down' && settlementPrice < scenario.referencePrice) ? 'confirmed' : 'not-confirmed');
+      const settledAt = new Date().toISOString();
+      if (pool) {
+        await pool.query('UPDATE ad88_timed_scenarios SET status=$2, result=$3, settlement_price=$4, settled_at=$5 WHERE id=$1 AND status=$6', [scenario.id, 'settled', result, settlementPrice, settledAt, 'active']);
+      } else {
+        const current = memoryTimedScenarios.get(scenario.id);
+        if (current?.status === 'active') memoryTimedScenarios.set(scenario.id, { ...current, status: 'settled', result, settlementPrice, settledAt });
+      }
+      await createNotification(scenario.userId, 'market', 'Market observation complete', `${scenario.symbol} observation completed: ${result}.`, result === 'confirmed' ? 'success' : result === 'flat' ? 'info' : 'warning', '/app/market');
     }
-    const settlementPrice = Number(quote.price ?? ((quote.bid + quote.ask) / 2));
-    const tolerance = Math.max(Math.abs(scenario.referencePrice) * 0.000001, 0.00000001);
-    const result = Math.abs(settlementPrice - scenario.referencePrice) <= tolerance
-      ? 'flat'
-      : ((scenario.direction === 'up' && settlementPrice > scenario.referencePrice) || (scenario.direction === 'down' && settlementPrice < scenario.referencePrice) ? 'confirmed' : 'not-confirmed');
-    const settledAt = new Date().toISOString();
-    if (pool) {
-      await pool.query('UPDATE ad88_timed_scenarios SET status=$2, result=$3, settlement_price=$4, settled_at=$5 WHERE id=$1 AND status=$6', [scenario.id, 'settled', result, settlementPrice, settledAt, 'active']);
-    } else {
-      const current = memoryTimedScenarios.get(scenario.id);
-      if (current?.status === 'active') memoryTimedScenarios.set(scenario.id, { ...current, status: 'settled', result, settlementPrice, settledAt });
-    }
-    await createNotification(scenario.userId, 'market', 'Market observation complete', `${scenario.symbol} observation completed: ${result}.`, result === 'confirmed' ? 'success' : result === 'flat' ? 'info' : 'warning', '/app/market');
+  } finally {
+    timedScenarioSettlementInFlight = false;
   }
 }
 
@@ -1497,12 +1517,12 @@ async function listTimedScenarios(session, admin = false) {
     const result = admin
       ? await pool.query('SELECT * FROM ad88_timed_scenarios ORDER BY created_at DESC LIMIT 500')
       : await pool.query('SELECT * FROM ad88_timed_scenarios WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100', [session.sub]);
-    return result.rows.map(normalizeTimedScenario);
+    return result.rows.map((row) => normalizeTimedScenario(row, admin));
   }
   return [...memoryTimedScenarios.values()]
     .filter((item) => admin || item.userId === session.sub)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .map(normalizeTimedScenario);
+    .map((item) => normalizeTimedScenario(item, admin));
 }
 
 async function createTimedScenario(session, input) {
@@ -1536,13 +1556,32 @@ async function voidTimedScenario(session, id, reason) {
     if (!existing.rowCount) return { error: 'active observation not found', status: 404 };
     const voidedAt = new Date().toISOString();
     const result = await pool.query("UPDATE ad88_timed_scenarios SET status='void', voided_at=$2, voided_by=$3, void_reason=$4 WHERE id=$1 AND status='active' RETURNING *", [id, voidedAt, session.email || session.name, cleanReason]);
-    return { scenario: normalizeTimedScenario(result.rows[0]) };
+    return { scenario: normalizeTimedScenario(result.rows[0], true) };
   }
   const current = memoryTimedScenarios.get(id);
   if (!current || current.status !== 'active') return { error: 'active observation not found', status: 404 };
   const next = { ...current, status: 'void', voidedAt: new Date().toISOString(), voidedBy: session.email || session.name, voidReason: cleanReason };
   memoryTimedScenarios.set(id, next);
-  return { scenario: normalizeTimedScenario(next) };
+  return { scenario: normalizeTimedScenario(next, true) };
+}
+
+async function updateTimedScenarioNote(session, id, note) {
+  const cleanNote = String(note ?? '').trim().slice(0, 600);
+  const updatedAt = new Date().toISOString();
+  const updatedBy = String(session.email || session.name || 'AD88 Admin').slice(0, 240);
+  if (pool) {
+    const result = await pool.query(
+      'UPDATE ad88_timed_scenarios SET admin_note=$2, admin_note_updated_at=$3, admin_note_updated_by=$4 WHERE id=$1 RETURNING *',
+      [id, cleanNote, updatedAt, updatedBy],
+    );
+    if (!result.rowCount) return { error: 'market observation not found', status: 404 };
+    return { scenario: normalizeTimedScenario(result.rows[0], true) };
+  }
+  const current = memoryTimedScenarios.get(id);
+  if (!current) return { error: 'market observation not found', status: 404 };
+  const next = { ...current, adminNote: cleanNote, adminNoteUpdatedAt: updatedAt, adminNoteUpdatedBy: updatedBy };
+  memoryTimedScenarios.set(id, next);
+  return { scenario: normalizeTimedScenario(next, true) };
 }
 
 function validateTradeEvent(input) {
@@ -1627,6 +1666,11 @@ async function handleAdminTimedScenarios(req, res, requestUrl) {
   const session = requireSession(req, res, 'admin');
   if (!session) return true;
   if (req.method === 'GET' && requestUrl.pathname === '/api/admin/market-scenarios') return sendJson(res, 200, await listTimedScenarios(session, true));
+  const noteMatch = requestUrl.pathname.match(/^\/api\/admin\/market-scenarios\/([^/]+)\/note$/);
+  if ((req.method === 'POST' || req.method === 'PATCH') && noteMatch) {
+    const result = await updateTimedScenarioNote(session, decodeURIComponent(noteMatch[1]), (await readBody(req)).note);
+    return result.error ? sendJson(res, result.status || 400, result) : sendJson(res, 200, result.scenario);
+  }
   const voidMatch = requestUrl.pathname.match(/^\/api\/admin\/market-scenarios\/([^/]+)\/void$/);
   if (req.method === 'POST' && voidMatch) {
     const input = await readBody(req);
@@ -3314,6 +3358,18 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 502, { error: error instanceof Error ? error.message : 'request failed' });
   }
 });
+
+// Resolve due observations in the background as well as on reads. The client
+// still polls for the updated record, but a quiet tab or a separate admin
+// console cannot leave an expired observation waiting for a manual click.
+const timedScenarioSettlementTimer = appSurface === 'frontend'
+  ? setInterval(() => {
+      void databaseReady
+        .then(() => settleDueTimedScenarios())
+        .catch(() => undefined);
+    }, 2_000)
+  : null;
+timedScenarioSettlementTimer?.unref?.();
 
 server.listen(port, '0.0.0.0', () => {
   console.log(`AD88 server listening on ${port}`);

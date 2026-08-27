@@ -391,6 +391,11 @@ export interface TimedMarketScenario {
   result?: TimedScenarioResult;
   settlementPrice?: number;
   settledAt?: string;
+  /** Administrator context shown to the client only after settlement. */
+  adminNote?: string;
+  /** Private audit metadata for administrator views. */
+  adminNoteUpdatedAt?: string;
+  adminNoteUpdatedBy?: string;
   voidedAt?: string;
   voidedBy?: string;
   voidReason?: string;
