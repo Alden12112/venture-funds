@@ -44,6 +44,7 @@ const memoryNotifications = [];
 const memoryLedgerEntries = [];
 const memoryFundingRequests = new Map();
 const memoryTimedScenarios = new Map();
+const memoryContentSettings = new Map();
 const registrationChallenges = new Map();
 const marketProxyCache = new Map();
 const yahooQuoteCache = new Map();
@@ -114,6 +115,104 @@ const contentTypes = {
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
 };
+
+// Copy that is safe to edit from the administrator workspace. Keeping the
+// default in the API layer means a new deployment still renders a complete
+// message before the shared store has its first row, while PostgreSQL remains
+// the source of truth once an administrator saves a revision.
+const contentSettingDefaults = {
+  'market.observationSafety': {
+    zh: '仅用于市场观察，不创建真实订单或改变余额。',
+    ms: 'Untuk pemerhatian pasaran sahaja; tiada pesanan langsung atau perubahan baki.',
+    en: 'Market observation only; no live orders or balance changes.',
+  },
+};
+
+function normalizeContentSetting(row, includeAudit = false) {
+  const key = String(row?.key || '').trim();
+  const fallback = contentSettingDefaults[key] || { zh: '', ms: '', en: '' };
+  const setting = {
+    key,
+    values: {
+      zh: String(row?.zh_value ?? row?.zhValue ?? fallback.zh),
+      ms: String(row?.ms_value ?? row?.msValue ?? fallback.ms),
+      en: String(row?.en_value ?? row?.enValue ?? fallback.en),
+    },
+    updatedAt: row?.updated_at ?? row?.updatedAt ?? undefined,
+  };
+  if (includeAudit) setting.updatedBy = row?.updated_by ?? row?.updatedBy ?? '';
+  return setting;
+}
+
+function contentSettingsSource(settings) {
+  const timestamps = settings.map((item) => item.updatedAt).filter(Boolean).sort();
+  return {
+    provider: pool ? 'VENTURE FUNDS shared PostgreSQL content store' : 'VENTURE FUNDS default content bundle',
+    mode: pool ? 'api' : 'mock',
+    updatedAt: timestamps.at(-1) || new Date().toISOString(),
+    cacheState: pool ? 'fresh' : 'cached',
+    health: pool ? 'healthy' : 'degraded',
+    lineage: pool ? 'PostgreSQL → frontend and administrator workspaces' : 'versioned defaults → frontend and administrator workspaces',
+  };
+}
+
+async function listContentSettings(includeAudit = false) {
+  const keys = Object.keys(contentSettingDefaults);
+  if (pool) {
+    const result = await pool.query('SELECT key, zh_value, ms_value, en_value, updated_at, updated_by FROM ad88_content_settings WHERE key = ANY($1::text[])', [keys]);
+    const stored = new Map(result.rows.map((row) => [row.key, row]));
+    return keys.map((key) => normalizeContentSetting(stored.get(key) || { key }, includeAudit));
+  }
+  return keys.map((key) => normalizeContentSetting(memoryContentSettings.get(key) || { key }, includeAudit));
+}
+
+function normalizeEditableContent(value, fallback) {
+  const text = String(value ?? '').trim().slice(0, 500);
+  return text || fallback;
+}
+
+function validateObservationSafetyCopy(values) {
+  const zh = String(values?.zh || '').trim();
+  const ms = String(values?.ms || '').trim();
+  const en = String(values?.en || '').trim();
+  if (!zh || !ms || !en) return 'Chinese, Bahasa Melayu and English copy are all required';
+  const unsafeClaim = /(保证(?:收益|盈利)|稳赚|无风险|保本|guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu;
+  if (unsafeClaim.test(`${zh}\n${ms}\n${en}`)) return 'The market-observation notice cannot include profit guarantees or risk-free claims';
+  const zhSafe = /(市场|观察|记录)/u.test(zh) && /(不创建|不产生|不会|不作).{0,100}(订单|交易|余额|资金)/u.test(zh);
+  const msSafe = /(pemerhatian|pasaran)/iu.test(ms) && /(tiada|tidak|bukan).{0,100}(pesanan|dagangan|baki)/iu.test(ms);
+  const enSafe = /(market|observation)/iu.test(en) && /\b(no|not|without)\b.{0,100}\b(live|order|orders|balance|balances)\b/iu.test(en);
+  if (!zhSafe || !msSafe || !enSafe) return 'The notice must keep the market-observation, no-live-order, and no-balance-change disclosure in every language';
+  return '';
+}
+
+async function saveContentSetting(key, input, session) {
+  const fallback = contentSettingDefaults[key];
+  if (!fallback) return null;
+  const values = {
+    zh: normalizeEditableContent(input?.values?.zh, fallback.zh),
+    ms: normalizeEditableContent(input?.values?.ms, fallback.ms),
+    en: normalizeEditableContent(input?.values?.en, fallback.en),
+  };
+  const updatedAt = new Date().toISOString();
+  const updatedBy = String(session?.email || session?.name || 'VENTURE FUNDS Administrator').trim().slice(0, 240);
+  if (pool) {
+    const result = await pool.query(`
+      INSERT INTO ad88_content_settings (key, zh_value, ms_value, en_value, updated_at, updated_by)
+      VALUES ($1,$2,$3,$4,$5,$6)
+      ON CONFLICT (key) DO UPDATE SET
+        zh_value = EXCLUDED.zh_value,
+        ms_value = EXCLUDED.ms_value,
+        en_value = EXCLUDED.en_value,
+        updated_at = EXCLUDED.updated_at,
+        updated_by = EXCLUDED.updated_by
+      RETURNING key, zh_value, ms_value, en_value, updated_at, updated_by
+    `, [key, values.zh, values.ms, values.en, updatedAt, updatedBy]);
+    return normalizeContentSetting(result.rows[0], true);
+  }
+  const row = { key, zh_value: values.zh, ms_value: values.ms, en_value: values.en, updated_at: updatedAt, updated_by: updatedBy };
+  memoryContentSettings.set(key, row);
+  return normalizeContentSetting(row, true);
+}
 
 function sendJson(res, status, body) {
   res.statusCode = status;
@@ -475,6 +574,14 @@ async function initDatabase() {
     );
     CREATE INDEX IF NOT EXISTS ad88_timed_scenarios_user_created_idx ON ad88_timed_scenarios (user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS ad88_timed_scenarios_status_expiry_idx ON ad88_timed_scenarios (status, expires_at ASC);
+    CREATE TABLE IF NOT EXISTS ad88_content_settings (
+      key TEXT PRIMARY KEY,
+      zh_value TEXT NOT NULL,
+      ms_value TEXT NOT NULL,
+      en_value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_by TEXT NOT NULL DEFAULT ''
+    );
     ALTER TABLE ad88_support_messages ADD COLUMN IF NOT EXISTS user_phone TEXT NOT NULL DEFAULT '';
     ALTER TABLE ad88_trade_events ADD COLUMN IF NOT EXISTS pnl NUMERIC;
     ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note TEXT NOT NULL DEFAULT '';
@@ -767,11 +874,40 @@ async function restoreBlacklistEntry(id) {
   return normalizeBlacklistEntry(entry);
 }
 
+async function handleContentSettings(req, res, requestUrl) {
+  if (req.method === 'GET' && requestUrl.pathname === '/api/content-settings') {
+    const settings = await listContentSettings();
+    return sendJson(res, 200, { settings, source: contentSettingsSource(settings) });
+  }
+  return sendJson(res, 404, { error: 'content settings route not found' });
+}
+
 async function handleAdmin(req, res, requestUrl) {
   const session = requireSession(req, res, 'admin');
   if (!session) return true;
   if (req.method === 'GET' && requestUrl.pathname === '/api/admin/users') return sendJson(res, 200, await listAccounts());
   if (req.method === 'GET' && requestUrl.pathname === '/api/admin/blacklist') return sendJson(res, 200, await listBlacklistEntries());
+  if (req.method === 'GET' && requestUrl.pathname === '/api/admin/content-settings') {
+    const settings = await listContentSettings(true);
+    return sendJson(res, 200, { settings, source: contentSettingsSource(settings) });
+  }
+
+  const contentMatch = requestUrl.pathname.match(/^\/api\/admin\/content-settings\/([^/]+)$/);
+  if ((req.method === 'PUT' || req.method === 'PATCH') && contentMatch) {
+    let key = '';
+    try {
+      key = decodeURIComponent(contentMatch[1]);
+    } catch {
+      return sendJson(res, 400, { error: 'invalid content setting key' });
+    }
+    const body = await readBody(req);
+    if (key === 'market.observationSafety') {
+      const validationError = validateObservationSafetyCopy(body?.values);
+      if (validationError) return sendJson(res, 400, { error: validationError });
+    }
+    const setting = await saveContentSetting(key, body, session);
+    return setting ? sendJson(res, 200, setting) : sendJson(res, 404, { error: 'content setting not found' });
+  }
 
   if (req.method === 'POST' && requestUrl.pathname === '/api/admin/users') {
     const body = await readBody(req);
@@ -3329,7 +3465,7 @@ const server = http.createServer(async (req, res) => {
       }
       return forwardToRemoteApi(req, res, requestUrl, input, true);
     }
-    if (appSurface === 'admin' && remoteApiOrigin && (requestUrl.pathname.startsWith('/api/admin/') || requestUrl.pathname.startsWith('/api/support/') || requestUrl.pathname.startsWith('/api/sync') || requestUrl.pathname.startsWith('/api/trades') || requestUrl.pathname.startsWith('/api/ledger') || requestUrl.pathname === '/api/market' || requestUrl.pathname === '/api/market/quotes' || requestUrl.pathname === '/api/market/status' || requestUrl.pathname === '/api/news')) {
+    if (appSurface === 'admin' && remoteApiOrigin && (requestUrl.pathname.startsWith('/api/admin/') || requestUrl.pathname.startsWith('/api/support/') || requestUrl.pathname.startsWith('/api/sync') || requestUrl.pathname.startsWith('/api/trades') || requestUrl.pathname.startsWith('/api/ledger') || requestUrl.pathname === '/api/content-settings' || requestUrl.pathname === '/api/market' || requestUrl.pathname === '/api/market/quotes' || requestUrl.pathname === '/api/market/status' || requestUrl.pathname === '/api/news')) {
       // The bridge authenticates only the server-to-server hop. A browser
       // request still must carry a valid administrator session before this
       // service may attach that bridge to a protected frontend API request.
@@ -3345,6 +3481,7 @@ const server = http.createServer(async (req, res) => {
       const handled = await handleAuth(req, res, requestUrl);
       if (handled !== false) return;
     }
+    if (requestUrl.pathname === '/api/content-settings') return handleContentSettings(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/paper/')) return handlePaperTrading(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/market-scenarios')) return handleAdminTimedScenarios(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/market-scenarios')) return handleTimedScenarios(req, res, requestUrl);

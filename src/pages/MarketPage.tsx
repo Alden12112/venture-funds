@@ -579,7 +579,7 @@ export function MarketPage() {
           )}
           <div className="execution-bar">
             <button type="button" className="execution-quote execution-quote--sell" onClick={() => void openPosition('short')} disabled={!canOpen || Boolean(busyAction)}>
-              <span>{t('market.sellBid')}</span><strong>{formatMarketPrice(sellPrice)}</strong><small>{t('market.openShort')}</small>
+              <span>{t('market.sellBid')}</span><strong>{formatMarketPrice(sellPrice)}</strong>
             </button>
             <div className="execution-bar__middle">
               <span className="execution-bar__label">{t('market.midpoint')}</span>
@@ -587,7 +587,7 @@ export function MarketPage() {
               <label><span>{t('market.orderLots')}</span><input type="number" min={tradeSpec.minimumLots} step="0.01" value={lotsInput} onChange={(event) => updateLots(event.target.value)} onBlur={() => { if (!Number.isFinite(Number(lotsInput)) || Number(lotsInput) < tradeSpec.minimumLots) { setLots(tradeSpec.minimumLots); setLotsInput(String(tradeSpec.minimumLots)); } }} /></label>
             </div>
             <button type="button" className="execution-quote execution-quote--buy" onClick={() => void openPosition('long')} disabled={!canOpen || Boolean(busyAction)}>
-              <span>{t('market.buyAsk')}</span><strong>{formatMarketPrice(buyPrice)}</strong><small>{t('market.openLong')}</small>
+              <span>{t('market.buyAsk')}</span><strong>{formatMarketPrice(buyPrice)}</strong>
             </button>
           </div>
         </article>

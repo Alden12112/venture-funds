@@ -4,6 +4,18 @@ export type SessionRole = 'user' | 'admin';
 
 export type LanguageCode = 'zh' | 'ms' | 'en';
 
+export interface SharedContentSetting {
+  key: string;
+  values: Record<LanguageCode, string>;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface SharedContentSettingsResponse {
+  settings: SharedContentSetting[];
+  source: SourceMeta;
+}
+
 export type DataCacheState = 'fresh' | 'cached' | 'stale' | 'offline';
 
 /** A concise, user-facing market-data state. Provider details remain server-side. */
@@ -300,6 +312,7 @@ export interface AdminBundle {
     status: 'pending' | 'approved' | 'rejected';
     updatedAt: string;
   }>;
+  contentSettings: SharedContentSetting[];
   configs: Array<{
     key: string;
     value: string;

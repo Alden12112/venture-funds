@@ -19,6 +19,7 @@ import { LegalPage } from '@/pages/LegalPage';
 import { useAuth } from '@/context/auth-context';
 import { isAdminSurface } from '@/lib/surface';
 import { useLanguage } from '@/context/language-context';
+import { ContentSettingsProvider } from '@/context/content-settings-context';
 
 function PageLoading({ admin = false }: { admin?: boolean }) {
   const { t } = useLanguage();
@@ -52,22 +53,24 @@ export default function App() {
     return (
       <ThemeProvider>
         <LanguageProvider>
-          <AuthProvider>
-            <Routes>
-              <Route path="/" element={<AdminAuthPage />} />
-              <Route path="/login" element={<AdminAuthPage />} />
-              <Route path="/admin/login" element={<AdminAuthPage />} />
-              <Route
-                path="/admin"
-                element={
-                  <AdminRoute>
-                    <AdminPage standalone />
-                  </AdminRoute>
-                }
-              />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </AuthProvider>
+          <ContentSettingsProvider>
+            <AuthProvider>
+              <Routes>
+                <Route path="/" element={<AdminAuthPage />} />
+                <Route path="/login" element={<AdminAuthPage />} />
+                <Route path="/admin/login" element={<AdminAuthPage />} />
+                <Route
+                  path="/admin"
+                  element={
+                    <AdminRoute>
+                      <AdminPage standalone />
+                    </AdminRoute>
+                  }
+                />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </AuthProvider>
+          </ContentSettingsProvider>
         </LanguageProvider>
       </ThemeProvider>
     );
@@ -76,32 +79,34 @@ export default function App() {
   return (
     <ThemeProvider>
       <LanguageProvider>
-        <AuthProvider>
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/auth/:mode" element={<AuthPage />} />
-            <Route path="/legal/:page" element={<LegalPage />} />
-            <Route
-              path="/app"
-              element={
-                <ProtectedRoute>
-                  <AppShell />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Navigate to="/app/dashboard" replace />} />
-              <Route path="dashboard" element={<DashboardPage />} />
-              <Route path="market" element={<MarketPage />} />
-              <Route path="news" element={<NewsPage />} />
-              <Route path="support" element={<SupportPage />} />
-              <Route path="ledger" element={<LedgerPage />} />
-              <Route path="funding" element={<FundingPage />} />
-              <Route path="notifications" element={<NotificationsPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-            </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </AuthProvider>
+        <ContentSettingsProvider>
+          <AuthProvider>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/auth/:mode" element={<AuthPage />} />
+              <Route path="/legal/:page" element={<LegalPage />} />
+              <Route
+                path="/app"
+                element={
+                  <ProtectedRoute>
+                    <AppShell />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to="/app/dashboard" replace />} />
+                <Route path="dashboard" element={<DashboardPage />} />
+                <Route path="market" element={<MarketPage />} />
+                <Route path="news" element={<NewsPage />} />
+                <Route path="support" element={<SupportPage />} />
+                <Route path="ledger" element={<LedgerPage />} />
+                <Route path="funding" element={<FundingPage />} />
+                <Route path="notifications" element={<NotificationsPage />} />
+                <Route path="settings" element={<SettingsPage />} />
+              </Route>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </AuthProvider>
+        </ContentSettingsProvider>
       </LanguageProvider>
     </ThemeProvider>
   );

@@ -1,4 +1,4 @@
-import type { AdminBundle, BlacklistEntry, FundingRequest, LedgerBundle, PaperPosition, RegisteredUser, TimedMarketScenario, TradeAuditEvent, UserProfile } from '@/types';
+import type { AdminBundle, BlacklistEntry, FundingRequest, LedgerBundle, PaperPosition, RegisteredUser, SharedContentSettingsResponse, TimedMarketScenario, TradeAuditEvent, UserProfile } from '@/types';
 import { loadLedgerBundle } from '@/adapters/ledger-adapter';
 import { loadRemoteAdminCredits } from '@/lib/credits';
 import { apiFetch } from '@/lib/api';
@@ -44,7 +44,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     status: 'offline', quoteCount: 0, ageSeconds: null, cacheSeconds: 8,
   };
   const emptyFundingRequests: FundingRequest[] = [];
-  const [remoteState, timedScenarios, tradeEvents, ledger, remoteCredits, fundingRequests, blacklist, notifications, marketStatus] = await Promise.all([
+  const [remoteState, timedScenarios, tradeEvents, ledger, remoteCredits, fundingRequests, blacklist, notifications, marketStatus, contentResponse] = await Promise.all([
     safe('workspace', () => apiFetch<{ paperPositions?: PaperPosition[] }>('/api/sync?scope=all'), {}),
     safe('market observations', () => apiFetch<TimedMarketScenario[]>('/api/admin/market-scenarios'), []),
     safe('trades', () => apiFetch<TradeAuditEvent[]>('/api/admin/trades'), []),
@@ -54,6 +54,16 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     safe('blacklist', () => apiFetch<BlacklistEntry[]>('/api/admin/blacklist'), []),
     safe('notifications', () => apiFetch<AdminBundle['notifications']>('/api/admin/notifications'), []),
     safe('market', () => apiFetch<AdminBundle['marketStatus']>('/api/market/status'), emptyMarketStatus),
+    safe('content settings', () => apiFetch<SharedContentSettingsResponse>('/api/admin/content-settings'), {
+      settings: [],
+      source: {
+        provider: 'VENTURE FUNDS shared content API',
+        mode: 'api',
+        updatedAt: new Date().toISOString(),
+        cacheState: 'offline',
+        health: 'offline',
+      },
+    }),
   ]);
   const registrations: RegisteredUser[] = remoteUsers.map((item) => ({
     id: item.id,
@@ -114,7 +124,12 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
       status: item.status,
       updatedAt: item.submittedAt,
     })),
-    configs: [],
+    contentSettings: contentResponse.settings,
+    configs: contentResponse.settings.map((setting) => ({
+      key: setting.key,
+      value: setting.values.en,
+      scope: 'shared server content',
+    })),
     source: {
       provider: 'VENTURE FUNDS shared administration API',
       mode: 'api',

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3, Eye, Gauge, LoaderCircle, ShieldCheck, TimerReset, XCircle } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
+import { useContentSettings } from '@/context/content-settings-context';
 import { apiFetch } from '@/lib/api';
 import { formatDateTime, formatMarketPrice } from '@/lib/format';
 import type { TimedMarketScenario, TimedScenarioDirection, TimedScenarioUnit } from '@/types';
@@ -64,7 +65,8 @@ function resultLabel(scenario: TimedMarketScenario, t: (key: string) => string) 
 
 export function TimedScenarioWorkspace({ symbol, price }: { symbol: string; price: number }) {
   const { session } = useAuth();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
+  const { getContent } = useContentSettings();
   const [durationValue, setDurationValue] = useState('60');
   const [durationUnit, setDurationUnit] = useState<TimedScenarioUnit>('sec');
   const [observationPoints, setObservationPoints] = useState('10');
@@ -177,7 +179,7 @@ export function TimedScenarioWorkspace({ symbol, price }: { symbol: string; pric
 
       {activeScenario ? <section className="scenario-active-card" aria-live="polite"><div className="scenario-active-card__head"><div className="scenario-active-card__identity"><span className="scenario-active-card__pulse" /><div><span>{t('market.scenarioActiveNow')}</span><strong>{activeScenario.symbol} · {directionLabel(activeScenario.direction, t)}</strong></div></div><div className="scenario-active-card__countdown"><span>{t('market.scenarioRemaining')}</span><strong>{formatCountdown(activeRemaining)}</strong></div></div><div className="scenario-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(activeProgress)} aria-label={t('market.scenarioProgress')}><span style={{ width: `${activeProgress}%` }} /></div><div className="scenario-active-card__meta"><span><small>{t('market.scenarioReferencePrice')}</small><strong>{formatMarketPrice(activeScenario.referencePrice)}</strong></span><span><small>{t('market.scenarioElapsed')}</small><strong>{formatCountdown(elapsedSeconds)}</strong></span><span><small>{t('market.scenarioExpires')}</small><strong>{formatDateTime(activeScenario.expiresAt)}</strong></span></div></section> : null}
 
-      <div className="scenario-safety-note"><ShieldCheck size={15} /><span>{t('market.scenarioSafety')}</span></div>
+      <div className="scenario-safety-note"><ShieldCheck size={15} /><span>{getContent('market.observationSafety', language)}</span></div>
       <div className="scenario-history"><div className="scenario-history__head"><div><strong>{t('market.scenarioHistory')}</strong><span>{t('market.scenarioHistoryHint')}</span></div><span className="status-pill status-pill--muted">{visibleScenarios.length} / 5</span></div><div className="scenario-history__list">{visibleScenarios.length ? visibleScenarios.map((scenario) => { const remaining = remainingSeconds(scenario, now); const active = scenario.status === 'active' && remaining > 0; const displayStatus = active ? t('market.scenarioWaiting') : resultLabel(scenario, t); return <div key={scenario.id} className={`scenario-history__row scenario-history__row--${active ? 'active' : scenario.result ?? scenario.status}`}><div className="scenario-history__identity"><span className="scenario-history__symbol">{scenario.symbol}</span><div><strong>{directionLabel(scenario.direction, t)}</strong><span>{formatDuration(scenario.durationSeconds, t)} · {scenario.observationPoints} {t('market.scenarioScaleShort')}</span></div></div><div className="scenario-history__reference"><span>{t('market.scenarioReferencePrice')}</span><strong>{formatMarketPrice(scenario.referencePrice)}</strong></div><div className="scenario-history__clock">{active ? <><Clock3 size={14} /><strong>{formatCountdown(remaining)}</strong><span>{t('market.scenarioRemaining')}</span><span className="scenario-history__mini-progress"><span style={{ width: `${progressPercent(scenario, now)}%` }} /></span></> : <><strong>{displayStatus}</strong><span>{scenario.settlementPrice ? `${t('market.scenarioSettlementPrice')} ${formatMarketPrice(scenario.settlementPrice)}` : formatDateTime(scenario.settledAt ?? scenario.createdAt)}</span>{scenario.status === 'settled' && scenario.adminNote ? <span className="scenario-history__note">{scenario.adminNote}</span> : null}</>}<button type="button" className="scenario-history__view" onClick={() => setFocusedScenarioId(scenario.id)} aria-label={`${t('market.scenarioViewResult')}: ${scenario.symbol}`}>{t('market.scenarioViewResult')}</button></div></div>; }) : <div className="state-block scenario-history__empty"><strong>{t('market.scenarioNoRecords')}</strong><p>{t('market.scenarioNoRecordsHint')}</p></div>}</div></div>
       {focusedScenario ? <TimedScenarioResultDialog scenario={focusedScenario} now={now} onClose={() => setFocusedScenarioId(null)} /> : null}
     </section>

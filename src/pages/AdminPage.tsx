@@ -19,7 +19,8 @@ import { BrandMark } from '@/components/BrandMark';
 import { labelCountry, labelNewsCategory, labelNewsSentiment } from '@/lib/news-labels';
 import { clearFundingHistory, deleteFundingHistoryItem, reviewFundingRequest } from '@/lib/funding';
 import { deleteRemoteLedgerEntry } from '@/adapters/ledger-adapter';
-import type { FundingRequest, TimedMarketScenario } from '@/types';
+import type { FundingRequest, LanguageCode, TimedMarketScenario } from '@/types';
+import { getDefaultSharedContentSetting, MARKET_OBSERVATION_SAFETY_KEY } from '@/lib/content-settings';
 
 const tabs = ['Accounts', 'Registration Review', 'Deposit Review', 'Withdrawal Review', 'U Management', 'Ledger', 'Monthly Report', 'Trade Audit', 'Order Management', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
 type AdminTab = (typeof tabs)[number];
@@ -75,6 +76,8 @@ function initialAdminTab(search: string): AdminTab {
 function saveAdminTab(tab: AdminTab) {
   if (typeof window !== 'undefined') window.sessionStorage.setItem('ad88.admin.active-tab', tab);
 }
+
+const defaultMarketObservationCopy = getDefaultSharedContentSetting(MARKET_OBSERVATION_SAFETY_KEY).values;
 
 function timedScenarioRemainingSeconds(scenario: TimedMarketScenario, now: number) {
   return Math.max(0, Math.ceil((new Date(scenario.expiresAt).getTime() - now) / 1000));
@@ -158,8 +161,16 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [timedScenarioNoteDraft, setTimedScenarioNoteDraft] = useState('');
   const [timedScenarioNoteSavingId, setTimedScenarioNoteSavingId] = useState<string | null>(null);
   const [timedScenarioNoteMessage, setTimedScenarioNoteMessage] = useState('');
+  const [contentDraft, setContentDraft] = useState<Record<LanguageCode, string>>(() => ({ ...defaultMarketObservationCopy }));
+  const [contentDirty, setContentDirty] = useState(false);
+  const [contentSaving, setContentSaving] = useState(false);
+  const [contentMessage, setContentMessage] = useState('');
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
+
+  const serverContentSetting = admin.status === 'success'
+    ? admin.data.contentSettings.find((setting) => setting.key === MARKET_OBSERVATION_SAFETY_KEY)
+    : undefined;
 
   const statusLabel = (status: string) => {
     if (status === 'approved') return t('status.approved');
@@ -204,6 +215,10 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     window.addEventListener('ad88:storage-sync', refresh);
     return () => window.removeEventListener('ad88:storage-sync', refresh);
   }, []);
+
+  useEffect(() => {
+    if (!contentDirty && serverContentSetting) setContentDraft({ ...serverContentSetting.values });
+  }, [contentDirty, serverContentSetting?.updatedAt]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setAdminNow(Date.now()), 1_000);
@@ -491,6 +506,25 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       setTimedScenarioNoteMessage(error instanceof Error ? error.message : t('admin.orderNoteSaveFailed'));
     } finally {
       setTimedScenarioNoteSavingId(null);
+    }
+  };
+
+  const saveContentSettings = async () => {
+    if (contentSaving) return;
+    setContentSaving(true);
+    setContentMessage('');
+    try {
+      await apiFetch(`/api/admin/content-settings/${encodeURIComponent(MARKET_OBSERVATION_SAFETY_KEY)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ values: contentDraft }),
+      });
+      setContentDirty(false);
+      setContentMessage(t('admin.contentSaved'));
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setContentMessage(error instanceof Error ? error.message : t('admin.contentSaveFailed'));
+    } finally {
+      setContentSaving(false);
     }
   };
 
@@ -999,6 +1033,33 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             </div>
             <StatusPill tone="info">{String(contentCount)} {t('admin.articles')}</StatusPill>
           </div>
+          <section className="admin-content-editor" data-content-key={MARKET_OBSERVATION_SAFETY_KEY}>
+            <div className="admin-content-editor__head">
+              <div className="admin-content-editor__title">
+                <FileText size={19} aria-hidden="true" />
+                <div>
+                  <h3>{t('admin.contentEditorTitle')}</h3>
+                  <p>{t('admin.contentEditorHint')}</p>
+                </div>
+              </div>
+              <StatusPill tone={serverContentSetting ? 'success' : 'warning'}>{serverContentSetting ? t('admin.connected') : t('admin.monitoring')}</StatusPill>
+            </div>
+            <div className="form-grid admin-content-editor__fields">
+              <label className="field"><span>{t('admin.contentChinese')}</span><textarea rows={3} maxLength={500} value={contentDraft.zh} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, zh: event.target.value })); }} /></label>
+              <label className="field"><span>{t('admin.contentMalay')}</span><textarea rows={3} maxLength={500} value={contentDraft.ms} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, ms: event.target.value })); }} /></label>
+              <label className="field"><span>{t('admin.contentEnglish')}</span><textarea rows={3} maxLength={500} value={contentDraft.en} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, en: event.target.value })); }} /></label>
+            </div>
+            <div className="admin-content-editor__footer">
+              <span className="field-hint">{t('admin.contentEditorFieldHint')}{serverContentSetting?.updatedAt ? ` · ${formatDateTime(serverContentSetting.updatedAt)}` : ''}</span>
+              <div className="admin-content-editor__actions">
+                <button type="button" className="btn btn--primary" onClick={() => void saveContentSettings()} disabled={!contentDirty || contentSaving}>
+                  {contentSaving ? <Clock3 size={15} className="spin" /> : <FileText size={15} />}
+                  {t('admin.saveContent')}
+                </button>
+                {contentMessage ? <span className="admin-content-editor__message" role="status">{contentMessage}</span> : null}
+              </div>
+            </div>
+          </section>
           <div className="stack-list">
             {newsItems.slice(0, 6).map((item) => (
               <div key={item.id} className="stack-list__row">

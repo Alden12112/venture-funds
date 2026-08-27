@@ -108,6 +108,7 @@ export default defineConfig({
       '/api/ledger': localApiOrigin,
       '/api/notifications': localApiOrigin,
       '/api/profile': localApiOrigin,
+      '/api/content-settings': localApiOrigin,
       '/api/market/status': localApiOrigin,
     },
   },

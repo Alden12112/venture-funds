@@ -5022,6 +5022,47 @@ table {
 
 /* Admin ledger and review controls -------------------------------------- */
 .admin-credit-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.admin-content-editor {
+  display: grid;
+  gap: 15px;
+  margin: 2px 0 20px;
+  padding: 17px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 100% 0, color-mix(in srgb, var(--accent-soft) 68%, transparent), transparent 44%),
+    color-mix(in srgb, var(--surface-strong) 76%, var(--surface));
+}
+.admin-content-editor__head,
+.admin-content-editor__footer,
+.admin-content-editor__title,
+.admin-content-editor__actions { display: flex; align-items: center; gap: 11px; }
+.admin-content-editor__head,
+.admin-content-editor__footer { justify-content: space-between; }
+.admin-content-editor__title { align-items: flex-start; }
+.admin-content-editor__title > svg { flex: 0 0 auto; margin-top: 2px; color: var(--accent-strong); }
+.admin-content-editor__title div { display: grid; gap: 4px; }
+.admin-content-editor__title h3 { margin: 0; font-size: 16px; letter-spacing: -.02em; }
+.admin-content-editor__title p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.admin-content-editor__fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.admin-content-editor textarea {
+  width: 100%;
+  min-height: 84px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+}
+.admin-content-editor textarea:focus { border-color: var(--accent); }
+.admin-content-editor__footer { align-items: flex-end; }
+.admin-content-editor__footer .field-hint { margin: 0; max-width: 680px; }
+.admin-content-editor__actions { flex-wrap: wrap; justify-content: flex-end; }
+.admin-content-editor__message { color: var(--success); font-size: 11px; font-weight: 680; }
 .admin-ledger-scroll { max-height: 620px; overflow: auto; }
 .admin-ledger-table { min-width: 1080px; }
 .admin-ledger-table thead th { position: sticky; z-index: 2; top: 0; background: color-mix(in srgb, var(--surface) 96%, var(--surface-strong)); }

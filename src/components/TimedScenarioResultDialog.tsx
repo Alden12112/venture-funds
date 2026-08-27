@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Clock3, Eye, ShieldCheck, X } from 'lucide-react';
 import { useLanguage } from '@/context/language-context';
+import { useContentSettings } from '@/context/content-settings-context';
 import { formatDateTime, formatMarketPrice } from '@/lib/format';
 import type { TimedMarketScenario } from '@/types';
 
@@ -51,7 +52,8 @@ export function TimedScenarioResultDialog({
   now: number;
   onClose: () => void;
 }) {
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
+  const { getContent } = useContentSettings();
   const remaining = remainingSeconds(scenario, now);
   const active = scenario.status === 'active' && remaining > 0;
   const awaitingQuote = scenario.status === 'active' && remaining <= 0;
@@ -115,7 +117,7 @@ export function TimedScenarioResultDialog({
         <footer className="scenario-result-dialog__footer">
           <ShieldCheck size={15} />
           <div>
-            <strong>{t('market.scenarioSafety')}</strong>
+            <strong>{getContent('market.observationSafety', language)}</strong>
             {scenario.status === 'settled' && scenario.adminNote ? <p className="scenario-result-dialog__admin-note"><span>{t('market.scenarioAdminNote')}</span>{scenario.adminNote}</p> : null}
           </div>
         </footer>
