@@ -43,6 +43,7 @@ const memoryBlacklist = new Map();
 const memoryNotifications = [];
 const memoryLedgerEntries = [];
 const memoryFundingRequests = new Map();
+const memoryTimedScenarios = new Map();
 const registrationChallenges = new Map();
 const marketProxyCache = new Map();
 const yahooQuoteCache = new Map();
@@ -449,6 +450,28 @@ async function initDatabase() {
       reviewed_at TIMESTAMPTZ,
       reviewer TEXT
     );
+    CREATE TABLE IF NOT EXISTS ad88_timed_scenarios (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      user_name TEXT NOT NULL,
+      user_email TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      observation_points NUMERIC NOT NULL,
+      duration_seconds INTEGER NOT NULL,
+      reference_price NUMERIC NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      result TEXT,
+      settlement_price NUMERIC,
+      settled_at TIMESTAMPTZ,
+      voided_at TIMESTAMPTZ,
+      voided_by TEXT,
+      void_reason TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS ad88_timed_scenarios_user_created_idx ON ad88_timed_scenarios (user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS ad88_timed_scenarios_status_expiry_idx ON ad88_timed_scenarios (status, expires_at ASC);
     ALTER TABLE ad88_support_messages ADD COLUMN IF NOT EXISTS user_phone TEXT NOT NULL DEFAULT '';
     ALTER TABLE ad88_trade_events ADD COLUMN IF NOT EXISTS pnl NUMERIC;
     `);
@@ -539,6 +562,7 @@ async function deleteAccount(id) {
     await pool.query('DELETE FROM ad88_trade_events WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_ledger_entries WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_funding_requests WHERE user_id = $1', [id]);
+    await pool.query('DELETE FROM ad88_timed_scenarios WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_credit_requests WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_credit_accounts WHERE user_id = $1', [id]);
     await pool.query('DELETE FROM ad88_notifications WHERE user_id = $1', [id]);
@@ -552,6 +576,7 @@ async function deleteAccount(id) {
       memoryCreditAccounts.delete(id);
       memoryNotifications.splice(0, memoryNotifications.length, ...memoryNotifications.filter((item) => item.userId !== id));
       memoryFundingRequests.forEach((item, key) => { if (item.userId === id) memoryFundingRequests.delete(key); });
+      memoryTimedScenarios.forEach((item, key) => { if (item.userId === id) memoryTimedScenarios.delete(key); });
       memoryLedgerEntries.splice(0, memoryLedgerEntries.length, ...memoryLedgerEntries.filter((item) => item.userId !== id));
     }
     memoryState.delete(id);
@@ -1411,6 +1436,115 @@ function normalizeTradeEvent(row) {
   };
 }
 
+function normalizeTimedScenario(row) {
+  return {
+    id: row.id,
+    userId: row.userId ?? row.user_id,
+    userName: row.userName ?? row.user_name,
+    userEmail: row.userEmail ?? row.user_email,
+    symbol: String(row.symbol || '').toUpperCase(),
+    direction: row.direction === 'down' ? 'down' : 'up',
+    observationPoints: Number(row.observationPoints ?? row.observation_points ?? 0),
+    durationSeconds: Number(row.durationSeconds ?? row.duration_seconds ?? 0),
+    referencePrice: Number(row.referencePrice ?? row.reference_price ?? 0),
+    expiresAt: row.expiresAt ?? row.expires_at,
+    status: row.status || 'active',
+    result: row.result ?? undefined,
+    settlementPrice: row.settlementPrice == null && row.settlement_price == null ? undefined : Number(row.settlementPrice ?? row.settlement_price),
+    settledAt: row.settledAt ?? row.settled_at ?? undefined,
+    voidedAt: row.voidedAt ?? row.voided_at ?? undefined,
+    voidedBy: row.voidedBy ?? row.voided_by ?? undefined,
+    voidReason: row.voidReason ?? row.void_reason ?? undefined,
+    createdAt: row.createdAt ?? row.created_at,
+  };
+}
+
+async function settleDueTimedScenarios() {
+  const now = Date.now();
+  const due = pool
+    ? (await pool.query("SELECT * FROM ad88_timed_scenarios WHERE status = 'active' AND expires_at <= NOW() ORDER BY expires_at ASC LIMIT 100")).rows
+    : [...memoryTimedScenarios.values()].filter((item) => item.status === 'active' && new Date(item.expiresAt).getTime() <= now);
+  if (!due.length) return;
+  for (const row of due) {
+    const scenario = normalizeTimedScenario(row);
+    let quote;
+    try {
+      quote = await getPaperMarketQuote(scenario.symbol);
+    } catch {
+      // Keep the observation active when a verified quote is unavailable. It
+      // must never be resolved from a fabricated fallback value.
+      continue;
+    }
+    const settlementPrice = Number(quote.price ?? ((quote.bid + quote.ask) / 2));
+    const tolerance = Math.max(Math.abs(scenario.referencePrice) * 0.000001, 0.00000001);
+    const result = Math.abs(settlementPrice - scenario.referencePrice) <= tolerance
+      ? 'flat'
+      : ((scenario.direction === 'up' && settlementPrice > scenario.referencePrice) || (scenario.direction === 'down' && settlementPrice < scenario.referencePrice) ? 'confirmed' : 'not-confirmed');
+    const settledAt = new Date().toISOString();
+    if (pool) {
+      await pool.query('UPDATE ad88_timed_scenarios SET status=$2, result=$3, settlement_price=$4, settled_at=$5 WHERE id=$1 AND status=$6', [scenario.id, 'settled', result, settlementPrice, settledAt, 'active']);
+    } else {
+      const current = memoryTimedScenarios.get(scenario.id);
+      if (current?.status === 'active') memoryTimedScenarios.set(scenario.id, { ...current, status: 'settled', result, settlementPrice, settledAt });
+    }
+    await createNotification(scenario.userId, 'market', 'Market observation complete', `${scenario.symbol} observation completed: ${result}.`, result === 'confirmed' ? 'success' : result === 'flat' ? 'info' : 'warning', '/app/market');
+  }
+}
+
+async function listTimedScenarios(session, admin = false) {
+  await settleDueTimedScenarios();
+  if (pool) {
+    const result = admin
+      ? await pool.query('SELECT * FROM ad88_timed_scenarios ORDER BY created_at DESC LIMIT 500')
+      : await pool.query('SELECT * FROM ad88_timed_scenarios WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100', [session.sub]);
+    return result.rows.map(normalizeTimedScenario);
+  }
+  return [...memoryTimedScenarios.values()]
+    .filter((item) => admin || item.userId === session.sub)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .map(normalizeTimedScenario);
+}
+
+async function createTimedScenario(session, input) {
+  const symbol = String(input.symbol || '').trim().toUpperCase();
+  const direction = input.direction === 'down' ? 'down' : input.direction === 'up' ? 'up' : null;
+  const observationPoints = Number(input.observationPoints);
+  const durationSeconds = Number(input.durationSeconds);
+  if (!marketQuoteCatalogue[symbol] || !direction || !Number.isFinite(observationPoints) || observationPoints < 10 || observationPoints > 1_000_000 || !Number.isInteger(durationSeconds) || durationSeconds < 1 || durationSeconds > 7 * 24 * 60 * 60) return { error: 'invalid market observation', status: 400 };
+  let quote;
+  try { quote = await getPaperMarketQuote(symbol); } catch (error) { return { error: error instanceof Error ? error.message : 'verified quote unavailable', status: 503 }; }
+  const createdAt = new Date().toISOString();
+  const scenario = {
+    id: randomUUID(), userId: session.sub, userName: session.name, userEmail: session.email,
+    symbol, direction, observationPoints: Math.round(observationPoints), durationSeconds,
+    referencePrice: Number(quote.price ?? ((quote.bid + quote.ask) / 2)),
+    expiresAt: new Date(Date.now() + durationSeconds * 1000).toISOString(), status: 'active', createdAt,
+  };
+  if (pool) {
+    await pool.query('INSERT INTO ad88_timed_scenarios (id,user_id,user_name,user_email,symbol,direction,observation_points,duration_seconds,reference_price,expires_at,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)', [scenario.id, scenario.userId, scenario.userName, scenario.userEmail, scenario.symbol, scenario.direction, scenario.observationPoints, scenario.durationSeconds, scenario.referencePrice, scenario.expiresAt, scenario.status, scenario.createdAt]);
+  } else {
+    memoryTimedScenarios.set(scenario.id, scenario);
+  }
+  return { scenario: normalizeTimedScenario(scenario) };
+}
+
+async function voidTimedScenario(session, id, reason) {
+  const cleanReason = String(reason || '').trim().slice(0, 240);
+  if (!cleanReason) return { error: 'void reason is required', status: 400 };
+  if (pool) {
+    const existing = await pool.query("SELECT * FROM ad88_timed_scenarios WHERE id=$1 AND status='active' LIMIT 1", [id]);
+    if (!existing.rowCount) return { error: 'active observation not found', status: 404 };
+    const voidedAt = new Date().toISOString();
+    const result = await pool.query("UPDATE ad88_timed_scenarios SET status='void', voided_at=$2, voided_by=$3, void_reason=$4 WHERE id=$1 AND status='active' RETURNING *", [id, voidedAt, session.email || session.name, cleanReason]);
+    return { scenario: normalizeTimedScenario(result.rows[0]) };
+  }
+  const current = memoryTimedScenarios.get(id);
+  if (!current || current.status !== 'active') return { error: 'active observation not found', status: 404 };
+  const next = { ...current, status: 'void', voidedAt: new Date().toISOString(), voidedBy: session.email || session.name, voidReason: cleanReason };
+  memoryTimedScenarios.set(id, next);
+  return { scenario: normalizeTimedScenario(next) };
+}
+
 function validateTradeEvent(input) {
   const symbol = String(input.symbol || '').trim().toUpperCase();
   const side = String(input.side || '');
@@ -1474,6 +1608,35 @@ async function handleAdminTrades(req, res, requestUrl) {
   if (!requireSession(req, res, 'admin')) return true;
   if (req.method === 'GET' && requestUrl.pathname === '/api/admin/trades') return sendJson(res, 200, await listTradeEvents({ sub: '' }, true));
   return sendJson(res, 404, { error: 'admin trade route not found' });
+}
+
+async function handleTimedScenarios(req, res, requestUrl) {
+  if (appSurface !== 'frontend') return sendJson(res, 404, { error: 'not found' });
+  const session = requireSession(req, res);
+  if (!session) return true;
+  if (session.role === 'admin') return sendJson(res, 403, { error: 'administrators use the separate workspace' });
+  if (req.method === 'GET' && requestUrl.pathname === '/api/market-scenarios') return sendJson(res, 200, await listTimedScenarios(session));
+  if (req.method === 'POST' && requestUrl.pathname === '/api/market-scenarios') {
+    const result = await createTimedScenario(session, await readBody(req));
+    return result.error ? sendJson(res, result.status || 400, result) : sendJson(res, 201, result.scenario);
+  }
+  return sendJson(res, 404, { error: 'market observation route not found' });
+}
+
+async function handleAdminTimedScenarios(req, res, requestUrl) {
+  const session = requireSession(req, res, 'admin');
+  if (!session) return true;
+  if (req.method === 'GET' && requestUrl.pathname === '/api/admin/market-scenarios') return sendJson(res, 200, await listTimedScenarios(session, true));
+  const voidMatch = requestUrl.pathname.match(/^\/api\/admin\/market-scenarios\/([^/]+)\/void$/);
+  if (req.method === 'POST' && voidMatch) {
+    const input = await readBody(req);
+    const result = await voidTimedScenario(session, decodeURIComponent(voidMatch[1]), input.reason);
+    if (!result.error) {
+      await createNotification(result.scenario.userId, 'system', 'Market observation voided', `${result.scenario.symbol} observation was voided for review: ${result.scenario.voidReason}.`, 'warning', '/app/market');
+    }
+    return result.error ? sendJson(res, result.status || 400, result) : sendJson(res, 200, result.scenario);
+  }
+  return sendJson(res, 404, { error: 'admin market observation route not found' });
 }
 
 async function handleAdminNotifications(req, res, requestUrl) {
@@ -3125,6 +3288,8 @@ const server = http.createServer(async (req, res) => {
       if (handled !== false) return;
     }
     if (requestUrl.pathname.startsWith('/api/paper/')) return handlePaperTrading(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/admin/market-scenarios')) return handleAdminTimedScenarios(req, res, requestUrl);
+    if (requestUrl.pathname.startsWith('/api/market-scenarios')) return handleTimedScenarios(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/trades')) return handleAdminTrades(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/notifications')) return handleAdminNotifications(req, res, requestUrl);
     if (requestUrl.pathname.startsWith('/api/admin/funding/')) return handleAdminFunding(req, res, requestUrl);

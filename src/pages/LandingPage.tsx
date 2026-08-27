@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, Languages, LogIn } from 'lucide-react';
 import { brand, brandMarkers } from '@/data/brand';
+import { BrandMark } from '@/components/BrandMark';
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { loadMarketBundle } from '@/adapters/market-adapter';
 import { formatMarketCurrency, formatPercent, formatCompact } from '@/lib/format';
@@ -21,7 +22,7 @@ export function LandingPage() {
     <div className="landing-page">
       <header className="landing-topbar">
         <Link to="/" className="brand-lockup brand-lockup--landing">
-          <span className="brand-lockup__mark">{brand.name}</span>
+          <BrandMark />
           <span className="brand-lockup__name">{brand.english}</span>
         </Link>
         <div className="landing-topbar__actions">

@@ -199,12 +199,13 @@ export function CandleChart({
   };
 
   const handleWheel = (event: WheelEvent<SVGSVGElement>) => {
-    // The chart takes ownership of a desktop wheel only while the pointer is
-    // directly above it. Navigation and every other page region keep normal
-    // browser scrolling.
+    // A wheel over the chart is a chart gesture, never a document-scroll
+    // gesture. Trackpad pinch gestures are also mapped to a proportional zoom
+    // so dense charts can be inspected without losing the current workspace.
     event.preventDefault();
     event.stopPropagation();
-    changeZoom(event.deltaY < 0 ? 1 : -1);
+    const wheelSteps = event.ctrlKey ? Math.max(0.25, Math.min(1.2, Math.abs(event.deltaY) / 90)) : 0.5;
+    setBoundedZoom(zoomRef.current + (event.deltaY < 0 ? wheelSteps : -wheelSteps));
   };
 
   const shiftWindow = (direction: 1 | -1) => {

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, CheckCircle2, ChevronDown, ChevronUp, Crosshair, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2, XCircle } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
-import { CandleChart, DepthChart } from '@/components/Charts';
+import { CandleChart } from '@/components/Charts';
+import { TimedScenarioWorkspace } from '@/components/TimedScenarioWorkspace';
 import type { ChartDrawing } from '@/components/Charts';
 import { DataMeta, LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { MarketTicker } from '@/components/MarketTicker';
@@ -778,48 +779,7 @@ export function MarketPage() {
         </article>
       </section>
 
-      <section className="content-grid content-grid--two">
-        <article className="panel">
-          <div className="panel__head">
-            <div>
-              <h2>{t('market.depth')}</h2>
-              <p>{t('market.depthHint')}</p>
-            </div>
-          </div>
-          <DepthChart bids={market.data.depth.bids} asks={market.data.depth.asks} />
-        </article>
-
-        <article className="panel">
-          <div className="panel__head">
-            <div>
-              <h2>{t('market.orderBook')}</h2>
-              <p>{t('market.orderBookHint')}</p>
-            </div>
-          </div>
-          <div className="book-grid">
-            <div className="book-grid__side">
-              <strong>{t('market.asks')}</strong>
-              {market.data.orderBook.asks.slice().reverse().map((level) => (
-                <div key={`${level.price}-${level.side}`} className="book-row book-row--ask">
-                  <span>{formatMarketPrice(level.price)}</span>
-                  <span>{formatNumber(level.size)}</span>
-                  <span>{formatNumber(level.depth)}</span>
-                </div>
-              ))}
-            </div>
-            <div className="book-grid__side">
-              <strong>{t('market.bids')}</strong>
-              {market.data.orderBook.bids.map((level) => (
-                <div key={`${level.price}-${level.side}`} className="book-row book-row--bid">
-                  <span>{formatMarketPrice(level.price)}</span>
-                  <span>{formatNumber(level.size)}</span>
-                  <span>{formatNumber(level.depth)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </article>
-      </section>
+      <TimedScenarioWorkspace symbol={symbol} price={livePrice} />
     </div>
   );
 }

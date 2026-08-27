@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowRight, Languages, LockKeyhole, ShieldCheck } from 'lucide-react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { brand } from '@/data/brand';
+import { BrandMark } from '@/components/BrandMark';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
 import { apiFetch, ApiError } from '@/lib/api';
@@ -44,7 +45,7 @@ export function AdminAuthPage() {
     <div className="admin-auth-page">
       <div className="admin-auth-card">
         <div className="admin-auth-card__brand">
-          <span className="brand-lockup__mark">{brand.name}</span>
+          <BrandMark />
           <div><strong>{t('admin.auth.brand')}</strong><span>{t('admin.auth.private')}</span></div>
           <label className="locale-picker locale-picker--auth">
             <Languages size={15} aria-hidden="true" />

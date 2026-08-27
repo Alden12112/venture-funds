@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpFromLine, CalendarDays, ClipboardCheck, FileText, HandCoins, Languages, LayoutDashboard, MessageCircle, MinusCircle, Newspaper, PlusCircle, ReceiptText, ShieldBan, Trash2, UserPlus, Users, WalletCards, type LucideIcon } from 'lucide-react';
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpFromLine, CalendarDays, ClipboardCheck, FileText, HandCoins, Languages, LayoutDashboard, MessageCircle, MinusCircle, Newspaper, PlusCircle, ReceiptText, ShieldBan, ShieldCheck, Trash2, UserPlus, Users, WalletCards, XCircle, type LucideIcon } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, LoadingState, StatCard, StatusPill, EmptyState } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
@@ -14,12 +14,13 @@ import { buildInternationalPhone, countryDirectory, getCountryOption, isValidCou
 import { isValidEmail } from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
 import { SupportCenter } from '@/components/SupportCenter';
+import { BrandMark } from '@/components/BrandMark';
 import { labelCountry, labelNewsCategory, labelNewsSentiment } from '@/lib/news-labels';
 import { clearFundingHistory, deleteFundingHistoryItem, reviewFundingRequest } from '@/lib/funding';
 import { deleteRemoteLedgerEntry } from '@/adapters/ledger-adapter';
-import type { FundingRequest } from '@/types';
+import type { FundingRequest, TimedMarketScenario } from '@/types';
 
-const tabs = ['Accounts', 'Registration Review', 'Deposit Review', 'Withdrawal Review', 'U Management', 'Ledger', 'Monthly Report', 'Trade Audit', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
+const tabs = ['Accounts', 'Registration Review', 'Deposit Review', 'Withdrawal Review', 'U Management', 'Ledger', 'Monthly Report', 'Trade Audit', 'Order Management', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
 type AdminTab = (typeof tabs)[number];
 
 const tabTranslationKey: Record<AdminTab, string> = {
@@ -31,6 +32,7 @@ const tabTranslationKey: Record<AdminTab, string> = {
   Ledger: 'admin.tab.ledger',
   'Monthly Report': 'admin.tab.monthlyReport',
   'Trade Audit': 'admin.tab.tradeAudit',
+  'Order Management': 'admin.tab.orderManagement',
   'Activity & Alerts': 'admin.tab.activityAlerts',
   'Support Inbox': 'admin.tab.supportInbox',
   Content: 'admin.tab.content',
@@ -47,6 +49,7 @@ const tabIcons: Record<AdminTab, LucideIcon> = {
   Ledger: ReceiptText,
   'Monthly Report': CalendarDays,
   'Trade Audit': Activity,
+  'Order Management': ClipboardCheck,
   'Activity & Alerts': LayoutDashboard,
   'Support Inbox': MessageCircle,
   Content: Newspaper,
@@ -247,6 +250,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const visibleRegistrations = admin.data.registrations.filter((item) => matches(item.fullName) || matches(item.gmail) || matches(item.phone) || matches(item.country));
   const visiblePositions = admin.data.paperPositions.filter((item) => matches(item.userName) || matches(item.userId) || matches(item.symbol));
   const visibleTradeEvents = admin.data.tradeEvents.filter((item) => matches(item.userName) || matches(item.userEmail) || matches(item.userId) || matches(item.symbol) || matches(item.action));
+  const visibleTimedScenarios = admin.data.timedScenarios.filter((item) => matches(item.userName) || matches(item.userEmail) || matches(item.userId) || matches(item.symbol) || matches(item.direction) || matches(item.status));
   const visibleLedger = admin.data.ledgerEntries.filter((item) => matches(item.userEmail) || matches(item.userName) || matches(item.note) || matches(item.type));
   const visibleNotifications = admin.data.notifications.filter((item) => matches(item.title) || matches(item.body) || matches(item.category));
   const visibleCreditAccounts = admin.data.creditAccounts.filter((item) => matches(item.userName) || matches(item.email) || matches(item.userId));
@@ -415,12 +419,24 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     }
   };
 
+  const voidTimedScenario = async (scenario: TimedMarketScenario) => {
+    const reason = window.prompt(t('admin.orderVoidPrompt'))?.trim();
+    if (!reason) return;
+    try {
+      await apiFetch(`/api/admin/market-scenarios/${encodeURIComponent(scenario.id)}/void`, { method: 'POST', body: JSON.stringify({ reason }) });
+      setAccountMessage(t('admin.orderVoided'));
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : t('admin.orderVoidFailed'));
+    }
+  };
+
   return (
     <div className={standalone ? 'admin-standalone page-stack' : 'page-stack'}>
       {standalone ? (
         <div className="admin-topbar">
           <Link to="/" className="brand-lockup">
-            <span className="brand-lockup__mark">AD88</span>
+            <BrandMark />
             <span className="brand-lockup__name">{t('admin.console')}</span>
           </Link>
           <div className="admin-topbar__actions">
@@ -808,6 +824,34 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                   <div className="stack-list__meta"><StatusPill tone={item.margin < 1000 ? 'success' : item.margin < 3000 ? 'warning' : 'critical'}>{formatCurrency(item.margin)}</StatusPill><span>{formatDateTime(item.openedAt)}</span></div>
                 </div>
               ))}
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {tab === 'Order Management' ? (
+        <section className="content-grid content-grid--two admin-order-grid">
+          <article className="panel admin-order-hero">
+            <div className="panel__head">
+              <div><span className="eyebrow"><ClipboardCheck size={13} /> {t('admin.orderManagementEyebrow')}</span><h2>{t('admin.orderManagementTitle')}</h2><p>{t('admin.orderManagementHint')}</p></div>
+              <StatusPill tone={visibleTimedScenarios.some((item) => item.status === 'active') ? 'warning' : 'muted'}>{visibleTimedScenarios.filter((item) => item.status === 'active').length} {t('admin.active')}</StatusPill>
+            </div>
+            <div className="admin-order-trust"><ShieldCheck size={18} /><div><strong>{t('admin.orderManagementGuard')}</strong><span>{t('admin.orderManagementGuardHint')}</span></div></div>
+            <div className="metric-grid metric-grid--compact admin-order-metrics">
+              <StatCard label={t('admin.orderTotal')} value={String(visibleTimedScenarios.length)} note={t('admin.crossDeviceAudit')} />
+              <StatCard label={t('admin.orderActive')} value={String(visibleTimedScenarios.filter((item) => item.status === 'active').length)} note={t('admin.orderAwaitingExpiry')} />
+              <StatCard label={t('admin.orderSettled')} value={String(visibleTimedScenarios.filter((item) => item.status === 'settled').length)} note={t('admin.orderAutoResolved')} />
+            </div>
+          </article>
+          <article className="panel">
+            <div className="panel__head"><div><h2>{t('admin.orderQueueTitle')}</h2><p>{t('admin.orderQueueHint')}</p></div><StatusPill tone="info">{visibleTimedScenarios.length} {t('admin.records')}</StatusPill></div>
+            <div className="admin-order-list">
+              {visibleTimedScenarios.length ? visibleTimedScenarios.map((scenario) => {
+                const active = scenario.status === 'active';
+                const direction = scenario.direction === 'up' ? t('market.scenarioUp') : t('market.scenarioDown');
+                const result = scenario.status === 'settled' ? (scenario.result === 'confirmed' ? t('market.scenarioConfirmed') : scenario.result === 'flat' ? t('market.scenarioFlat') : t('market.scenarioNotConfirmed')) : scenario.status === 'void' ? t('market.scenarioCancelled') : t('market.scenarioWaiting');
+                return <div key={scenario.id} className="admin-order-row"><div className="admin-order-row__main"><div className="admin-order-row__title"><strong>{scenario.symbol}</strong><span>{direction}</span><StatusPill tone={active ? 'warning' : scenario.result === 'confirmed' ? 'success' : scenario.status === 'void' ? 'critical' : 'info'}>{result}</StatusPill></div><span>{scenario.userName} · {scenario.userEmail}</span><span>{t('admin.orderReference')} {formatMarketCurrency(scenario.referencePrice)} · {t('admin.orderPoints')} {scenario.observationPoints} · {formatDateTime(scenario.createdAt)}</span></div><div className="admin-order-row__actions">{scenario.settlementPrice ? <span>{t('admin.orderExpiry')} {formatMarketCurrency(scenario.settlementPrice)}</span> : null}{active ? <button type="button" className="btn btn--danger btn--sm" onClick={() => void voidTimedScenario(scenario)}><XCircle size={14} /> {t('admin.orderVoid')}</button> : null}</div></div>;
+              }) : <div className="state-block"><strong>{t('admin.orderNoRecords')}</strong><p>{t('admin.orderNoRecordsHint')}</p></div>}
             </div>
           </article>
         </section>

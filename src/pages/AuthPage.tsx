@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { ArrowRight, CheckCircle2, ShieldCheck, Smartphone, Mail, Languages, RefreshCw } from 'lucide-react';
 import { authModes } from '@/data/navigation';
 import { brand } from '@/data/brand';
+import { BrandMark } from '@/components/BrandMark';
 import { useAuth } from '@/context/auth-context';
 import { EmptyState } from '@/components/Stats';
 import { useLanguage } from '@/context/language-context';
@@ -177,7 +178,7 @@ export function AuthPage() {
     <div className="auth-page">
       <aside className="auth-pane">
         <Link to="/" className="brand-lockup brand-lockup--auth">
-          <span className="brand-lockup__mark">{brand.name}</span>
+          <BrandMark />
           <span className="brand-lockup__name">{brand.english}</span>
         </Link>
         <h1>{t('auth.title')}</h1>

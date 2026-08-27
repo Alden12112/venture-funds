@@ -264,6 +264,7 @@ export interface AdminBundle {
   users: UserProfile[];
   registrations: RegisteredUser[];
   paperPositions: PaperPosition[];
+  timedScenarios: TimedMarketScenario[];
   tradeEvents: TradeAuditEvent[];
   creditAccounts: CreditAccount[];
   creditRequests: CreditRequest[];
@@ -358,6 +359,42 @@ export interface PaperPosition {
   closedLots?: number;
   status?: 'open' | 'partial' | 'closed';
   closedAt?: string;
+}
+
+/**
+ * A timed market observation is an educational, paper-only direction check.
+ * Its score is never a wallet balance, trade fill, payout, or settlement.
+ * The server records a reference price when it is created and resolves the
+ * direction only from the next verified market quote after expiry.
+ */
+export type TimedScenarioDirection = 'up' | 'down';
+
+export type TimedScenarioStatus = 'active' | 'settled' | 'cancelled' | 'void';
+
+export type TimedScenarioResult = 'confirmed' | 'not-confirmed' | 'flat';
+
+export type TimedScenarioUnit = 'sec' | 'min' | 'hour';
+
+export interface TimedMarketScenario {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  symbol: string;
+  direction: TimedScenarioDirection;
+  /** A non-monetary study intensity selected by the user, minimum 10. */
+  observationPoints: number;
+  durationSeconds: number;
+  referencePrice: number;
+  expiresAt: string;
+  status: TimedScenarioStatus;
+  result?: TimedScenarioResult;
+  settlementPrice?: number;
+  settledAt?: string;
+  voidedAt?: string;
+  voidedBy?: string;
+  voidReason?: string;
+  createdAt: string;
 }
 
 export interface CreditAccount {

@@ -17,6 +17,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { brand, shellLinks } from '@/data/brand';
+import { BrandMark } from '@/components/BrandMark';
 import { useAuth } from '@/context/auth-context';
 import { useTheme } from '@/context/theme-context';
 import { useLanguage } from '@/context/language-context';
@@ -110,7 +111,7 @@ export function AppShell() {
     <div className="app-shell">
       <header className="app-shell__topbar">
         <Link to="/app/dashboard" className="brand-lockup">
-          <span className="brand-lockup__mark">{brand.name}</span>
+          <BrandMark />
           <span className="brand-lockup__name">{brand.english}</span>
         </Link>
         <div className="app-shell__status">

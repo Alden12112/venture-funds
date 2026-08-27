@@ -1,4 +1,4 @@
-import type { AdminBundle, BlacklistEntry, FundingRequest, LedgerBundle, PaperPosition, RegisteredUser, TradeAuditEvent, UserProfile } from '@/types';
+import type { AdminBundle, BlacklistEntry, FundingRequest, LedgerBundle, PaperPosition, RegisteredUser, TimedMarketScenario, TradeAuditEvent, UserProfile } from '@/types';
 import { loadLedgerBundle } from '@/adapters/ledger-adapter';
 import { loadRemoteAdminCredits } from '@/lib/credits';
 import { apiFetch } from '@/lib/api';
@@ -44,8 +44,9 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     status: 'offline', quoteCount: 0, ageSeconds: null, cacheSeconds: 8,
   };
   const emptyFundingRequests: FundingRequest[] = [];
-  const [remoteState, tradeEvents, ledger, remoteCredits, fundingRequests, blacklist, notifications, marketStatus] = await Promise.all([
+  const [remoteState, timedScenarios, tradeEvents, ledger, remoteCredits, fundingRequests, blacklist, notifications, marketStatus] = await Promise.all([
     safe('workspace', () => apiFetch<{ paperPositions?: PaperPosition[] }>('/api/sync?scope=all'), {}),
+    safe('market observations', () => apiFetch<TimedMarketScenario[]>('/api/admin/market-scenarios'), []),
     safe('trades', () => apiFetch<TradeAuditEvent[]>('/api/admin/trades'), []),
     safe('ledger', () => loadLedgerBundle('all'), emptyLedger),
     safe('credits', () => loadRemoteAdminCredits(), { accounts: [], requests: [] }),
@@ -85,6 +86,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     users: allUsers,
     registrations,
     paperPositions,
+    timedScenarios,
     tradeEvents,
     creditAccounts,
     creditRequests,
