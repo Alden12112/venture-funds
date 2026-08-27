@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpFromLine, CalendarDays, ClipboardCheck, FileText, HandCoins, Languages, LayoutDashboard, MessageCircle, MinusCircle, Newspaper, PlusCircle, ReceiptText, ShieldBan, ShieldCheck, Trash2, UserPlus, Users, WalletCards, XCircle, type LucideIcon } from 'lucide-react';
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpFromLine, CalendarDays, ClipboardCheck, Clock3, FileText, HandCoins, Languages, LayoutDashboard, MessageCircle, MinusCircle, Newspaper, PlusCircle, ReceiptText, ShieldBan, ShieldCheck, Trash2, UserPlus, Users, WalletCards, XCircle, type LucideIcon } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, LoadingState, StatCard, StatusPill, EmptyState } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
@@ -75,6 +75,24 @@ function saveAdminTab(tab: AdminTab) {
   if (typeof window !== 'undefined') window.sessionStorage.setItem('ad88.admin.active-tab', tab);
 }
 
+function timedScenarioRemainingSeconds(scenario: TimedMarketScenario, now: number) {
+  return Math.max(0, Math.ceil((new Date(scenario.expiresAt).getTime() - now) / 1000));
+}
+
+function timedScenarioProgress(scenario: TimedMarketScenario, now: number) {
+  if (!scenario.durationSeconds) return 100;
+  const remaining = timedScenarioRemainingSeconds(scenario, now);
+  return Math.max(0, Math.min(100, ((scenario.durationSeconds - remaining) / scenario.durationSeconds) * 100));
+}
+
+function formatAdminCountdown(seconds: number) {
+  const safe = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const remainder = safe % 60;
+  return hours ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}` : `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+}
+
 function FundingReviewPanel({
   kind,
   requests,
@@ -133,6 +151,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [accountMessage, setAccountMessage] = useState('');
   const [fundingMessage, setFundingMessage] = useState('');
   const [creditMessage, setCreditMessage] = useState('');
+  const [adminNow, setAdminNow] = useState(() => Date.now());
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
 
@@ -178,6 +197,11 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     };
     window.addEventListener('ad88:storage-sync', refresh);
     return () => window.removeEventListener('ad88:storage-sync', refresh);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setAdminNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -837,6 +861,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <StatusPill tone={visibleTimedScenarios.some((item) => item.status === 'active') ? 'warning' : 'muted'}>{visibleTimedScenarios.filter((item) => item.status === 'active').length} {t('admin.active')}</StatusPill>
             </div>
             <div className="admin-order-trust"><ShieldCheck size={18} /><div><strong>{t('admin.orderManagementGuard')}</strong><span>{t('admin.orderManagementGuardHint')}</span></div></div>
+            <div className="admin-order-policy"><Clock3 size={15} /><span>{t('admin.orderServerResolution')}</span></div>
             <div className="metric-grid metric-grid--compact admin-order-metrics">
               <StatCard label={t('admin.orderTotal')} value={String(visibleTimedScenarios.length)} note={t('admin.crossDeviceAudit')} />
               <StatCard label={t('admin.orderActive')} value={String(visibleTimedScenarios.filter((item) => item.status === 'active').length)} note={t('admin.orderAwaitingExpiry')} />
@@ -848,9 +873,31 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <div className="admin-order-list">
               {visibleTimedScenarios.length ? visibleTimedScenarios.map((scenario) => {
                 const active = scenario.status === 'active';
+                const remaining = timedScenarioRemainingSeconds(scenario, adminNow);
+                const running = active && remaining > 0;
+                const progress = timedScenarioProgress(scenario, adminNow);
                 const direction = scenario.direction === 'up' ? t('market.scenarioUp') : t('market.scenarioDown');
                 const result = scenario.status === 'settled' ? (scenario.result === 'confirmed' ? t('market.scenarioConfirmed') : scenario.result === 'flat' ? t('market.scenarioFlat') : t('market.scenarioNotConfirmed')) : scenario.status === 'void' ? t('market.scenarioCancelled') : t('market.scenarioWaiting');
-                return <div key={scenario.id} className="admin-order-row"><div className="admin-order-row__main"><div className="admin-order-row__title"><strong>{scenario.symbol}</strong><span>{direction}</span><StatusPill tone={active ? 'warning' : scenario.result === 'confirmed' ? 'success' : scenario.status === 'void' ? 'critical' : 'info'}>{result}</StatusPill></div><span>{scenario.userName} · {scenario.userEmail}</span><span>{t('admin.orderReference')} {formatMarketCurrency(scenario.referencePrice)} · {t('admin.orderPoints')} {scenario.observationPoints} · {formatDateTime(scenario.createdAt)}</span></div><div className="admin-order-row__actions">{scenario.settlementPrice ? <span>{t('admin.orderExpiry')} {formatMarketCurrency(scenario.settlementPrice)}</span> : null}{active ? <button type="button" className="btn btn--danger btn--sm" onClick={() => void voidTimedScenario(scenario)}><XCircle size={14} /> {t('admin.orderVoid')}</button> : null}</div></div>;
+                return (
+                  <div key={scenario.id} className={`admin-order-row ${running ? 'admin-order-row--running' : ''}`}>
+                    <div className="admin-order-row__main">
+                      <div className="admin-order-row__title"><strong>{scenario.symbol}</strong><span>{direction}</span><StatusPill tone={running ? 'warning' : scenario.result === 'confirmed' ? 'success' : scenario.status === 'void' ? 'critical' : 'info'}>{result}</StatusPill></div>
+                      <span>{scenario.userName} · {scenario.userEmail}</span>
+                      <span>{t('admin.orderReference')} {formatMarketCurrency(scenario.referencePrice)} · {t('admin.orderPoints')} {scenario.observationPoints} · {formatDateTime(scenario.createdAt)}</span>
+                      {running ? <div className="admin-order-progress"><span style={{ width: `${progress}%` }} /></div> : null}
+                      <div className="admin-order-row__details">
+                        {running ? <span><Clock3 size={13} /> {t('admin.orderRemaining')} {formatAdminCountdown(remaining)}</span> : null}
+                        <span>{t('admin.orderExpiresAt')} {formatDateTime(scenario.expiresAt)}</span>
+                        {scenario.settledAt ? <span>{t('admin.orderSettledAt')} {formatDateTime(scenario.settledAt)}</span> : null}
+                        {scenario.voidReason ? <span>{t('admin.orderVoidReason')} {scenario.voidReason}</span> : null}
+                      </div>
+                    </div>
+                    <div className="admin-order-row__actions">
+                      {scenario.settlementPrice ? <span>{t('admin.orderExpiry')} {formatMarketCurrency(scenario.settlementPrice)}</span> : null}
+                      {running ? <button type="button" className="btn btn--danger btn--sm" onClick={() => void voidTimedScenario(scenario)}><XCircle size={14} /> {t('admin.orderVoid')}</button> : null}
+                    </div>
+                  </div>
+                );
               }) : <div className="state-block"><strong>{t('admin.orderNoRecords')}</strong><p>{t('admin.orderNoRecordsHint')}</p></div>}
             </div>
           </article>
