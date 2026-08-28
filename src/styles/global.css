@@ -4946,6 +4946,12 @@ table {
 .admin-content-editor__title h3 { margin: 0; font-size: 16px; letter-spacing: -.02em; }
 .admin-content-editor__title p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .admin-content-editor__fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.admin-content-editor__sections { display: grid; gap: 14px; }
+.admin-content-editor__section { display: grid; gap: 10px; padding-top: 13px; border-top: 1px solid color-mix(in srgb, var(--border) 82%, transparent); }
+.admin-content-editor__section:first-child { padding-top: 0; border-top: 0; }
+.admin-content-editor__section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.admin-content-editor__section-head strong { font-size: 12px; letter-spacing: .01em; }
+.admin-content-editor__section-head code { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .admin-content-editor textarea {
   width: 100%;
   min-height: 84px;
@@ -4964,6 +4970,11 @@ table {
 .admin-content-editor__footer .field-hint { margin: 0; max-width: 680px; }
 .admin-content-editor__actions { flex-wrap: wrap; justify-content: flex-end; }
 .admin-content-editor__message { color: var(--success); font-size: 11px; font-weight: 680; }
+
+@media (max-width: 900px) {
+  .admin-content-editor__fields { grid-template-columns: 1fr; }
+  .admin-content-editor__section-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+}
 .admin-ledger-scroll { max-height: 620px; overflow: auto; }
 .admin-ledger-table { min-width: 1080px; }
 .admin-ledger-table thead th { position: sticky; z-index: 2; top: 0; background: color-mix(in srgb, var(--surface) 96%, var(--surface-strong)); }

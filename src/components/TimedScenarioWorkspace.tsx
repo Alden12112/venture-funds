@@ -161,8 +161,8 @@ export function TimedScenarioWorkspace({ symbol, price }: { symbol: string; pric
         </div>
 
         <div className="scenario-step scenario-step--points">
-          <div className="scenario-step__title"><span>02</span><div><strong>{t('market.scenarioScale')}</strong><small>{t('market.scenarioScaleHint')}</small></div></div>
-          <label className="field scenario-points-field"><span>{t('market.scenarioScale')}</span><input type="number" min="10" step="1" value={observationPoints} onChange={(event) => setObservationPoints(event.target.value)} aria-invalid={!pointsValid} /></label>
+          <div className="scenario-step__title"><span>02</span><div><strong>{getContent('market.scenarioScale', language)}</strong><small>{getContent('market.scenarioScaleHint', language)}</small></div></div>
+          <label className="field scenario-points-field"><span>{getContent('market.scenarioScale', language)}</span><input type="number" min="10" step="1" value={observationPoints} onChange={(event) => setObservationPoints(event.target.value)} aria-invalid={!pointsValid} /></label>
           <div className="scenario-points-presets" aria-label={t('market.scenarioScalePresets')}>{pointPresets.map((value) => <button key={value} type="button" className={`scenario-points-preset ${points === value ? 'is-active' : ''}`} onClick={() => setObservationPoints(String(value))}>{value}</button>)}</div>
         </div>
 

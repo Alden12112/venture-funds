@@ -20,7 +20,13 @@ import { labelCountry, labelNewsCategory, labelNewsSentiment } from '@/lib/news-
 import { clearFundingHistory, deleteFundingHistoryItem, reviewFundingRequest } from '@/lib/funding';
 import { deleteRemoteLedgerEntry } from '@/adapters/ledger-adapter';
 import type { FundingRequest, LanguageCode, TimedMarketScenario } from '@/types';
-import { getDefaultSharedContentSetting, MARKET_OBSERVATION_SAFETY_KEY } from '@/lib/content-settings';
+import {
+  getDefaultSharedContentSetting,
+  MARKET_OBSERVATION_CONTENT_KEYS,
+  MARKET_OBSERVATION_SAFETY_KEY,
+  MARKET_SCENARIO_SCALE_HINT_KEY,
+  MARKET_SCENARIO_SCALE_KEY,
+} from '@/lib/content-settings';
 
 const tabs = ['Accounts', 'Registration Review', 'Deposit Review', 'Withdrawal Review', 'U Management', 'Ledger', 'Monthly Report', 'Trade Audit', 'Order Management', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
 type AdminTab = (typeof tabs)[number];
@@ -77,7 +83,11 @@ function saveAdminTab(tab: AdminTab) {
   if (typeof window !== 'undefined') window.sessionStorage.setItem('ad88.admin.active-tab', tab);
 }
 
-const defaultMarketObservationCopy = getDefaultSharedContentSetting(MARKET_OBSERVATION_SAFETY_KEY).values;
+const defaultMarketObservationCopy = Object.fromEntries(
+  MARKET_OBSERVATION_CONTENT_KEYS.map((key) => [key, getDefaultSharedContentSetting(key).values]),
+) as Record<(typeof MARKET_OBSERVATION_CONTENT_KEYS)[number], Record<LanguageCode, string>>;
+type MarketObservationContentKey = (typeof MARKET_OBSERVATION_CONTENT_KEYS)[number];
+type MarketObservationContentDraft = Record<MarketObservationContentKey, Record<LanguageCode, string>>;
 
 function timedScenarioRemainingSeconds(scenario: TimedMarketScenario, now: number) {
   return Math.max(0, Math.ceil((new Date(scenario.expiresAt).getTime() - now) / 1000));
@@ -161,16 +171,21 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [timedScenarioNoteDraft, setTimedScenarioNoteDraft] = useState('');
   const [timedScenarioNoteSavingId, setTimedScenarioNoteSavingId] = useState<string | null>(null);
   const [timedScenarioNoteMessage, setTimedScenarioNoteMessage] = useState('');
-  const [contentDraft, setContentDraft] = useState<Record<LanguageCode, string>>(() => ({ ...defaultMarketObservationCopy }));
+  const [contentDraft, setContentDraft] = useState<MarketObservationContentDraft>(() => structuredClone(defaultMarketObservationCopy));
   const [contentDirty, setContentDirty] = useState(false);
   const [contentSaving, setContentSaving] = useState(false);
   const [contentMessage, setContentMessage] = useState('');
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
 
-  const serverContentSetting = admin.status === 'success'
-    ? admin.data.contentSettings.find((setting) => setting.key === MARKET_OBSERVATION_SAFETY_KEY)
-    : undefined;
+  const serverContentSettings = admin.status === 'success'
+    ? new Map(admin.data.contentSettings.map((setting) => [setting.key, setting]))
+    : new Map();
+  const contentFields: Array<{ key: MarketObservationContentKey; label: string; rows: number }> = [
+    { key: MARKET_SCENARIO_SCALE_KEY, label: t('admin.contentObservationTitle'), rows: 2 },
+    { key: MARKET_SCENARIO_SCALE_HINT_KEY, label: t('admin.contentObservationAmountHint'), rows: 3 },
+    { key: MARKET_OBSERVATION_SAFETY_KEY, label: t('admin.contentObservationSafety'), rows: 3 },
+  ];
 
   const statusLabel = (status: string) => {
     if (status === 'approved') return t('status.approved');
@@ -217,8 +232,12 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   }, []);
 
   useEffect(() => {
-    if (!contentDirty && serverContentSetting) setContentDraft({ ...serverContentSetting.values });
-  }, [contentDirty, serverContentSetting?.updatedAt]);
+    if (!contentDirty) {
+      setContentDraft((current) => Object.fromEntries(
+        MARKET_OBSERVATION_CONTENT_KEYS.map((key) => [key, serverContentSettings.get(key)?.values ?? current[key] ?? defaultMarketObservationCopy[key]]),
+      ) as MarketObservationContentDraft);
+    }
+  }, [contentDirty, admin.status, admin.data?.contentSettings]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setAdminNow(Date.now()), 1_000);
@@ -514,9 +533,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     setContentSaving(true);
     setContentMessage('');
     try {
-      await apiFetch(`/api/admin/content-settings/${encodeURIComponent(MARKET_OBSERVATION_SAFETY_KEY)}`, {
+      await apiFetch('/api/admin/content-settings', {
         method: 'PUT',
-        body: JSON.stringify({ values: contentDraft }),
+        body: JSON.stringify({ settings: MARKET_OBSERVATION_CONTENT_KEYS.map((key) => ({ key, values: contentDraft[key] })) }),
       });
       setContentDirty(false);
       setContentMessage(t('admin.contentSaved'));
@@ -1033,7 +1052,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             </div>
             <StatusPill tone="info">{String(contentCount)} {t('admin.articles')}</StatusPill>
           </div>
-          <section className="admin-content-editor" data-content-key={MARKET_OBSERVATION_SAFETY_KEY}>
+          <section className="admin-content-editor" data-content-key="market-observation-copy">
             <div className="admin-content-editor__head">
               <div className="admin-content-editor__title">
                 <FileText size={19} aria-hidden="true" />
@@ -1042,15 +1061,25 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                   <p>{t('admin.contentEditorHint')}</p>
                 </div>
               </div>
-              <StatusPill tone={serverContentSetting ? 'success' : 'warning'}>{serverContentSetting ? t('admin.connected') : t('admin.monitoring')}</StatusPill>
+              <StatusPill tone={serverContentSettings.size ? 'success' : 'warning'}>{serverContentSettings.size ? t('admin.connected') : t('admin.monitoring')}</StatusPill>
             </div>
-            <div className="form-grid admin-content-editor__fields">
-              <label className="field"><span>{t('admin.contentChinese')}</span><textarea rows={3} maxLength={500} value={contentDraft.zh} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, zh: event.target.value })); }} /></label>
-              <label className="field"><span>{t('admin.contentMalay')}</span><textarea rows={3} maxLength={500} value={contentDraft.ms} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, ms: event.target.value })); }} /></label>
-              <label className="field"><span>{t('admin.contentEnglish')}</span><textarea rows={3} maxLength={500} value={contentDraft.en} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, en: event.target.value })); }} /></label>
+            <div className="admin-content-editor__sections">
+              {contentFields.map(({ key, label, rows }) => (
+                <section className="admin-content-editor__section" key={key}>
+                  <div className="admin-content-editor__section-head">
+                    <strong>{label}</strong>
+                    <code>{key}</code>
+                  </div>
+                  <div className="form-grid admin-content-editor__fields">
+                    <label className="field"><span>{t('admin.contentChinese')}</span><textarea rows={rows} maxLength={500} value={contentDraft[key].zh} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, [key]: { ...current[key], zh: event.target.value } })); }} /></label>
+                    <label className="field"><span>{t('admin.contentMalay')}</span><textarea rows={rows} maxLength={500} value={contentDraft[key].ms} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, [key]: { ...current[key], ms: event.target.value } })); }} /></label>
+                    <label className="field"><span>{t('admin.contentEnglish')}</span><textarea rows={rows} maxLength={500} value={contentDraft[key].en} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, [key]: { ...current[key], en: event.target.value } })); }} /></label>
+                  </div>
+                </section>
+              ))}
             </div>
             <div className="admin-content-editor__footer">
-              <span className="field-hint">{t('admin.contentEditorFieldHint')}{serverContentSetting?.updatedAt ? ` · ${formatDateTime(serverContentSetting.updatedAt)}` : ''}</span>
+              <span className="field-hint">{t('admin.contentEditorFieldHint')}{serverContentSettings.get(MARKET_OBSERVATION_SAFETY_KEY)?.updatedAt ? ` · ${formatDateTime(serverContentSettings.get(MARKET_OBSERVATION_SAFETY_KEY)?.updatedAt ?? '')}` : ''}</span>
               <div className="admin-content-editor__actions">
                 <button type="button" className="btn btn--primary" onClick={() => void saveContentSettings()} disabled={!contentDirty || contentSaving}>
                   {contentSaving ? <Clock3 size={15} className="spin" /> : <FileText size={15} />}

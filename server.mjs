@@ -121,6 +121,16 @@ const contentTypes = {
 // message before the shared store has its first row, while PostgreSQL remains
 // the source of truth once an administrator saves a revision.
 const contentSettingDefaults = {
+  'market.scenarioScale': {
+    zh: '观察额度（USDT显示）',
+    ms: 'Jumlah pemerhatian (paparan USDT)',
+    en: 'Observation amount (USDT display)',
+  },
+  'market.scenarioScaleHint': {
+    zh: '用于观察市场，最低为 10 USDT；仅用于记录，不代表账户余额或收益',
+    ms: 'Untuk memerhati pasaran, minimum 10 USDT; hanya untuk rekod, bukan baki atau keuntungan akaun',
+    en: 'For market observation, minimum 10 USDT; record display only, not an account balance or return',
+  },
   'market.observationSafety': {
     zh: '用于观察市场；不执行真实订单或改变余额。',
     ms: 'Untuk memerhati pasaran; tiada pesanan langsung atau perubahan baki.',
@@ -132,6 +142,16 @@ const contentSettingDefaults = {
 // only those untouched defaults so an administrator's custom copy is never
 // overwritten during deployment.
 const legacyContentSettingDefaults = {
+  'market.scenarioScale': {
+    zh: '观察额度（USDT显示）',
+    ms: 'Jumlah pemerhatian (paparan USDT)',
+    en: 'Observation amount (USDT display)',
+  },
+  'market.scenarioScaleHint': {
+    zh: '用于观察市场，最低为 10 USDT；仅用于记录，不代表账户余额或收益',
+    ms: 'Untuk memerhati pasaran, minimum 10 USDT; hanya untuk rekod, bukan baki atau keuntungan akaun',
+    en: 'For market observation, minimum 10 USDT; record display only, not an account balance or return',
+  },
   'market.observationSafety': {
     zh: '仅用于市场观察，不创建真实订单或改变余额。',
     ms: 'Untuk pemerhatian pasaran sahaja; tiada pesanan langsung atau perubahan baki.',
@@ -196,33 +216,88 @@ function validateObservationSafetyCopy(values) {
   return '';
 }
 
-async function saveContentSetting(key, input, session) {
+function validateObservationContent(key, values) {
+  if (key === 'market.observationSafety') return validateObservationSafetyCopy(values);
+  const text = `${values?.zh || ''}\n${values?.ms || ''}\n${values?.en || ''}`.trim();
+  if (!text) return 'Chinese, Bahasa Melayu and English copy are all required';
+  if (/(保证(?:收益|盈利)|稳赚|无风险|保本|guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu.test(text)) {
+    return 'Market-observation copy cannot include profit guarantees or risk-free claims';
+  }
+  return '';
+}
+
+function prepareContentSetting(key, input) {
   const fallback = contentSettingDefaults[key];
-  if (!fallback) return null;
+  if (!fallback) return { error: 'content setting not found' };
   const values = {
     zh: normalizeEditableContent(input?.values?.zh, fallback.zh),
     ms: normalizeEditableContent(input?.values?.ms, fallback.ms),
     en: normalizeEditableContent(input?.values?.en, fallback.en),
   };
+  const validationError = validateObservationContent(key, values);
+  if (validationError) return { error: validationError };
+  return { key, values };
+}
+
+async function saveContentSettingsBatch(input, session) {
+  const rawSettings = Array.isArray(input?.settings)
+    ? input.settings
+    : Object.entries(input?.values || {}).map(([key, values]) => ({ key, values }));
+  if (!rawSettings.length) return { error: 'at least one content setting is required' };
+
+  const prepared = [];
+  const seen = new Set();
+  for (const item of rawSettings) {
+    const key = String(item?.key || '').trim();
+    if (seen.has(key)) return { error: 'duplicate content setting key' };
+    seen.add(key);
+    const result = prepareContentSetting(key, item);
+    if (result.error) return result;
+    prepared.push(result);
+  }
+
   const updatedAt = new Date().toISOString();
   const updatedBy = String(session?.email || session?.name || 'VENTURE FUNDS Administrator').trim().slice(0, 240);
   if (pool) {
-    const result = await pool.query(`
-      INSERT INTO ad88_content_settings (key, zh_value, ms_value, en_value, updated_at, updated_by)
-      VALUES ($1,$2,$3,$4,$5,$6)
-      ON CONFLICT (key) DO UPDATE SET
-        zh_value = EXCLUDED.zh_value,
-        ms_value = EXCLUDED.ms_value,
-        en_value = EXCLUDED.en_value,
-        updated_at = EXCLUDED.updated_at,
-        updated_by = EXCLUDED.updated_by
-      RETURNING key, zh_value, ms_value, en_value, updated_at, updated_by
-    `, [key, values.zh, values.ms, values.en, updatedAt, updatedBy]);
-    return normalizeContentSetting(result.rows[0], true);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const saved = [];
+      for (const item of prepared) {
+        const result = await client.query(`
+          INSERT INTO ad88_content_settings (key, zh_value, ms_value, en_value, updated_at, updated_by)
+          VALUES ($1,$2,$3,$4,$5,$6)
+          ON CONFLICT (key) DO UPDATE SET
+            zh_value = EXCLUDED.zh_value,
+            ms_value = EXCLUDED.ms_value,
+            en_value = EXCLUDED.en_value,
+            updated_at = EXCLUDED.updated_at,
+            updated_by = EXCLUDED.updated_by
+          RETURNING key, zh_value, ms_value, en_value, updated_at, updated_by
+        `, [item.key, item.values.zh, item.values.ms, item.values.en, updatedAt, updatedBy]);
+        saved.push(normalizeContentSetting(result.rows[0], true));
+      }
+      await client.query('COMMIT');
+      return { settings: saved };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
-  const row = { key, zh_value: values.zh, ms_value: values.ms, en_value: values.en, updated_at: updatedAt, updated_by: updatedBy };
-  memoryContentSettings.set(key, row);
-  return normalizeContentSetting(row, true);
+
+  const saved = prepared.map((item) => {
+    const row = { key: item.key, zh_value: item.values.zh, ms_value: item.values.ms, en_value: item.values.en, updated_at: updatedAt, updated_by: updatedBy };
+    memoryContentSettings.set(item.key, row);
+    return normalizeContentSetting(row, true);
+  });
+  return { settings: saved };
+}
+
+async function saveContentSetting(key, input, session) {
+  const result = await saveContentSettingsBatch({ settings: [{ key, values: input?.values }] }, session);
+  return result.settings?.[0] ?? null;
 }
 
 function sendJson(res, status, body) {
@@ -599,15 +674,17 @@ async function initDatabase() {
     ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note_updated_at TIMESTAMPTZ;
     ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note_updated_by TEXT;
     `);
-    const contentKey = 'market.observationSafety';
-    const legacyCopy = legacyContentSettingDefaults[contentKey];
-    const currentCopy = contentSettingDefaults[contentKey];
-    await candidate.query(
-      `UPDATE ad88_content_settings
-       SET zh_value=$5, ms_value=$6, en_value=$7, updated_at=NOW()
-       WHERE key=$1 AND zh_value=$2 AND ms_value=$3 AND en_value=$4`,
-      [contentKey, legacyCopy.zh, legacyCopy.ms, legacyCopy.en, currentCopy.zh, currentCopy.ms, currentCopy.en],
-    );
+    for (const contentKey of Object.keys(contentSettingDefaults)) {
+      const legacyCopy = legacyContentSettingDefaults[contentKey];
+      const currentCopy = contentSettingDefaults[contentKey];
+      if (!legacyCopy || !currentCopy) continue;
+      await candidate.query(
+        `UPDATE ad88_content_settings
+         SET zh_value=$5, ms_value=$6, en_value=$7, updated_at=NOW()
+         WHERE key=$1 AND zh_value=$2 AND ms_value=$3 AND en_value=$4`,
+        [contentKey, legacyCopy.zh, legacyCopy.ms, legacyCopy.en, currentCopy.zh, currentCopy.ms, currentCopy.en],
+      );
+    }
     pool = candidate;
   } catch (error) {
     await candidate.end().catch(() => undefined);
@@ -921,12 +998,16 @@ async function handleAdmin(req, res, requestUrl) {
       return sendJson(res, 400, { error: 'invalid content setting key' });
     }
     const body = await readBody(req);
-    if (key === 'market.observationSafety') {
-      const validationError = validateObservationSafetyCopy(body?.values);
-      if (validationError) return sendJson(res, 400, { error: validationError });
-    }
+    const validationError = validateObservationContent(key, body?.values);
+    if (validationError) return sendJson(res, 400, { error: validationError });
     const setting = await saveContentSetting(key, body, session);
     return setting ? sendJson(res, 200, setting) : sendJson(res, 404, { error: 'content setting not found' });
+  }
+  if ((req.method === 'PUT' || req.method === 'PATCH') && requestUrl.pathname === '/api/admin/content-settings') {
+    const body = await readBody(req);
+    const result = await saveContentSettingsBatch(body, session);
+    if (result.error) return sendJson(res, 400, { error: result.error });
+    return sendJson(res, 200, { settings: result.settings, source: contentSettingsSource(result.settings) });
   }
 
   if (req.method === 'POST' && requestUrl.pathname === '/api/admin/users') {
