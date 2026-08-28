@@ -119,6 +119,9 @@ const contentTypes = {
   '.webp': 'image/webp',
 };
 
+// USER-PROTECTED BLOCK (explicit user request): preserve this content-settings
+// implementation and its safety validators. Do not rewrite, simplify, or
+// remove this block unless the user explicitly asks for that change here.
 // Copy that is safe to edit from the administrator workspace. Keeping the
 // default in the API layer means a new deployment still renders a complete
 // message before the shared store has its first row, while PostgreSQL remains
@@ -138,6 +141,16 @@ const contentSettingDefaults = {
     zh: '用于观察市场，最低为 10 USDT；仅用于记录，不代表账户余额或收益。',
     ms: 'Untuk memerhati pasaran, minimum 10 USDT; hanya untuk rekod, bukan baki atau keuntungan akaun.',
     en: 'For market observation, minimum 10 USDT; record display only, not an account balance or return.',
+  },
+  'market.scenarioInputNote': {
+    zh: '备注',
+    ms: 'Nota',
+    en: 'Note',
+  },
+  'market.scenarioDirectionHint': {
+    zh: '选择要记录的市场方向',
+    ms: 'Pilih arah pasaran yang hendak direkodkan',
+    en: 'Choose the market direction to record',
   },
   'market.observationSafety': {
     zh: '用于观察市场；不执行真实订单或改变余额。',
@@ -230,9 +243,16 @@ async function listContentSettings(includeAudit = false) {
   return keys.map((key) => normalizeContentSetting(memoryContentSettings.get(key) || { key }, includeAudit));
 }
 
+// USER-PROTECTED CONTENT API BEHAVIOR: ordinary copy keeps exact input;
+// safety-copy validators below remain mandatory.
 function normalizeEditableContent(value, fallback) {
-  const text = String(value ?? '').trim().slice(0, 500);
-  return text || fallback;
+  // A content editor should preserve the administrator's exact text, including
+  // line breaks, leading/trailing spaces and an intentional empty value. The
+  // request-body guard in readBody() remains the infrastructure limit; there
+  // is no additional per-field truncation here.
+  if (value === undefined) return fallback;
+  if (value === null) return '';
+  return String(value);
 }
 
 function validateObservationSafetyCopy(values) {
@@ -267,9 +287,12 @@ function validateObservationContent(key, values) {
   if (new Set(['market.observationSafety', 'market.scenarioWorkspaceSafety', 'market.scenarioDialogSafety']).has(key)) return validateObservationSafetyCopy(values);
   if (key === 'funding.reviewSafety') return validateFundingSafetyCopy(values);
   const text = `${values?.zh || ''}\n${values?.ms || ''}\n${values?.en || ''}`.trim();
-  if (!text) return 'Chinese, Bahasa Melayu and English copy are all required';
+  // Ordinary labels, hints and notes may be intentionally blank (for example
+  // when an administrator wants to hide a secondary line) and each language
+  // can be edited independently. Safety disclosures above remain mandatory.
+  if (!text) return '';
   if (/(保证(?:收益|盈利)|稳赚|无风险|保本|guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu.test(text)) {
-    return 'Market-observation copy cannot include profit guarantees or risk-free claims';
+    return 'Public copy cannot include profit guarantees or risk-free claims';
   }
   return '';
 }
