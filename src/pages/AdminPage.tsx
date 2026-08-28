@@ -22,10 +22,15 @@ import { deleteRemoteLedgerEntry } from '@/adapters/ledger-adapter';
 import type { FundingRequest, LanguageCode, TimedMarketScenario } from '@/types';
 import {
   getDefaultSharedContentSetting,
+  FUNDING_PROCESSING_NOTE_KEY,
+  FUNDING_REVIEW_SAFETY_KEY,
   MARKET_OBSERVATION_CONTENT_KEYS,
-  MARKET_OBSERVATION_SAFETY_KEY,
+  MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY,
+  MARKET_SCENARIO_DIALOG_SAFETY_KEY,
   MARKET_SCENARIO_SCALE_HINT_KEY,
   MARKET_SCENARIO_SCALE_KEY,
+  MARKET_SCENARIO_SCALE_NOTE_KEY,
+  MARKET_SCENARIO_WORKSPACE_SAFETY_KEY,
 } from '@/lib/content-settings';
 
 const tabs = ['Accounts', 'Registration Review', 'Deposit Review', 'Withdrawal Review', 'U Management', 'Ledger', 'Monthly Report', 'Trade Audit', 'Order Management', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
@@ -119,11 +124,12 @@ function FundingReviewPanel({
   kind: 'deposit' | 'withdraw';
   requests: FundingRequest[];
   t: (key: string) => string;
-  onReview: (id: string, action: 'approve' | 'reject') => Promise<void>;
+  onReview: (id: string, action: 'approve' | 'reject', reviewerNote: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onClearHistory: (kind: 'deposit' | 'withdraw') => Promise<void>;
   message: string;
 }) {
+  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const queue = requests.filter((request) => request.status === 'pending');
   const history = requests.filter((request) => request.status !== 'pending');
   const title = kind === 'deposit' ? t('admin.depositReview') : t('admin.withdrawalReview');
@@ -136,14 +142,14 @@ function FundingReviewPanel({
       <article className="panel funding-admin-queue-panel">
         <div className="panel__head"><div><span className="eyebrow">{kind === 'deposit' ? t('funding.deposit') : t('funding.withdraw')}</span><h2>{title}</h2><p>{t('admin.fundingReviewHint')}</p></div><StatusPill tone={queue.length ? 'warning' : 'muted'}>{queue.length} {t('admin.pending')}</StatusPill></div>
         {message ? <div className={`notice-banner ${message === t('admin.fundingReviewFailed') ? 'notice-banner--error' : ''}`}>{message}</div> : null}
-        <div className="table-wrap admin-funding-queue-scroll"><table className="table table--interactive funding-admin-table"><thead><tr><th>{t('admin.requester')}</th><th>{t('admin.fundingMethod')}</th><th className="text-end">{t('admin.myrValue')}</th><th className="text-end">{t('admin.paperUValue')}</th><th>{t('admin.fundingRate')}</th><th>{t('admin.submitted')}</th><th>{t('admin.action')}</th></tr></thead><tbody>
-          {queue.length ? queue.map((request) => <tr key={request.id}><td><strong>{request.userName}</strong><div className="text-small text-muted">{request.email}</div>{request.accountHolder ? <div className="text-small text-muted">{t('funding.accountHolder')}: {request.accountHolder}</div> : null}{request.accountReference ? <div className="text-small text-muted">{t('funding.accountNumber')}: {request.accountReference}</div> : null}</td><td>{methodLabel(request)}<div className="text-small text-muted">{request.supportRequired ? t('funding.supportReview') : t('funding.directReview')}</div></td><td className="text-end">{formatCurrency(request.amountMyr, 'MYR')}</td><td className="text-end"><strong>{request.amountU.toFixed(4)} U</strong></td><td>RM {request.rate.toFixed(4)} / U</td><td>{formatDateTime(request.createdAt)}</td><td><div className="admin-funding-actions"><button type="button" className="btn btn--primary btn--sm" onClick={() => void onReview(request.id, 'approve')}>{t('admin.approve')}</button><button type="button" className="btn btn--danger btn--sm" onClick={() => void onReview(request.id, 'reject')}>{t('admin.reject')}</button></div></td></tr>) : <tr><td colSpan={7}><div className="empty-inline"><span>{empty}</span></div></td></tr>}
+        <div className="table-wrap admin-funding-queue-scroll"><table className="table table--interactive funding-admin-table"><thead><tr><th>{t('admin.requester')}</th><th>{t('admin.fundingMethod')}</th><th>{t('funding.requestNote')}</th><th className="text-end">{t('admin.myrValue')}</th><th className="text-end">{t('admin.paperUValue')}</th><th>{t('admin.fundingRate')}</th><th>{t('admin.submitted')}</th><th>{t('admin.action')}</th></tr></thead><tbody>
+          {queue.length ? queue.map((request) => <tr key={request.id}><td><strong>{request.userName}</strong><div className="text-small text-muted">{request.email}</div>{request.accountHolder ? <div className="text-small text-muted">{t('funding.accountHolder')}: {request.accountHolder}</div> : null}{request.accountReference ? <div className="text-small text-muted">{t('funding.accountNumber')}: {request.accountReference}</div> : null}</td><td>{methodLabel(request)}<div className="text-small text-muted">{request.supportRequired ? t('funding.supportReview') : t('funding.directReview')}</div></td><td className="funding-request-note">{request.customerNote || t('admin.noCustomerNote')}</td><td className="text-end">{formatCurrency(request.amountMyr, 'MYR')}</td><td className="text-end"><strong>{request.amountU.toFixed(4)} U</strong></td><td>RM {request.rate.toFixed(4)} / U</td><td>{formatDateTime(request.createdAt)}</td><td><div className="admin-funding-review"><label className="field admin-funding-review__note"><span>{t('admin.fundingReviewNote')}</span><textarea rows={2} maxLength={320} value={reviewNotes[request.id] ?? ''} onChange={(event) => setReviewNotes((current) => ({ ...current, [request.id]: event.target.value }))} placeholder={t('admin.fundingReviewNotePlaceholder')} /></label><div className="admin-funding-actions"><button type="button" className="btn btn--primary btn--sm" onClick={() => void onReview(request.id, 'approve', reviewNotes[request.id] ?? '')}>{t('admin.approve')}</button><button type="button" className="btn btn--danger btn--sm" onClick={() => void onReview(request.id, 'reject', reviewNotes[request.id] ?? '')}>{t('admin.reject')}</button></div></div></td></tr>) : <tr><td colSpan={8}><div className="empty-inline"><span>{empty}</span></div></td></tr>}
         </tbody></table></div>
       </article>
       <article className="panel funding-admin-history-panel">
         <div className="panel__head"><div><h2>{t('admin.fundingHistory')}</h2><p>{t('admin.fundingHistoryHint')}</p></div><div className="history-actions"><StatusPill tone={history.length ? 'info' : 'muted'}>{history.length} {t('admin.records')}</StatusPill><button type="button" className="btn btn--danger btn--sm" disabled={!history.length} onClick={() => void onClearHistory(kind)}><Trash2 size={14} />{t('admin.clearFundingHistory')}</button></div></div>
         <div className="stack-list funding-history-scroll funding-history-scroll--stack admin-funding-history" tabIndex={0}>
-          {history.length ? history.map((request) => <div key={request.id} className="stack-list__row"><div><strong>{request.email}</strong><span>{methodLabel(request)} · {formatCurrency(request.amountMyr, 'MYR')} · {request.amountU.toFixed(4)} U</span>{request.accountHolder ? <span>{t('funding.accountHolder')}: {request.accountHolder}</span> : null}{request.accountReference ? <span>{t('funding.accountNumber')}: {request.accountReference}</span> : null}<span>{request.reviewer ? `${t('admin.reviewedBy')}: ${request.reviewer}` : t('admin.review')}</span></div><div className="stack-list__meta"><StatusPill tone={request.status === 'approved' ? 'success' : 'critical'}>{statusLabel(request.status)}</StatusPill><span>{formatDateTime(request.reviewedAt ?? request.createdAt)}</span><button type="button" className="btn btn--ghost btn--sm" onClick={() => void onDelete(request.id)}><Trash2 size={14} />{t('admin.delete')}</button></div></div>) : <div className="state-block"><strong>{t('admin.fundingHistory')}</strong><p>{t('admin.fundingHistoryHint')}</p></div>}
+          {history.length ? history.map((request) => <div key={request.id} className="stack-list__row"><div><strong>{request.email}</strong><span>{methodLabel(request)} · {formatCurrency(request.amountMyr, 'MYR')} · {request.amountU.toFixed(4)} U</span>{request.accountHolder ? <span>{t('funding.accountHolder')}: {request.accountHolder}</span> : null}{request.accountReference ? <span>{t('funding.accountNumber')}: {request.accountReference}</span> : null}{request.customerNote ? <span className="funding-request-note"><b>{t('funding.requestNote')}:</b> {request.customerNote}</span> : null}{request.reviewerNote ? <span className="funding-review-note"><b>{t('admin.fundingReviewNote')}:</b> {request.reviewerNote}</span> : null}<span>{request.reviewer ? `${t('admin.reviewedBy')}: ${request.reviewer}` : t('admin.review')}</span></div><div className="stack-list__meta"><StatusPill tone={request.status === 'approved' ? 'success' : 'critical'}>{statusLabel(request.status)}</StatusPill><span>{formatDateTime(request.reviewedAt ?? request.createdAt)}</span><button type="button" className="btn btn--ghost btn--sm" onClick={() => void onDelete(request.id)}><Trash2 size={14} />{t('admin.delete')}</button></div></div>) : <div className="state-block"><strong>{t('admin.fundingHistory')}</strong><p>{t('admin.fundingHistoryHint')}</p></div>}
         </div>
       </article>
     </section>
@@ -181,10 +187,15 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const serverContentSettings = admin.status === 'success'
     ? new Map(admin.data.contentSettings.map((setting) => [setting.key, setting]))
     : new Map();
-  const contentFields: Array<{ key: MarketObservationContentKey; label: string; rows: number }> = [
-    { key: MARKET_SCENARIO_SCALE_KEY, label: t('admin.contentObservationTitle'), rows: 2 },
-    { key: MARKET_SCENARIO_SCALE_HINT_KEY, label: t('admin.contentObservationAmountHint'), rows: 3 },
-    { key: MARKET_OBSERVATION_SAFETY_KEY, label: t('admin.contentObservationSafety'), rows: 3 },
+  const contentFields: Array<{ key: MarketObservationContentKey; label: string; location: string; rows: number }> = [
+    { key: MARKET_SCENARIO_SCALE_KEY, label: t('admin.contentObservationTitle'), location: t('admin.contentLocationAmountTitle'), rows: 2 },
+    { key: MARKET_SCENARIO_SCALE_HINT_KEY, label: t('admin.contentObservationAmountHint'), location: t('admin.contentLocationAmountTitle'), rows: 2 },
+    { key: MARKET_SCENARIO_SCALE_NOTE_KEY, label: t('admin.contentObservationAmountNote'), location: t('admin.contentLocationAmountNote'), rows: 3 },
+    { key: MARKET_SCENARIO_WORKSPACE_SAFETY_KEY, label: t('admin.contentObservationWorkspaceSafety'), location: t('admin.contentLocationWorkspaceSafety'), rows: 3 },
+    { key: MARKET_SCENARIO_DIALOG_SAFETY_KEY, label: t('admin.contentObservationDialogSafety'), location: t('admin.contentLocationDialogSafety'), rows: 3 },
+    { key: MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY, label: t('admin.contentObservationAdminNote'), location: t('admin.contentLocationResultNote'), rows: 2 },
+    { key: FUNDING_PROCESSING_NOTE_KEY, label: t('admin.contentFundingProcessing'), location: t('admin.contentLocationFundingProcessing'), rows: 3 },
+    { key: FUNDING_REVIEW_SAFETY_KEY, label: t('admin.contentFundingSafety'), location: t('admin.contentLocationFundingSafety'), rows: 3 },
   ];
 
   const statusLabel = (status: string) => {
@@ -397,9 +408,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     }
   };
 
-  const reviewFunding = async (id: string, action: 'approve' | 'reject') => {
+  const reviewFunding = async (id: string, action: 'approve' | 'reject', reviewerNote = '') => {
     try {
-      await reviewFundingRequest(id, action);
+      await reviewFundingRequest(id, action, reviewerNote);
       setFundingMessage(action === 'approve' ? t('admin.fundingApproved') : t('admin.fundingRejected'));
       setRefreshKey((value) => value + 1);
     } catch (error) {
@@ -1064,10 +1075,10 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <StatusPill tone={serverContentSettings.size ? 'success' : 'warning'}>{serverContentSettings.size ? t('admin.connected') : t('admin.monitoring')}</StatusPill>
             </div>
             <div className="admin-content-editor__sections">
-              {contentFields.map(({ key, label, rows }) => (
+              {contentFields.map(({ key, label, location, rows }) => (
                 <section className="admin-content-editor__section" key={key}>
                   <div className="admin-content-editor__section-head">
-                    <strong>{label}</strong>
+                    <div><strong>{label}</strong><span>{location}</span></div>
                     <code>{key}</code>
                   </div>
                   <div className="form-grid admin-content-editor__fields">
@@ -1079,7 +1090,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               ))}
             </div>
             <div className="admin-content-editor__footer">
-              <span className="field-hint">{t('admin.contentEditorFieldHint')}{serverContentSettings.get(MARKET_OBSERVATION_SAFETY_KEY)?.updatedAt ? ` · ${formatDateTime(serverContentSettings.get(MARKET_OBSERVATION_SAFETY_KEY)?.updatedAt ?? '')}` : ''}</span>
+              <span className="field-hint">{t('admin.contentEditorFieldHint')}{serverContentSettings.get(MARKET_SCENARIO_WORKSPACE_SAFETY_KEY)?.updatedAt ? ` · ${formatDateTime(serverContentSettings.get(MARKET_SCENARIO_WORKSPACE_SAFETY_KEY)?.updatedAt ?? '')}` : ''}</span>
               <div className="admin-content-editor__actions">
                 <button type="button" className="btn btn--primary" onClick={() => void saveContentSettings()} disabled={!contentDirty || contentSaving}>
                   {contentSaving ? <Clock3 size={15} className="spin" /> : <FileText size={15} />}

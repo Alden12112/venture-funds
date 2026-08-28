@@ -250,7 +250,13 @@ export function CandleChart({
           ))}
         </g>
         <path d={`${closeLine} L ${width - 16} ${height - 36} L 38 ${height - 36} Z`} className="chart-trend-area" fill="url(#candleGlow)" />
-        <path d={closeLine} className="chart-trend-line" fill="none" />
+        <path d={closeLine} className="chart-trend-line chart-trend-line--base" fill="none" />
+        <g className="chart-market-line" aria-hidden="true">
+          {points.slice(1).map((point, index) => {
+            const previous = points[index];
+            return <line key={`close-segment-${index}`} x1={previous.x} y1={previous.close} x2={point.x} y2={point.close} className={point.bullish ? 'chart-market-line__segment chart-market-line__segment--up' : 'chart-market-line__segment chart-market-line__segment--down'} />;
+          })}
+        </g>
         <path d={slowEmaLine} className="chart-indicator-line chart-indicator-line--slow" fill="none" />
         <path d={fastEmaLine} className="chart-indicator-line chart-indicator-line--fast" fill="none" />
         <line x1="38" x2={width - 16} y1={latestCloseY} y2={latestCloseY} className="chart-price-guide" />

@@ -2569,6 +2569,11 @@ table {
   stroke-linejoin: round;
   pointer-events: none;
 }
+.chart-trend-line--base { opacity: .2; stroke-width: 1.15; }
+.chart-market-line { overflow: visible; pointer-events: none; }
+.chart-market-line__segment { fill: none; stroke-width: 2.15; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.chart-market-line__segment--up { stroke: var(--success); }
+.chart-market-line__segment--down { stroke: var(--critical); }
 
 .chart-indicator-line {
   fill: none;
@@ -3624,7 +3629,8 @@ table {
   display: flex;
 }
 
-.support-message--admin { justify-content: flex-end; }
+.support-message--user { justify-content: flex-end; }
+.support-message--admin { justify-content: flex-start; }
 
 .support-message__bubble {
   display: grid;
@@ -3636,10 +3642,16 @@ table {
   background: var(--surface);
 }
 
-.support-message--admin .support-message__bubble {
+.support-message--user .support-message__bubble {
   border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
   border-radius: 10px 10px 3px 10px;
   background: var(--accent-soft);
+}
+
+.support-message--admin .support-message__bubble {
+  border-color: var(--border);
+  border-radius: 10px 10px 10px 3px;
+  background: var(--surface);
 }
 
 .support-message__bubble p { color: var(--text); font-size: 13px; white-space: pre-wrap; }
@@ -4340,7 +4352,7 @@ table {
    responsive rules, while keeping the mobile view intentionally edited. */
 @media (min-width: 1440px) {
   .app-shell__content { width: min(1780px, calc(100% - 72px)); }
-  .market-workbench { grid-template-columns: minmax(440px, .72fr) minmax(720px, 1.28fr); }
+  .market-workbench { grid-template-columns: minmax(440px, .72fr) minmax(0, 1.28fr); }
 }
 
 @media (min-width: 1800px) {
@@ -4569,10 +4581,33 @@ table {
 .payment-method__logo--rhb { background: linear-gradient(135deg, #177a93, #0b485d); }
 .payment-method__logo--hlb { background: linear-gradient(135deg, #498c68, #1e5a3d); }
 .payment-method__logo--islam { background: linear-gradient(135deg, #3f9b88, #1d5d52); }
+.payment-method__logo--ambank { background: linear-gradient(135deg, #e86a3b, #9d2d37); }
+.payment-method__logo--alliance { background: linear-gradient(135deg, #7561c9, #3e377b); }
+.payment-method__logo--uob { background: linear-gradient(135deg, #d64f54, #8c252f); }
+.payment-method__logo--ocbc { background: linear-gradient(135deg, #d65c4d, #873333); }
+.payment-method__logo--standard { background: linear-gradient(135deg, #3e78c3, #17457f); }
+.payment-method__logo--muamalat { background: linear-gradient(135deg, #6c9e4a, #315f3a); }
+
+.funding-processing-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: -2px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--info) 28%, var(--border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--info-soft) 42%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.funding-processing-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--info); }
 
 .funding-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .funding-form-grid .field { min-width: 0; }
 .funding-field--amount { grid-column: span 1; }
+.funding-note-field { grid-column: 1 / -1; }
+.funding-note-field textarea { min-height: 88px; resize: vertical; }
 
 .funding-amount-input { display: grid; grid-template-columns: auto minmax(0, 1fr); overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .funding-amount-input:focus-within { border-color: var(--accent); }
@@ -4632,6 +4667,16 @@ table {
 .funding-admin-grid { align-items: stretch; }
 .admin-funding-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .funding-admin-table { min-width: 820px; }
+.funding-request-note,
+.funding-review-note { max-width: 320px; overflow-wrap: anywhere; line-height: 1.45; }
+.funding-review-note { color: var(--accent-strong); }
+.funding-request-note b,
+.funding-review-note b { color: var(--text); font-weight: 760; }
+.admin-funding-review { display: grid; min-width: 220px; gap: 8px; }
+.admin-funding-review__note { display: grid; gap: 4px; }
+.admin-funding-review__note > span { color: var(--muted); font-size: 10px; font-weight: 760; }
+.admin-funding-review__note textarea { width: 100%; min-height: 54px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; line-height: 1.4; outline: none; resize: vertical; }
+.admin-funding-review__note textarea:focus { border-color: var(--accent); }
 
 @media (min-width: 1440px) {
   .funding-workbench { grid-template-columns: minmax(0, 1.45fr) minmax(390px, .72fr); }
@@ -4950,7 +4995,9 @@ table {
 .admin-content-editor__section { display: grid; gap: 10px; padding-top: 13px; border-top: 1px solid color-mix(in srgb, var(--border) 82%, transparent); }
 .admin-content-editor__section:first-child { padding-top: 0; border-top: 0; }
 .admin-content-editor__section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.admin-content-editor__section-head > div { display: grid; gap: 3px; min-width: 0; }
 .admin-content-editor__section-head strong { font-size: 12px; letter-spacing: .01em; }
+.admin-content-editor__section-head span { color: var(--muted); font-size: 10px; line-height: 1.4; }
 .admin-content-editor__section-head code { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .admin-content-editor textarea {
   width: 100%;
@@ -5249,8 +5296,24 @@ table {
 .scenario-duration-readout span { color: var(--muted); }
 
 .scenario-points-field { gap: 5px; }
-.scenario-points-field input { min-height: 42px; font-variant-numeric: tabular-nums; }
+.scenario-points-input { position: relative; }
+.scenario-points-input input { width: 100%; min-height: 42px; padding-right: 60px; font-variant-numeric: tabular-nums; }
+.scenario-points-input b { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); color: var(--accent-strong); font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: .04em; pointer-events: none; }
 .scenario-points-field + .field-hint { display: block; margin-top: 5px; min-height: 17px; }
+.scenario-points-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-strong) 84%, var(--accent-soft));
+}
+.scenario-points-note > svg { margin-top: 1px; color: var(--accent-strong); }
+.scenario-points-note div { display: grid; gap: 2px; min-width: 0; }
+.scenario-points-note strong { color: var(--text); font-size: 10px; }
+.scenario-points-note p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
 .scenario-points-presets {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

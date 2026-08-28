@@ -79,7 +79,10 @@ const spotMetalTtlMs = 2_000;
 const fundingRateTtlMs = 24 * 60 * 60 * 1000;
 let fundingRateCache = { expiresAt: 0, value: null };
 let fundingRateRequest = null;
-const fundingBankOptions = new Set(['Maybank', 'CIMB Bank', 'Public Bank', 'RHB Bank', 'Hong Leong Bank', 'Bank Islam']);
+const fundingBankOptions = new Set([
+  'Maybank', 'CIMB Bank', 'Public Bank', 'RHB Bank', 'Hong Leong Bank', 'Bank Islam',
+  'AmBank', 'Alliance Bank', 'UOB Malaysia', 'OCBC Malaysia', 'Standard Chartered', 'Bank Muamalat',
+]);
 let marketQuoteSnapshotCache = { expiresAt: 0, value: null, builtAt: 0, snapshotId: '' };
 let marketQuoteSnapshotRequest = null;
 const newsProxyCache = new Map();
@@ -127,14 +130,44 @@ const contentSettingDefaults = {
     en: 'Observation amount (USDT display)',
   },
   'market.scenarioScaleHint': {
-    zh: '用于观察市场，最低为 10 USDT；仅用于记录，不代表账户余额或收益',
-    ms: 'Untuk memerhati pasaran, minimum 10 USDT; hanya untuk rekod, bukan baki atau keuntungan akaun',
-    en: 'For market observation, minimum 10 USDT; record display only, not an account balance or return',
+    zh: '设置用于记录市场观察的额度。',
+    ms: 'Tetapkan jumlah untuk rekod pemerhatian pasaran.',
+    en: 'Set an amount to frame this market observation.',
+  },
+  'market.scenarioScaleNote': {
+    zh: '用于观察市场，最低为 10 USDT；仅用于记录，不代表账户余额或收益。',
+    ms: 'Untuk memerhati pasaran, minimum 10 USDT; hanya untuk rekod, bukan baki atau keuntungan akaun.',
+    en: 'For market observation, minimum 10 USDT; record display only, not an account balance or return.',
   },
   'market.observationSafety': {
     zh: '用于观察市场；不执行真实订单或改变余额。',
     ms: 'Untuk memerhati pasaran; tiada pesanan langsung atau perubahan baki.',
     en: 'For market observation; no live orders or balance changes.',
+  },
+  'market.scenarioWorkspaceSafety': {
+    zh: '用于观察市场；不执行真实订单或改变余额。',
+    ms: 'Untuk memerhati pasaran; tiada pesanan langsung atau perubahan baki.',
+    en: 'For market observation; no live orders or balance changes.',
+  },
+  'market.scenarioDialogSafety': {
+    zh: '用于观察市场；不执行真实订单或改变余额。',
+    ms: 'Untuk memerhati pasaran; tiada pesanan langsung atau perubahan baki.',
+    en: 'For market observation; no live orders or balance changes.',
+  },
+  'market.scenarioAdminNoteLabel': {
+    zh: '备注',
+    ms: 'Nota',
+    en: 'Admin note',
+  },
+  'funding.processingNote': {
+    zh: '银行转账目前由客服人工协助处理；提交后会在客服中心跟进申请。',
+    ms: 'Pemindahan bank kini dibantu secara manual oleh Khidmat Pelanggan; selepas dihantar, permintaan akan disusuli di Pusat Sokongan.',
+    en: 'Bank transfers are currently assisted manually by Client Support; after submission, the request is followed up in the Support Center.',
+  },
+  'funding.reviewSafety': {
+    zh: '用于内部审核记录；不会收款、自动付款或创建银行与钱包指令。',
+    ms: 'Untuk rekod semakan dalaman; tiada kutipan, bayaran automatik atau arahan bank dan dompet dibuat.',
+    en: 'For internal review records; no collection, automatic payout, or bank or wallet instruction is created.',
   },
 };
 
@@ -216,8 +249,23 @@ function validateObservationSafetyCopy(values) {
   return '';
 }
 
+function validateFundingSafetyCopy(values) {
+  const zh = String(values?.zh || '').trim();
+  const ms = String(values?.ms || '').trim();
+  const en = String(values?.en || '').trim();
+  if (!zh || !ms || !en) return 'Chinese, Bahasa Melayu and English copy are all required';
+  const unsafeClaim = /(保证(?:收益|盈利)|稳赚|无风险|保本|guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu;
+  if (unsafeClaim.test(`${zh}\n${ms}\n${en}`)) return 'The funding notice cannot include profit guarantees or risk-free claims';
+  const zhSafe = /(审核|记录|内部)/u.test(zh) && /(不|不会).{0,100}(收款|付款|指令|余额|订单|交易)/u.test(zh);
+  const msSafe = /(semakan|rekod|dalaman)/iu.test(ms) && /(tiada|tidak|bukan).{0,120}(kutipan|bayaran|arahan|baki|pesanan|dagangan)/iu.test(ms);
+  const enSafe = /(review|record|internal)/iu.test(en) && /\b(no|not|without)\b.{0,120}\b(collection|payout|payment|bank|wallet|instruction|order|balance)\b/iu.test(en);
+  if (!zhSafe || !msSafe || !enSafe) return 'The funding notice must keep an internal-review and no-payment-instruction disclosure in every language';
+  return '';
+}
+
 function validateObservationContent(key, values) {
-  if (key === 'market.observationSafety') return validateObservationSafetyCopy(values);
+  if (new Set(['market.observationSafety', 'market.scenarioWorkspaceSafety', 'market.scenarioDialogSafety']).has(key)) return validateObservationSafetyCopy(values);
+  if (key === 'funding.reviewSafety') return validateFundingSafetyCopy(values);
   const text = `${values?.zh || ''}\n${values?.ms || ''}\n${values?.en || ''}`.trim();
   if (!text) return 'Chinese, Bahasa Melayu and English copy are all required';
   if (/(保证(?:收益|盈利)|稳赚|无风险|保本|guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu.test(text)) {
@@ -605,6 +653,7 @@ async function initDatabase() {
       rate_updated_at TIMESTAMPTZ NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      customer_note TEXT NOT NULL DEFAULT '',
       reviewed_at TIMESTAMPTZ,
       reviewer TEXT,
       reviewer_note TEXT,
@@ -669,10 +718,24 @@ async function initDatabase() {
       updated_by TEXT NOT NULL DEFAULT ''
     );
     ALTER TABLE ad88_support_messages ADD COLUMN IF NOT EXISTS user_phone TEXT NOT NULL DEFAULT '';
+    ALTER TABLE ad88_funding_requests ADD COLUMN IF NOT EXISTS customer_note TEXT NOT NULL DEFAULT '';
     ALTER TABLE ad88_trade_events ADD COLUMN IF NOT EXISTS pnl NUMERIC;
     ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note TEXT NOT NULL DEFAULT '';
     ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note_updated_at TIMESTAMPTZ;
     ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note_updated_by TEXT;
+    `);
+    // Older deployments used one shared observation notice. Seed the two
+    // explicit locations only when they do not already have an administrator
+    // revision, preserving any copy that was previously saved.
+    await candidate.query(`
+      INSERT INTO ad88_content_settings (key, zh_value, ms_value, en_value, updated_at, updated_by)
+      SELECT 'market.scenarioWorkspaceSafety', zh_value, ms_value, en_value, updated_at, updated_by
+      FROM ad88_content_settings WHERE key = 'market.observationSafety'
+      ON CONFLICT (key) DO NOTHING;
+      INSERT INTO ad88_content_settings (key, zh_value, ms_value, en_value, updated_at, updated_by)
+      SELECT 'market.scenarioDialogSafety', zh_value, ms_value, en_value, updated_at, updated_by
+      FROM ad88_content_settings WHERE key = 'market.observationSafety'
+      ON CONFLICT (key) DO NOTHING;
     `);
     for (const contentKey of Object.keys(contentSettingDefaults)) {
       const legacyCopy = legacyContentSettingDefaults[contentKey];
@@ -2122,6 +2185,7 @@ function normalizeFundingRequest(row, { includeSensitive = false } = {}) {
     rateUpdatedAt: row.rateUpdatedAt ?? row.rate_updated_at,
     status: row.status,
     createdAt: row.createdAt ?? row.created_at,
+    customerNote: sanitizeFundingText(row.customerNote ?? row.customer_note, 320) || undefined,
     reviewedAt: row.reviewedAt ?? row.reviewed_at ?? undefined,
     reviewer: row.reviewer ?? undefined,
     reviewerNote: row.reviewerNote ?? row.reviewer_note ?? undefined,
@@ -2162,15 +2226,15 @@ async function saveFundingRequest(request) {
   if (pool) {
     await pool.query(
       `INSERT INTO ad88_funding_requests (
-        id,user_id,user_name,email,kind,method,bank_name,account_holder,account_reference,
-        amount_myr,amount_u,rate,base_rate,rate_source,rate_updated_at,status,created_at,
-        reviewed_at,reviewer,reviewer_note,support_required,ledger_entry_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+         id,user_id,user_name,email,kind,method,bank_name,account_holder,account_reference,
+         amount_myr,amount_u,rate,base_rate,rate_source,rate_updated_at,status,created_at,customer_note,
+         reviewed_at,reviewer,reviewer_note,support_required,ledger_entry_id
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
       [
         storedRequest.id, storedRequest.userId, storedRequest.userName, storedRequest.email, storedRequest.kind, storedRequest.method,
         storedRequest.bankName ?? null, storedRequest.accountHolder ?? null, storedRequest.accountReference ?? null,
         storedRequest.amountMyr, storedRequest.amountU, storedRequest.rate, storedRequest.baseRate, storedRequest.rateSource,
-        storedRequest.rateUpdatedAt, storedRequest.status, storedRequest.createdAt, storedRequest.reviewedAt ?? null,
+        storedRequest.rateUpdatedAt, storedRequest.status, storedRequest.createdAt, storedRequest.customerNote ?? '', storedRequest.reviewedAt ?? null,
         storedRequest.reviewer ?? null, storedRequest.reviewerNote ?? null, Boolean(storedRequest.supportRequired), storedRequest.ledgerEntryId ?? null,
       ],
     );
@@ -2187,9 +2251,9 @@ async function updateFundingRequest(id, fields) {
   if (pool) {
     await pool.query(
       `UPDATE ad88_funding_requests SET
-        status=$2, reviewed_at=$3, reviewer=$4, reviewer_note=$5, ledger_entry_id=$6
+        status=$2, customer_note=$3, reviewed_at=$4, reviewer=$5, reviewer_note=$6, ledger_entry_id=$7
        WHERE id=$1`,
-      [next.id, next.status, next.reviewedAt ?? null, next.reviewer ?? null, next.reviewerNote ?? null, next.ledgerEntryId ?? null],
+      [next.id, next.status, next.customerNote ?? '', next.reviewedAt ?? null, next.reviewer ?? null, next.reviewerNote ?? null, next.ledgerEntryId ?? null],
     );
   } else {
     memoryFundingRequests.set(next.id, {
@@ -2312,6 +2376,7 @@ async function createPaperFundingRequest(session, input) {
   if (method === 'bank' && !fundingBankOptions.has(bankName)) return { error: 'invalid bank method', status: 400 };
   const accountHolder = sanitizeFundingText(input.accountHolder, 80) || undefined;
   const accountReference = String(input.accountReference || '').replace(/\D/g, '').slice(0, 24) || undefined;
+  const customerNote = sanitizeFundingText(input.customerNote, 320) || undefined;
   if (kind === 'withdraw' && (!accountHolder || accountHolder.length < 2)) return { error: 'a full account holder name is required for withdrawal review', status: 400 };
   if (kind === 'withdraw' && (!accountReference || accountReference.length < 7)) return { error: 'a complete account number is required for withdrawal review', status: 400 };
   const rateSnapshot = await getFundingRate();
@@ -2359,6 +2424,7 @@ async function createPaperFundingRequest(session, input) {
     rateUpdatedAt: rateSnapshot.updatedAt,
     status: 'pending',
     createdAt: new Date().toISOString(),
+    customerNote,
     supportRequired: method === 'bank' || Boolean(input.supportRequired),
   };
   try {

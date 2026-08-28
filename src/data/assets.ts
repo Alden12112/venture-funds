@@ -83,7 +83,7 @@ const marketIcons: Partial<Record<MarketProductSymbol, string>> = {
 // preserving a deterministic order for the remaining symbols. This is also
 // used by the table and chip selector, so the two surfaces never disagree.
 const featuredArtworkOrder: MarketProductSymbol[] = [
-  'BTC', 'ETH', 'XAU', 'CL', 'NG', 'XAG', 'HG', 'SCCO', 'BRN', 'SOL', 'XRP', 'DOGE',
+  'CL', 'XAU', 'BTC', 'XAG', 'ETH', 'NG', 'HG', 'SCCO', 'BRN', 'SOL', 'XRP', 'DOGE',
   'HO', 'RB', 'PL', 'PA', 'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'EURJPY',
   'SPX', 'NAS100', 'DAX', 'FTSE', 'NIKKEI', 'HSI', 'DJ30',
 ];

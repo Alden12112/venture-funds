@@ -10,6 +10,8 @@ export type CreateFundingRequestInput = {
   accountHolder?: string;
   /** Sent only over the authenticated request channel; the server encrypts it at rest. */
   accountReference?: string;
+  /** Optional context for the internal review queue; never becomes a payment instruction. */
+  customerNote?: string;
   supportRequired?: boolean;
 };
 

@@ -10,7 +10,7 @@ function quote(value: number) {
 
 export function MarketTicker({ assets }: { assets: MarketAsset[] }) {
   const { t } = useLanguage();
-  const preferred = ['BTC', 'ETH', 'XAU', 'CL', 'NG', 'XAG', 'HG', 'EURUSD', 'SPX'];
+  const preferred = ['CL', 'XAU', 'BTC', 'XAG', 'ETH', 'NG', 'HG', 'EURUSD', 'SPX'];
   const items = preferred.map((symbol) => assets.find((asset) => asset.symbol === symbol)).filter(Boolean) as MarketAsset[];
   return (
     <section className="ticker-strip" aria-label={t('ticker.todayMarket')}>

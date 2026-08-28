@@ -210,6 +210,8 @@ export interface FundingRequest {
   rateUpdatedAt: string;
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
+  /** Context supplied by the client for the internal review queue. */
+  customerNote?: string;
   reviewedAt?: string;
   reviewer?: string;
   reviewerNote?: string;

@@ -4,6 +4,7 @@ import { useLanguage } from '@/context/language-context';
 import { useContentSettings } from '@/context/content-settings-context';
 import { formatDateTime, formatMarketPrice } from '@/lib/format';
 import type { TimedMarketScenario } from '@/types';
+import { MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY, MARKET_SCENARIO_DIALOG_SAFETY_KEY } from '@/lib/content-settings';
 
 function remainingSeconds(scenario: TimedMarketScenario, now: number) {
   return Math.max(0, Math.ceil((new Date(scenario.expiresAt).getTime() - now) / 1000));
@@ -110,9 +111,16 @@ export function TimedScenarioResultDialog({
           <div><span>{t('market.scenarioExpires')}</span><strong>{formatDateTime(scenario.expiresAt)}</strong></div>
         </div>
 
+        {scenario.status === 'settled' && scenario.adminNote ? (
+          <div className="scenario-result-dialog__admin-note">
+            <span>{getContent(MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY, language)}</span>
+            <p>{scenario.adminNote}</p>
+          </div>
+        ) : null}
+
         <footer className="scenario-result-dialog__footer">
           <ShieldCheck size={15} />
-          <strong>{getContent('market.observationSafety', language)}</strong>
+          <strong>{getContent(MARKET_SCENARIO_DIALOG_SAFETY_KEY, language)}</strong>
         </footer>
       </section>
     </div>
