@@ -18,7 +18,7 @@ import { assetClassKey, assetNameKey, getExecutionQuote, getMarketArtworkPriorit
 import { marketFilters } from '@/data/navigation';
 import { apiFetch } from '@/lib/api';
 import { loadRemoteCreditAccount, readCreditAccounts, writeCreditAccounts } from '@/lib/credits';
-import type { CreditAccount, PaperPosition, TimeframeCode } from '@/types';
+import type { CreditAccount, MarketAsset, PaperPosition, TimeframeCode } from '@/types';
 
 const timeframes: TimeframeCode[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
@@ -62,6 +62,41 @@ function InstrumentArtwork({ symbol }: { symbol: string }) {
       <img src={image} alt="" decoding="async" />
       <span className="instrument-banner__art-mark"><AssetLogo symbol={symbol} size="sm" /></span>
     </div>
+  );
+}
+
+function MarketShowcaseCard({ asset, active, onSelect }: { asset: MarketAsset; active: boolean; onSelect: () => void }) {
+  const { t } = useLanguage();
+  const image = getMarketVisual(asset.symbol);
+  const product = getMarketProduct(asset.symbol);
+  const movement = asset.change24h >= 0 ? 'up' : 'down';
+
+  return (
+    <button
+      type="button"
+      className={`market-showcase-card market-showcase-card--${product.tone} ${active ? 'is-active' : ''}`}
+      onClick={onSelect}
+      aria-pressed={active}
+    >
+      <span className={`market-showcase-card__art ${image ? '' : 'market-showcase-card__art--fallback'}`} aria-hidden="true">
+        {image ? <img src={image} alt="" loading="lazy" decoding="async" /> : <AssetLogo symbol={asset.symbol} size="lg" />}
+        <span className="market-showcase-card__veil" />
+        <span className="market-showcase-card__symbol">{asset.symbol}</span>
+      </span>
+      <span className="market-showcase-card__body">
+        <span className="market-showcase-card__identity">
+          <AssetLogo symbol={asset.symbol} size="sm" />
+          <span>
+            <strong>{t(assetNameKey(asset.symbol))}</strong>
+            <small>{t(assetClassKey(product.assetClass))}</small>
+          </span>
+        </span>
+        <span className="market-showcase-card__quote">
+          <strong>{formatMarketCurrency(asset.price)}</strong>
+          <span className={`trend trend--${movement}`}>{formatPercent(asset.change24h)}</span>
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -211,6 +246,10 @@ export function MarketPage() {
     return rows.filter((asset) => asset.assetClass === assetClassFilter);
   }, [assetClassFilter, rows]);
   const visibleRows = useMemo(() => showAllInstruments ? filteredRows : filteredRows.slice(0, 10), [filteredRows, showAllInstruments]);
+  const showcaseRows = useMemo(
+    () => visibleRows.filter((asset) => Boolean(getMarketVisual(asset.symbol) || getMarketIcon(asset.symbol))).slice(0, 6),
+    [visibleRows],
+  );
 
   const availableMargin = creditAccount?.available ?? 0;
   const livePositions = userPositions.map((position) => {
@@ -412,6 +451,13 @@ export function MarketPage() {
                 </button>
               ))}
             </div>
+            {showcaseRows.length ? (
+              <div className="market-showcase" aria-label={t('market.assets')}>
+                {showcaseRows.map((asset) => (
+                  <MarketShowcaseCard key={`showcase-${asset.symbol}`} asset={asset} active={asset.symbol === symbol} onSelect={() => setSymbol(asset.symbol)} />
+                ))}
+              </div>
+            ) : null}
             {visibleRows.map((asset) => (
               <button key={asset.symbol} type="button" className={`asset-selector__chip ${asset.symbol === symbol ? 'is-active' : ''}`} onClick={() => setSymbol(asset.symbol)}>
                 <AssetLogo symbol={asset.symbol} size="sm" />
@@ -488,7 +534,6 @@ export function MarketPage() {
           </div>
           <div className="trading-chart__toolbar" aria-label={t('market.chartTools')}>
             <span className="chart-toolbar__label">{t('market.chartTools')}</span>
-            <span className="chart-indicator-legend" aria-label={t('market.indicatorLegend')}><span><i />{t('market.fastAverage')}</span><span><i />{t('market.slowAverage')}</span></span>
             <button type="button" className={`chart-tool ${chartTool === 'cursor' ? 'is-active' : ''}`} onClick={() => setChartTool('cursor')} title={t('market.select')}><Crosshair size={15} /> {t('market.select')}</button>
             <button type="button" className={`chart-tool ${chartTool === 'trendline' ? 'is-active' : ''}`} onClick={() => setChartTool('trendline')} title={t('market.trendLine')}><Ruler size={15} /> {t('market.trendLine')}</button>
             <button type="button" className={`chart-tool ${chartTool === 'horizontal' ? 'is-active' : ''}`} onClick={() => setChartTool('horizontal')} title={t('market.horizontalLine')}><Minus size={15} /> {t('market.horizontalLine')}</button>

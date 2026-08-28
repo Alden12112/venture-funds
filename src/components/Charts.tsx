@@ -101,12 +101,23 @@ export function CandleChart({
     const pad = (max - min || 1) * 0.12;
     const domainMin = min - pad;
     const domainMax = max + pad;
-    const plotHeight = height - 54;
-    const plotWidth = width - 52;
-    const candleWidth = Math.max(4, Math.min(22, plotWidth / visibleCandles.length * 0.6));
+    // The market workspace deliberately uses a chart-terminal geometry: a
+    // shallow OHLC rail, readable price scale on the right and a dedicated
+    // volume lane. It remains an original SVG implementation, while retaining
+    // the existing zoom and drawing interactions.
+    const left = 16;
+    const top = width < 520 ? 78 : 42;
+    const right = 74;
+    const bottom = 28;
+    const volumeGap = 12;
+    const volumeHeight = Math.max(56, Math.min(100, Math.round(height * 0.18)));
+    const pricePlotBottom = Math.max(top + 132, height - bottom - volumeHeight - volumeGap);
+    const pricePlotHeight = Math.max(120, pricePlotBottom - top);
+    const plotWidth = Math.max(180, width - left - right);
+    const candleWidth = Math.max(3, Math.min(15, plotWidth / visibleCandles.length * 0.62));
     const points = visibleCandles.map((candle, index) => {
-      const x = 38 + (index / Math.max(visibleCandles.length - 1, 1)) * plotWidth;
-      const mapY = (value: number) => 18 + (1 - (value - domainMin) / (domainMax - domainMin)) * plotHeight;
+      const x = left + (index / Math.max(visibleCandles.length - 1, 1)) * plotWidth;
+      const mapY = (value: number) => top + (1 - (value - domainMin) / (domainMax - domainMin)) * pricePlotHeight;
       return {
         x,
         open: mapY(candle.open),
@@ -116,24 +127,48 @@ export function CandleChart({
         bullish: candle.close >= candle.open,
       };
     });
-    const makeEma = (period: number) => {
-      const alpha = 2 / (period + 1);
-      let previous = visibleCandles[0].close;
-      return visibleCandles.map((candle, index) => {
-        previous = index === 0 ? candle.close : candle.close * alpha + previous * (1 - alpha);
-        return [38 + (index / Math.max(visibleCandles.length - 1, 1)) * plotWidth, 18 + (1 - (previous - domainMin) / (domainMax - domainMin)) * plotHeight] as [number, number];
-      });
-    };
-    const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => domainMin + (domainMax - domainMin) * ratio);
-    const closeLine = pathFromPoints(points.map((point) => [point.x, point.close]));
-    const fastEmaLine = pathFromPoints(makeEma(9));
-    const slowEmaLine = pathFromPoints(makeEma(21));
+    const yTicks = Array.from({ length: 6 }, (_, index) => {
+      const ratio = index / 5;
+      return {
+        value: domainMax - (domainMax - domainMin) * ratio,
+        y: top + ratio * pricePlotHeight,
+      };
+    });
     const latest = points.at(-1);
-    const timeTicks = [0, Math.floor((visibleCandles.length - 1) / 2), visibleCandles.length - 1]
+    const timeTicks = [0, Math.floor((visibleCandles.length - 1) / 4), Math.floor((visibleCandles.length - 1) / 2), Math.floor((visibleCandles.length - 1) * 0.75), visibleCandles.length - 1]
       .filter((value, index, all) => all.indexOf(value) === index)
-       .map((index) => ({ index, label: new Intl.DateTimeFormat(getUiLocale(), { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(visibleCandles[index].time)) }));
-    const mapQuoteY = (value?: number) => Number.isFinite(value) ? 18 + (1 - ((value as number) - domainMin) / (domainMax - domainMin)) * plotHeight : undefined;
-    return { points, candles: visibleCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, fastEmaLine, slowEmaLine, latestCloseY: latest?.close ?? height / 2, bidY: mapQuoteY(bid), askY: mapQuoteY(ask), timeTicks };
+       .map((index) => ({
+         index,
+         x: points[index]?.x ?? left,
+         label: new Intl.DateTimeFormat(getUiLocale(), { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(visibleCandles[index].time)),
+       }));
+    const maxVolume = Math.max(1, ...visibleCandles.map((candle) => Number.isFinite(candle.volume) ? candle.volume : 0));
+    const volumeBaseY = height - bottom;
+    const volumeWidth = Math.max(1, Math.min(candleWidth + 1, plotWidth / visibleCandles.length * 0.78));
+    const volumeBars = visibleCandles.map((candle, index) => {
+      const amount = Math.max(0, Math.min(1, (Number.isFinite(candle.volume) ? candle.volume : 0) / maxVolume));
+      const barHeight = Math.max(1, amount * volumeHeight);
+      return {
+        x: points[index].x - volumeWidth / 2,
+        y: volumeBaseY - barHeight,
+        width: volumeWidth,
+        height: barHeight,
+        bullish: candle.close >= candle.open,
+      };
+    });
+    const mapQuoteY = (value?: number) => Number.isFinite(value) ? top + (1 - ((value as number) - domainMin) / (domainMax - domainMin)) * pricePlotHeight : undefined;
+    return {
+      points,
+      candles: visibleCandles,
+      candleWidth,
+      yTicks,
+      latestCloseY: latest?.close ?? height / 2,
+      bidY: mapQuoteY(bid),
+      askY: mapQuoteY(ask),
+      timeTicks,
+      volumeBars,
+      geometry: { left, top, right, plotWidth, pricePlotBottom, volumeBaseY },
+    };
   }, [ask, bid, displayCandles, height, language, maxOffset, offset, visibleCandleCount, width]);
 
   useEffect(() => {
@@ -170,13 +205,14 @@ export function CandleChart({
     return <div className="chart-empty">{t('chart.insufficient')}</div>;
   }
 
-  const { points, candles: chartCandles, candleWidth, domainMin, domainMax, yTicks, closeLine, fastEmaLine, slowEmaLine, latestCloseY, bidY, askY, timeTicks } = chart;
-  const mapDrawingPoint = ([xRatio, yRatio]: [number, number]) => ({ x: 38 + xRatio * (width - 52), y: 18 + yRatio * (height - 54) });
+  const { points, candles: chartCandles, candleWidth, yTicks, latestCloseY, bidY, askY, timeTicks, volumeBars, geometry } = chart;
+  const { left, top, right, plotWidth, pricePlotBottom, volumeBaseY } = geometry;
+  const mapDrawingPoint = ([xRatio, yRatio]: [number, number]) => ({ x: left + xRatio * plotWidth, y: top + yRatio * (pricePlotBottom - top) });
   const handleChartClick = (event: MouseEvent<SVGSVGElement>) => {
     if (drawTool === 'cursor' || !onAddDrawing) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, ((event.clientX - rect.left) / rect.width * width - 38) / (width - 52)));
-    const y = Math.max(0, Math.min(1, ((event.clientY - rect.top) / rect.height * height - 18) / (height - 54)));
+    const x = Math.max(0, Math.min(1, ((event.clientX - rect.left) / rect.width * width - left) / plotWidth));
+    const y = Math.max(0, Math.min(1, ((event.clientY - rect.top) / rect.height * height - top) / (pricePlotBottom - top)));
     const point: [number, number] = [x, y];
     if (drawTool === 'horizontal') {
       onAddDrawing({ type: drawTool, start: [0, y], end: [1, y] });
@@ -212,8 +248,18 @@ export function CandleChart({
     setOffset((current) => Math.max(0, Math.min(maxOffset, current + direction * Math.max(1, Math.round(visibleCandleCount * 0.45)))));
   };
 
+  const latestCandle = chartCandles.at(-1)!;
+  const latestDirection = latestCandle.close >= latestCandle.open ? 'up' : 'down';
+
   return (
-    <div className="chart-frame" ref={ref}>
+    <div className="chart-frame chart-frame--market" ref={ref}>
+      <div className={`chart-frame__ohlc chart-frame__ohlc--${latestDirection}`} aria-label={t('chart.candlestick')}>
+        <span><b>O</b>{formatMarketPrice(latestCandle.open)}</span>
+        <span><b>H</b>{formatMarketPrice(latestCandle.high)}</span>
+        <span><b>L</b>{formatMarketPrice(latestCandle.low)}</span>
+        <span><b>C</b>{formatMarketPrice(latestCandle.close)}</span>
+        <span className="chart-frame__ohlc-volume"><b>V</b>{formatNumber(latestCandle.volume)}</span>
+      </div>
       <div className="chart-viewport__controls" aria-label={t('chart.zoomControls')}>
         <button type="button" onClick={() => shiftWindow(1)} disabled={!maxOffset} aria-label={t('chart.earlier')}>‹</button>
         <button type="button" onClick={() => changeZoom(-1)} disabled={zoom <= 1} aria-label={t('chart.zoomOut')}>−</button>
@@ -229,41 +275,12 @@ export function CandleChart({
           </linearGradient>
         </defs>
         <g className="chart-grid">
-          {yTicks.map((tick) => {
-            const y = 18 + (1 - (tick - domainMin) / (domainMax - domainMin)) * (height - 54);
-            return <line key={tick} x1="38" x2={width - 16} y1={y} y2={y} />;
-          })}
+          {yTicks.map((tick) => <line key={`price-${tick.value}`} x1={left} x2={width - right} y1={tick.y} y2={tick.y} />)}
+          {timeTicks.map((tick) => <line key={`time-${tick.index}`} x1={tick.x} x2={tick.x} y1={top} y2={volumeBaseY} />)}
         </g>
-        <g className="chart-axis">
-          {yTicks.map((tick) => {
-            const y = 18 + (1 - (tick - domainMin) / (domainMax - domainMin)) * (height - 54);
-            return (
-              <text key={tick} x="10" y={y + 4} className="chart-axis__label">
-                {formatMarketPrice(tick)}
-              </text>
-            );
-          })}
-          {timeTicks.map((tick) => (
-            <text key={`${tick.index}-${tick.label}`} x={points[tick.index]?.x ?? 38} y={height - 10} textAnchor="middle" className="chart-axis__label chart-axis__label--time">
-              {tick.label}
-            </text>
-          ))}
+        <g className="chart-volume" aria-hidden="true">
+          {volumeBars.map((bar, index) => <rect key={`volume-${chartCandles[index].time}`} x={bar.x} y={bar.y} width={bar.width} height={bar.height} className={bar.bullish ? 'chart-volume__bar chart-volume__bar--up' : 'chart-volume__bar chart-volume__bar--down'} />)}
         </g>
-        <path d={`${closeLine} L ${width - 16} ${height - 36} L 38 ${height - 36} Z`} className="chart-trend-area" fill="url(#candleGlow)" />
-        <path d={closeLine} className="chart-trend-line chart-trend-line--base" fill="none" />
-        <g className="chart-market-line" aria-hidden="true">
-          {points.slice(1).map((point, index) => {
-            const previous = points[index];
-            return <line key={`close-segment-${index}`} x1={previous.x} y1={previous.close} x2={point.x} y2={point.close} className={point.bullish ? 'chart-market-line__segment chart-market-line__segment--up' : 'chart-market-line__segment chart-market-line__segment--down'} />;
-          })}
-        </g>
-        <path d={slowEmaLine} className="chart-indicator-line chart-indicator-line--slow" fill="none" />
-        <path d={fastEmaLine} className="chart-indicator-line chart-indicator-line--fast" fill="none" />
-        <line x1="38" x2={width - 16} y1={latestCloseY} y2={latestCloseY} className="chart-price-guide" />
-        {bidY !== undefined ? <line x1="38" x2={width - 16} y1={bidY} y2={bidY} className="chart-price-guide chart-price-guide--bid" /> : null}
-        {askY !== undefined ? <line x1="38" x2={width - 16} y1={askY} y2={askY} className="chart-price-guide chart-price-guide--ask" /> : null}
-        {bidY !== undefined ? <text x={width - 20} y={bidY - 5} textAnchor="end" className="chart-quote-label chart-quote-label--bid">BID</text> : null}
-        {askY !== undefined ? <text x={width - 20} y={askY - 5} textAnchor="end" className="chart-quote-label chart-quote-label--ask">ASK</text> : null}
         <g className="chart-drawings">
           {drawings.map((drawing, index) => {
             const start = mapDrawingPoint(drawing.start);
@@ -272,7 +289,8 @@ export function CandleChart({
           })}
           {pendingPoint ? <circle cx={mapDrawingPoint(pendingPoint).x} cy={mapDrawingPoint(pendingPoint).y} r="5" className="chart-drawing__pending" /> : null}
         </g>
-        {points.map((point, index) => {
+        <g className="chart-drawings">
+          {points.map((point, index) => {
           const candle = chartCandles[index];
           return (
             <g key={candle.time}>
@@ -287,7 +305,19 @@ export function CandleChart({
               />
             </g>
           );
-        })}
+          })}
+        </g>
+        <line x1={left} x2={width - right} y1={latestCloseY} y2={latestCloseY} className={`chart-price-guide chart-price-guide--${latestDirection}`} />
+        {bidY !== undefined ? <line x1={left} x2={width - right} y1={bidY} y2={bidY} className="chart-price-guide chart-price-guide--bid" /> : null}
+        {askY !== undefined ? <line x1={left} x2={width - right} y1={askY} y2={askY} className="chart-price-guide chart-price-guide--ask" /> : null}
+        <g className={`chart-last-price chart-last-price--${latestDirection}`}>
+          <rect x={width - right + 8} y={latestCloseY - 10} width={right - 12} height="20" rx="4" />
+          <text x={width - right + 12} y={latestCloseY + 4}>{formatMarketPrice(latestCandle.close)}</text>
+        </g>
+        <g className="chart-axis">
+          {yTicks.map((tick) => <text key={`label-${tick.value}`} x={width - right + 10} y={tick.y + 4} className="chart-axis__label chart-axis__label--price">{formatMarketPrice(tick.value)}</text>)}
+          {timeTicks.map((tick) => <text key={`${tick.index}-${tick.label}`} x={tick.x} y={height - 9} textAnchor="middle" className="chart-axis__label chart-axis__label--time">{tick.label}</text>)}
+        </g>
         <circle cx={points.at(-1)?.x ?? width - 20} cy={latestCloseY} r="4" className="chart-last-dot" />
       </svg>
     </div>
