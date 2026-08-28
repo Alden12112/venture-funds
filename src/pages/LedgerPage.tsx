@@ -20,31 +20,6 @@ function formatObservationDuration(seconds: number, t: (key: string) => string) 
   return `${seconds}${t('market.scenarioSeconds')}`;
 }
 
-function observationResult(scenario: TimedMarketScenario, t: (key: string) => string) {
-  if (scenario.status === 'active') return t('ledger.observationPending');
-  if (scenario.status === 'void') return t('ledger.observationCancelled');
-  if (scenario.result === 'confirmed') return t('market.scenarioConfirmed');
-  if (scenario.result === 'not-confirmed') return t('market.scenarioNotConfirmed');
-  if (scenario.result === 'flat') return t('market.scenarioFlat');
-  return t('ledger.observationRecorded');
-}
-
-function observationResultTone(scenario: TimedMarketScenario) {
-  if (scenario.status === 'active') return 'warning' as const;
-  if (scenario.status === 'void' || scenario.result === 'not-confirmed') return 'critical' as const;
-  if (scenario.result === 'confirmed') return 'success' as const;
-  return 'info' as const;
-}
-
-function observationDetail(scenario: TimedMarketScenario, t: (key: string) => string) {
-  const direction = scenario.direction === 'up' ? t('market.scenarioUp') : t('market.scenarioDown');
-  const result = observationResult(scenario, t);
-  const note = scenario.status === 'settled' && scenario.adminNote
-    ? ` · ${t('ledger.observationNote')}: ${scenario.adminNote}`
-    : '';
-  return `${direction} · ${result}${note}`;
-}
-
 export function LedgerPage() {
   const { t } = useLanguage();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -83,7 +58,7 @@ export function LedgerPage() {
         {scenarios.refreshError ? <div className="notice-banner notice-banner--warning" role="status"><Clock3 size={15} /><span>{t('data.refreshError')}</span></div> : null}
         <div className="table-wrap trade-history-scroll observation-ledger-scroll" tabIndex={0}>
           <table className="table table--interactive">
-            <thead><tr><th>{t('ledger.time')}</th><th>{t('ledger.instrument')}</th><th>{t('ledger.observationDuration')}</th><th className="text-end">{t('ledger.observationAmount')}</th><th>{t('ledger.observationResult')}</th></tr></thead>
+            <thead><tr><th>{t('ledger.time')}</th><th>{t('ledger.instrument')}</th><th>{t('ledger.observationDuration')}</th><th className="text-end">{t('ledger.observationAmount')}</th></tr></thead>
             <tbody>
               {scenarios.data.length ? scenarios.data.map((scenario) => (
                 <tr key={scenario.id}>
@@ -91,9 +66,8 @@ export function LedgerPage() {
                   <td><strong>{scenario.symbol}</strong><div className="text-small text-muted">{scenario.direction === 'up' ? t('market.scenarioUp') : t('market.scenarioDown')}</div></td>
                   <td>{formatObservationDuration(scenario.durationSeconds, t)}</td>
                   <td className="text-end"><strong>{scenario.observationPoints} USDT</strong></td>
-                  <td><div className="observation-result-cell"><StatusPill tone={observationResultTone(scenario)}>{observationResult(scenario, t)}</StatusPill><span>{observationDetail(scenario, t)}</span></div></td>
                 </tr>
-              )) : <tr><td colSpan={5}><div className="empty-inline"><span>{t('ledger.noObservations')}</span></div></td></tr>}
+              )) : <tr><td colSpan={4}><div className="empty-inline"><span>{t('ledger.noObservations')}</span></div></td></tr>}
             </tbody>
           </table>
         </div>

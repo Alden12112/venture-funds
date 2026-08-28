@@ -18,8 +18,6 @@ import type { CreditAccount } from '@/types';
 import { assetNameKey } from '@/data/assets';
 import { labelCalendarTitle, labelCountry, labelMarket, labelNewsCategory, labelNewsImpact, labelNewsSummary } from '@/lib/news-labels';
 import { VentureCampaignRail } from '@/components/VentureCampaignRail';
-import { useContentSettings } from '@/context/content-settings-context';
-import { MARKET_SCENARIO_DIALOG_SAFETY_KEY } from '@/lib/content-settings';
 
 const dashboardStatusKeys: Record<string, string> = {
   approved: 'status.approved', settled: 'status.settled', pending: 'status.pending', rejected: 'status.rejected',
@@ -27,8 +25,7 @@ const dashboardStatusKeys: Record<string, string> = {
 
 export function DashboardPage() {
   const { session } = useAuth();
-  const { language, t } = useLanguage();
-  const { getContent } = useContentSettings();
+  const { t } = useLanguage();
   const market = useAsyncResource(() => loadMarketBundle('BTC'), []);
   const ledger = useAsyncResource(() => loadLedgerBundle(), []);
   const research = useAsyncResource(() => loadNewsBundle(), []);
@@ -146,10 +143,6 @@ export function DashboardPage() {
         </article>
       </section>
 
-      <div className="dashboard-observation-disclosure" role="note">
-        <ShieldCheck size={13} aria-hidden="true" />
-        <span>{getContent(MARKET_SCENARIO_DIALOG_SAFETY_KEY, language)}</span>
-      </div>
     </div>
   );
 }

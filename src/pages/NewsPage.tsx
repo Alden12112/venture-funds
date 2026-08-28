@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowUpRight, BarChart3, CalendarClock, Clock3, Filter, Globe2, RefreshCcw, Search, Target } from 'lucide-react';
+import { ArrowUpRight, BarChart3, CalendarClock, Clock3, Filter, Globe2, RefreshCcw, Search, ShieldCheck, Target } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, EmptyState, LoadingState, StatusPill } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
@@ -10,6 +10,8 @@ import { useLanguage } from '@/context/language-context';
 import { VentureCampaignRail } from '@/components/VentureCampaignRail';
 import { labelCalendarDescription, labelCalendarTitle, labelCountry, labelMarket, labelNewsCategory, labelNewsImpact, labelNewsSentiment, labelNewsSummary } from '@/lib/news-labels';
 import type { NewsEvent } from '@/types';
+import { useContentSettings } from '@/context/content-settings-context';
+import { MARKET_SCENARIO_DIALOG_SAFETY_KEY } from '@/lib/content-settings';
 
 const sentimentFilters = ['All sentiment', 'positive', 'neutral', 'alert'] as const;
 
@@ -43,7 +45,8 @@ function eventImpactTone(impact: NewsEvent['impact']) {
 }
 
 export function NewsPage() {
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
+  const { getContent } = useContentSettings();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<(typeof newsCategories)[number]>('All');
   const [tone, setTone] = useState<(typeof sentimentFilters)[number]>('All sentiment');
@@ -152,6 +155,11 @@ export function NewsPage() {
           </section>
         </aside>
       </section>
+
+      <div className="news-observation-disclosure" role="note">
+        <ShieldCheck size={12} aria-hidden="true" />
+        <span>{getContent(MARKET_SCENARIO_DIALOG_SAFETY_KEY, language)}</span>
+      </div>
     </div>
   );
 }

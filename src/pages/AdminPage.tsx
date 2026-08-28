@@ -519,6 +519,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     setTimedScenarioNoteEditorId(scenario.id);
     setTimedScenarioNoteDraft(scenario.adminNote ?? '');
     setTimedScenarioNoteMessage('');
+    window.requestAnimationFrame(() => {
+      document.getElementById(`admin-order-record-${scenario.id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
   };
 
   const cancelTimedScenarioNote = () => {
@@ -988,7 +991,8 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                 const direction = scenario.direction === 'up' ? t('market.scenarioUp') : t('market.scenarioDown');
                 const result = scenario.status === 'settled' ? (scenario.result === 'confirmed' ? t('market.scenarioSuccess') : scenario.result === 'flat' ? t('market.scenarioFlat') : t('market.scenarioFailure')) : scenario.status === 'void' ? t('market.scenarioCancelled') : t('market.scenarioWaiting');
                 return (
-                  <div key={scenario.id} className={`admin-order-row ${running ? 'admin-order-row--running' : ''}`}>
+                  <div key={scenario.id} id={`admin-order-record-${scenario.id}`} className={`admin-order-record ${running ? 'admin-order-record--running' : ''} ${timedScenarioNoteEditorId === scenario.id ? 'admin-order-record--editing' : ''}`}>
+                    <div className="admin-order-row">
                     <div className="admin-order-row__main">
                       <div className="admin-order-row__title"><strong>{scenario.symbol}</strong><span>{direction}</span><StatusPill tone={running ? 'warning' : scenario.result === 'confirmed' ? 'success' : scenario.status === 'void' ? 'critical' : 'info'}>{result}</StatusPill></div>
                       <span>{scenario.userName} · {scenario.userEmail}</span>
@@ -1000,26 +1004,6 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                         {scenario.settledAt ? <span>{t('admin.orderSettledAt')} {formatDateTime(scenario.settledAt)}</span> : null}
                         {scenario.voidReason ? <span>{t('admin.orderVoidReason')} {scenario.voidReason}</span> : null}
                       </div>
-                      {timedScenarioNoteEditorId === scenario.id ? (
-                        <div className="admin-order-note-editor">
-                          <label className="field">
-                            <span>{t('admin.orderNoteLabel')}</span>
-                            <textarea value={timedScenarioNoteDraft} maxLength={600} rows={3} onChange={(event) => setTimedScenarioNoteDraft(event.target.value)} placeholder={t('admin.orderNotePlaceholder')} />
-                          </label>
-                          <div className="admin-order-note-editor__footer">
-                            <span>{timedScenarioNoteDraft.length} / 600</span>
-                            <div>
-                              <button type="button" className="btn btn--ghost btn--sm" onClick={cancelTimedScenarioNote}>{t('admin.cancel')}</button>
-                              <button type="button" className="btn btn--primary btn--sm" onClick={() => void saveTimedScenarioNote(scenario)} disabled={timedScenarioNoteSavingId === scenario.id}>
-                                {timedScenarioNoteSavingId === scenario.id ? t('admin.saving') : t('admin.saveNote')}
-                              </button>
-                            </div>
-                          </div>
-                          <small>{t('admin.orderNoteVisibility')}</small>
-                        </div>
-                      ) : scenario.adminNote ? (
-                        <div className="admin-order-note-preview"><FileText size={13} /><span><strong>{t('admin.orderNoteLabel')}</strong>{scenario.adminNote}</span></div>
-                      ) : null}
                     </div>
                     <div className="admin-order-row__actions">
                       {scenario.settlementPrice ? <span>{t('admin.orderExpiry')} {formatMarketCurrency(scenario.settlementPrice)}</span> : null}
@@ -1027,6 +1011,27 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                       <button type="button" className="btn btn--ghost btn--sm" onClick={() => openTimedScenarioNoteEditor(scenario)}><FileText size={14} /> {scenario.adminNote ? t('admin.editNote') : t('admin.addNote')}</button>
                       {running ? <button type="button" className="btn btn--danger btn--sm" onClick={() => void voidTimedScenario(scenario)}><XCircle size={14} /> {t('admin.orderVoid')}</button> : null}
                     </div>
+                    </div>
+                    {timedScenarioNoteEditorId === scenario.id ? (
+                      <div className="admin-order-note-editor">
+                        <label className="field">
+                          <span>{t('admin.orderNoteLabel')}</span>
+                          <textarea value={timedScenarioNoteDraft} maxLength={600} rows={5} onChange={(event) => setTimedScenarioNoteDraft(event.target.value)} placeholder={t('admin.orderNotePlaceholder')} />
+                        </label>
+                        <div className="admin-order-note-editor__footer">
+                          <span>{timedScenarioNoteDraft.length} / 600</span>
+                          <div>
+                            <button type="button" className="btn btn--ghost btn--sm" onClick={cancelTimedScenarioNote}>{t('admin.cancel')}</button>
+                            <button type="button" className="btn btn--primary btn--sm" onClick={() => void saveTimedScenarioNote(scenario)} disabled={timedScenarioNoteSavingId === scenario.id}>
+                              {timedScenarioNoteSavingId === scenario.id ? t('admin.saving') : t('admin.saveNote')}
+                            </button>
+                          </div>
+                        </div>
+                        <small>{t('admin.orderNoteVisibility')}</small>
+                      </div>
+                    ) : scenario.adminNote ? (
+                      <div className="admin-order-note-preview"><FileText size={13} /><span><strong>{t('admin.orderNoteLabel')}</strong>{scenario.adminNote}</span></div>
+                    ) : null}
                   </div>
                 );
               }) : <div className="state-block"><strong>{t('admin.orderNoRecords')}</strong><p>{t('admin.orderNoRecordsHint')}</p></div>}
