@@ -135,7 +135,10 @@ export function CandleChart({
       };
     });
     const latest = points.at(-1);
-    const timeTicks = [0, Math.floor((visibleCandles.length - 1) / 4), Math.floor((visibleCandles.length - 1) / 2), Math.floor((visibleCandles.length - 1) * 0.75), visibleCandles.length - 1]
+    const timeIndexes = width < 520
+      ? [0, Math.floor((visibleCandles.length - 1) / 2), visibleCandles.length - 1]
+      : [0, Math.floor((visibleCandles.length - 1) / 4), Math.floor((visibleCandles.length - 1) / 2), Math.floor((visibleCandles.length - 1) * 0.75), visibleCandles.length - 1];
+    const timeTicks = timeIndexes
       .filter((value, index, all) => all.indexOf(value) === index)
        .map((index) => ({
          index,
@@ -281,7 +284,7 @@ export function CandleChart({
         <g className="chart-volume" aria-hidden="true">
           {volumeBars.map((bar, index) => <rect key={`volume-${chartCandles[index].time}`} x={bar.x} y={bar.y} width={bar.width} height={bar.height} className={bar.bullish ? 'chart-volume__bar chart-volume__bar--up' : 'chart-volume__bar chart-volume__bar--down'} />)}
         </g>
-        <g className="chart-drawings">
+        <g className="chart-candles">
           {drawings.map((drawing, index) => {
             const start = mapDrawingPoint(drawing.start);
             const end = mapDrawingPoint(drawing.end);
