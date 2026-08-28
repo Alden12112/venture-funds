@@ -5505,6 +5505,12 @@ table {
   transition: border-color .18s ease, background .18s ease, transform .18s ease;
 }
 .scenario-history__view:hover { transform: translateY(-1px); border-color: var(--accent-strong); background: var(--accent-soft); }
+.scenario-history__view--icon {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+}
+.scenario-history__view--icon svg { width: 14px; height: 14px; }
 
 /* Administrator observation audit ------------------------------------------ */
 .admin-order-grid { align-items: stretch; }
@@ -5535,6 +5541,11 @@ table {
 .admin-order-row__details span { display: inline-flex; align-items: center; gap: 4px; }
 .admin-order-row__details svg { color: var(--warning); }
 .admin-order-row__actions { display: grid; justify-items: end; gap: 8px; min-width: 122px; color: var(--muted); font-size: 11px; text-align: right; }
+.admin-order-result-button {
+  width: 32px;
+  min-width: 32px;
+  padding-inline: 0;
+}
 .admin-order-note-editor {
   display: grid;
   gap: 10px;

@@ -1007,7 +1007,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                     </div>
                     <div className="admin-order-row__actions">
                       {scenario.settlementPrice ? <span>{t('admin.orderExpiry')} {formatMarketCurrency(scenario.settlementPrice)}</span> : null}
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => setSelectedTimedScenarioId(scenario.id)}><Eye size={14} /> {t('admin.orderResult')}</button>
+                      <button type="button" className="btn btn--ghost btn--sm admin-order-result-button" onClick={() => setSelectedTimedScenarioId(scenario.id)} aria-label={`${t('admin.orderResult')}: ${scenario.symbol}`} title={t('admin.orderResult')}><Eye size={15} /></button>
                       <button type="button" className="btn btn--ghost btn--sm" onClick={() => openTimedScenarioNoteEditor(scenario)}><FileText size={14} /> {scenario.adminNote ? t('admin.editNote') : t('admin.addNote')}</button>
                       {running ? <button type="button" className="btn btn--danger btn--sm" onClick={() => void voidTimedScenario(scenario)}><XCircle size={14} /> {t('admin.orderVoid')}</button> : null}
                     </div>
