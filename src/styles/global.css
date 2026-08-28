@@ -4561,18 +4561,8 @@ table {
 }
 
 .payment-method__logo--tng { background: linear-gradient(135deg, #1d76da, #1252a8 62%, #ed775e); }
-.payment-method__logo--maybank { background: linear-gradient(135deg, #f0b72d, #c57f12); }
-.payment-method__logo--cimb { background: linear-gradient(135deg, #d14b43, #8b2026); }
-.payment-method__logo--public { background: linear-gradient(135deg, #2968ad, #1f3d79); }
-.payment-method__logo--rhb { background: linear-gradient(135deg, #177a93, #0b485d); }
-.payment-method__logo--hlb { background: linear-gradient(135deg, #498c68, #1e5a3d); }
-.payment-method__logo--islam { background: linear-gradient(135deg, #3f9b88, #1d5d52); }
-.payment-method__logo--ambank { background: linear-gradient(135deg, #e86a3b, #9d2d37); }
-.payment-method__logo--alliance { background: linear-gradient(135deg, #7561c9, #3e377b); }
-.payment-method__logo--uob { background: linear-gradient(135deg, #d64f54, #8c252f); }
-.payment-method__logo--ocbc { background: linear-gradient(135deg, #d65c4d, #873333); }
-.payment-method__logo--standard { background: linear-gradient(135deg, #3e78c3, #17457f); }
-.payment-method__logo--muamalat { background: linear-gradient(135deg, #6c9e4a, #315f3a); }
+.payment-method__logo--bank-logo { border: 1px solid color-mix(in srgb, var(--border) 84%, #fff); background: #fff; }
+.payment-method__logo--bank-logo img { display: block; width: 100%; height: 100%; padding: 2px; object-fit: contain; background: #fff; }
 
 .funding-processing-note {
   display: flex;
@@ -4637,7 +4627,7 @@ table {
 .funding-bank-reference--visual { position: relative; min-height: 82px; padding-right: 86px; overflow: hidden; }
 .funding-bank-reference--visual::after { position: absolute; z-index: 0; inset: 0 0 0 auto; width: 86px; content: ''; pointer-events: none; background: linear-gradient(90deg, color-mix(in srgb, var(--surface) 4%, transparent), var(--surface)); }
 .funding-bank-reference--visual > :not(img) { position: relative; z-index: 1; }
-.funding-bank-reference--visual img { position: absolute; z-index: 0; top: 9px; right: 9px; width: 64px; height: 64px; object-fit: cover; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 10px; box-shadow: 0 8px 18px color-mix(in srgb, var(--text) 14%, transparent); filter: contrast(1.12) grayscale(.32); }
+.funding-bank-reference--visual img { position: absolute; z-index: 0; top: 9px; right: 9px; width: 64px; height: 64px; padding: 3px; object-fit: contain; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 10px; background: #fff; box-shadow: 0 8px 18px color-mix(in srgb, var(--text) 14%, transparent); }
 
 .funding-conversion { display: grid; border-top: 1px solid var(--border); }
 .funding-conversion > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }

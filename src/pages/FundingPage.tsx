@@ -28,18 +28,18 @@ const statusKeys: Record<FundingRequest['status'], string> = {
 };
 
 const bankOptions = [
-  { id: 'Maybank', initials: 'M', tone: 'maybank' },
-  { id: 'CIMB Bank', initials: 'C', tone: 'cimb' },
-  { id: 'Public Bank', initials: 'PB', tone: 'public' },
-  { id: 'RHB Bank', initials: 'R', tone: 'rhb' },
-  { id: 'Hong Leong Bank', initials: 'HL', tone: 'hlb' },
-  { id: 'Bank Islam', initials: 'BI', tone: 'islam' },
-  { id: 'AmBank', initials: 'AM', tone: 'ambank' },
-  { id: 'Alliance Bank', initials: 'AB', tone: 'alliance' },
-  { id: 'UOB Malaysia', initials: 'UOB', tone: 'uob' },
-  { id: 'OCBC Malaysia', initials: 'OCBC', tone: 'ocbc' },
-  { id: 'Standard Chartered', initials: 'SC', tone: 'standard' },
-  { id: 'Bank Muamalat', initials: 'BM', tone: 'muamalat' },
+  { id: 'Maybank', logo: '/assets/banks/maybank.png' },
+  { id: 'CIMB Bank', logo: '/assets/banks/cimb.png' },
+  { id: 'Public Bank', logo: '/assets/banks/public-bank.png' },
+  { id: 'RHB Bank', logo: '/assets/banks/rhb.png' },
+  { id: 'Bank Rakyat', logo: '/assets/banks/bank-rakyat.png' },
+  { id: 'Bank Islam', logo: '/assets/banks/bank-islam.png' },
+  { id: 'AmBank', logo: '/assets/banks/ambank.png' },
+  { id: 'Alliance Bank', logo: '/assets/banks/alliance-bank.png' },
+  { id: 'UOB Malaysia', logo: '/assets/banks/uob.png' },
+  { id: 'OCBC Malaysia', logo: '/assets/banks/ocbc.png' },
+  { id: 'Standard Chartered', logo: '/assets/banks/standard-chartered.png' },
+  { id: 'Bank Muamalat', logo: '/assets/banks/bank-muamalat.png' },
 ] as const;
 
 function fundingMethodName(request: FundingRequest, t: (key: string) => string) {
@@ -81,6 +81,7 @@ export function FundingPage() {
   if (funding.status !== 'success' || credit.status !== 'success') return <LoadingState label={t('ledger.loading')} />;
 
   const { rate, requests } = funding.data;
+  const selectedBank = bankOptions.find((bank) => bank.id === bankName) ?? bankOptions[0];
   const approvedDeposits = requests.filter((request) => request.kind === 'deposit' && request.status === 'approved');
   const approvedWithdrawals = requests.filter((request) => request.kind === 'withdraw' && request.status === 'approved');
   const pending = requests.filter((request) => request.status === 'pending');
@@ -171,7 +172,7 @@ export function FundingPage() {
             </button>
             {bankOptions.map((bank) => (
               <button key={bank.id} type="button" className={`payment-method payment-method--bank ${method === 'bank' && bankName === bank.id ? 'is-selected' : ''}`} onClick={() => { setMethod('bank'); setBankName(bank.id); setFeedback(null); }}>
-                <span className={`payment-method__logo payment-method__logo--${bank.tone}`}><Landmark size={13} /><b>{bank.initials}</b></span><span><strong>{bank.id}</strong><small>{t('funding.bankAssisted')}</small></span>{method === 'bank' && bankName === bank.id ? <CheckCircle2 size={18} /> : null}
+                <span className="payment-method__logo payment-method__logo--bank-logo"><img src={bank.logo} alt="" loading="lazy" decoding="async" /></span><span><strong>{bank.id}</strong><small>{t('funding.bankAssisted')}</small></span>{method === 'bank' && bankName === bank.id ? <CheckCircle2 size={18} /> : null}
               </button>
             ))}
           </div>
@@ -190,7 +191,7 @@ export function FundingPage() {
 
         <aside className="funding-quote-card">
           <div className="funding-quote-card__head"><span className="funding-quote-card__icon">{method === 'tng' ? <WalletCards size={18} /> : <Building2 size={18} />}</span><div><span className="eyebrow">{t('funding.stepThree')}</span><h2>{method === 'tng' ? t('funding.tngConfirmation') : t('funding.bankConfirmation')}</h2></div></div>
-          {method === 'tng' ? <div className="funding-tng-reference"><div className="funding-tng-reference__glyph"><span>TNG</span><WalletCards size={28} /></div><div><strong>{t('funding.sandboxReference')}</strong><p>{t('funding.tngReferenceHint')}</p></div></div> : <div className="funding-bank-reference funding-bank-reference--visual"><img src="/assets/market/secure-banking-vault.png" alt="" loading="lazy" decoding="async" /><Landmark size={22} /><div><strong>{bankName}</strong><p>{t('funding.bankReferenceHint')}</p></div></div>}
+          {method === 'tng' ? <div className="funding-tng-reference"><div className="funding-tng-reference__glyph"><span>TNG</span><WalletCards size={28} /></div><div><strong>{t('funding.sandboxReference')}</strong><p>{t('funding.tngReferenceHint')}</p></div></div> : <div className="funding-bank-reference funding-bank-reference--visual"><img src={selectedBank.logo} alt="" loading="lazy" decoding="async" /><Landmark size={22} /><div><strong>{selectedBank.id}</strong><p>{t('funding.bankReferenceHint')}</p></div></div>}
           <div className="funding-conversion">
             <div><span>{flow === 'deposit' ? t('funding.youEnter') : t('funding.youRequest')}</span><strong>{flow === 'deposit' ? formatCurrency(previewMyr || 0, 'MYR') : `${(previewU || 0).toFixed(4)} U`}</strong></div>
             <div><span>{t('funding.lockedRate')}</span><strong>RM {quoteRate.toFixed(4)} / U</strong></div>
