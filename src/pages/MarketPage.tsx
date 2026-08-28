@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { AlertTriangle, ArrowDownRight, ArrowUpRight, Ban, CheckCircle2, ChevronDown, ChevronUp, Crosshair, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2, XCircle } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, ChevronDown, ChevronUp, Crosshair, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2, XCircle } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { CandleChart } from '@/components/Charts';
 import { TimedScenarioWorkspace } from '@/components/TimedScenarioWorkspace';
@@ -14,11 +14,11 @@ import { useIndicativeQuotePulse, useLiveTickers } from '@/lib/useLiveTicker';
 import { writeStorage } from '@/lib/storage';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
-import { assetClassKey, assetNameKey, getExecutionQuote, getMarketArtworkPriority, getMarketIcon, getMarketProduct, getMarketVisual, getTradeSpec, marketProducts } from '@/data/assets';
+import { assetClassKey, assetNameKey, getExecutionQuote, getMarketArtworkPriority, getMarketIcon, getMarketProduct, getMarketVisual, marketProducts } from '@/data/assets';
 import { marketFilters } from '@/data/navigation';
 import { apiFetch } from '@/lib/api';
 import { loadRemoteCreditAccount, readCreditAccounts, writeCreditAccounts } from '@/lib/credits';
-import type { CreditAccount, PaperPosition, TimeframeCode, TradeSide } from '@/types';
+import type { CreditAccount, PaperPosition, TimeframeCode } from '@/types';
 
 const timeframes: TimeframeCode[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
 
@@ -75,14 +75,6 @@ export function MarketPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [assetClassFilter, setAssetClassFilter] = useState<(typeof marketFilters)[number]>('All');
   const [showAllInstruments, setShowAllInstruments] = useState(false);
-  const [side, setSide] = useState<TradeSide>('long');
-  const initialTradeSpec = getTradeSpec('XAU');
-  const [lots, setLots] = useState(initialTradeSpec.minimumLots);
-  const [lotsInput, setLotsInput] = useState(String(initialTradeSpec.minimumLots));
-  const [contractSize, setContractSize] = useState(initialTradeSpec.contractSize);
-  const [leverage, setLeverage] = useState(initialTradeSpec.defaultLeverage);
-  const [stopLoss, setStopLoss] = useState('');
-  const [takeProfit, setTakeProfit] = useState('');
   const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [selectedPositionId, setSelectedPositionId] = useState<string>('');
   const [partialLots, setPartialLots] = useState(0.01);
@@ -103,26 +95,6 @@ export function MarketPage() {
       setSymbol(requestedSymbol);
     }
   }, [requestedSymbol]);
-
-  useEffect(() => {
-    // Each instrument carries its own standard-lot definition. Resetting the
-    // paper ticket on symbol change prevents BTC's 1-unit contract or XAU's
-    // 100-ounce contract from inheriting the previous product's math.
-    const spec = getTradeSpec(symbol);
-    setContractSize(spec.contractSize);
-    setLeverage(spec.defaultLeverage);
-    setLots((current) => Math.max(spec.minimumLots, current));
-    setLotsInput((current) => {
-      const parsed = Number(current);
-      return String(Math.max(spec.minimumLots, Number.isFinite(parsed) && parsed > 0 ? parsed : spec.minimumLots));
-    });
-  }, [symbol]);
-
-  const updateLots = (value: string) => {
-    setLotsInput(value);
-    const parsed = Number(value);
-    if (Number.isFinite(parsed) && parsed >= tradeSpec.minimumLots) setLots(parsed);
-  };
 
   const refreshMarkets = () => {
     setRefreshing(true);
@@ -240,18 +212,7 @@ export function MarketPage() {
   }, [assetClassFilter, rows]);
   const visibleRows = useMemo(() => showAllInstruments ? filteredRows : filteredRows.slice(0, 10), [filteredRows, showAllInstruments]);
 
-  const tradeSpec = getTradeSpec(symbol);
-  const units = lots * contractSize;
-  const orderPreviewPrice = side === 'long' ? executionQuote.ask : executionQuote.bid;
-  const notional = units * orderPreviewPrice;
-  const margin = leverage ? notional / leverage : notional;
-  // This is the honest paper PnL for a 1.00 move in the quoted instrument;
-  // it is not a promised return and excludes spread, funding and slippage.
-  const pnlForOneQuoteMove = units;
   const availableMargin = creditAccount?.available ?? 0;
-  const hasAssetMargin = availableMargin >= margin;
-  const maxLots = orderPreviewPrice && contractSize ? (availableMargin * leverage) / (orderPreviewPrice * contractSize) : 0;
-  const canOpen = Boolean(session) && hasAssetMargin && margin > 0 && lots >= tradeSpec.minimumLots && contractSize > 0 && leverage > 0;
   const livePositions = userPositions.map((position) => {
     const referencePrice = authoritativePriceFor(position.symbol, position.markPrice);
     const indicative = getExecutionQuote(position.symbol, referencePrice);
@@ -283,9 +244,6 @@ export function MarketPage() {
     if (market.status === 'success' && !market.refreshing) setRefreshing(false);
   }, [market.status, market.status === 'success' ? market.refreshing : false, market.status === 'success' ? market.data.source.updatedAt : '']);
 
-  const sellPrice = executionQuote.bid;
-  const buyPrice = executionQuote.ask;
-
   const announceAction = (tone: 'success' | 'warning' | 'error', message: string) => {
     setActionFeedback({ tone, message });
   };
@@ -298,31 +256,6 @@ export function MarketPage() {
     const accounts = readCreditAccounts();
     writeCreditAccounts([result.creditAccount, ...accounts.filter((item) => item.userId !== result.creditAccount.userId && item.email.toLowerCase() !== result.creditAccount.email.toLowerCase())]);
     setCreditAccount(result.creditAccount);
-  };
-
-  const openPosition = async (orderSide: TradeSide = side) => {
-    if (!canOpen || busyAction) return;
-    setBusyAction('open');
-    try {
-      const result = await apiFetch<PaperWorkspaceResponse>('/api/paper/orders', {
-        method: 'POST',
-        body: JSON.stringify({
-          symbol,
-          side: orderSide,
-          lots,
-          leverage,
-          stopLoss: stopLoss || undefined,
-          takeProfit: takeProfit || undefined,
-        }),
-      });
-      applyPaperWorkspace(result);
-      if (result.position) setSelectedPositionId(result.position.id);
-      announceAction('success', t('market.openSuccess'));
-    } catch {
-      announceAction('error', t('market.paperActionFailed'));
-    } finally {
-      setBusyAction(null);
-    }
   };
 
   useEffect(() => {
@@ -577,19 +510,6 @@ export function MarketPage() {
           ) : (
             <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={livePrice} bid={executionQuote.bid} ask={executionQuote.ask} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           )}
-          <div className="execution-bar">
-            <button type="button" className="execution-quote execution-quote--sell" onClick={() => void openPosition('short')} disabled={!canOpen || Boolean(busyAction)}>
-              <span>{t('market.sellBid')}</span><strong>{formatMarketPrice(sellPrice)}</strong>
-            </button>
-            <div className="execution-bar__middle">
-              <span className="execution-bar__label">{t('market.midpoint')}</span>
-              <strong>{formatMarketPrice(livePrice)}</strong>
-              <label><span>{t('market.orderLots')}</span><input type="number" min={tradeSpec.minimumLots} step="0.01" value={lotsInput} onChange={(event) => updateLots(event.target.value)} onBlur={() => { if (!Number.isFinite(Number(lotsInput)) || Number(lotsInput) < tradeSpec.minimumLots) { setLots(tradeSpec.minimumLots); setLotsInput(String(tradeSpec.minimumLots)); } }} /></label>
-            </div>
-            <button type="button" className="execution-quote execution-quote--buy" onClick={() => void openPosition('long')} disabled={!canOpen || Boolean(busyAction)}>
-              <span>{t('market.buyAsk')}</span><strong>{formatMarketPrice(buyPrice)}</strong>
-            </button>
-          </div>
         </article>
       </section>
 

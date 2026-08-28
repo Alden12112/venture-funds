@@ -32,13 +32,10 @@ function directionLabel(scenario: TimedMarketScenario, t: (key: string) => strin
 function resultLabel(scenario: TimedMarketScenario, t: (key: string) => string) {
   if (scenario.status === 'void') return t('market.scenarioCancelled');
   if (scenario.status === 'active') return t('market.scenarioWaiting');
-  if (scenario.result === 'confirmed') return t('market.scenarioSuccess');
-  if (scenario.result === 'flat') return t('market.scenarioFlat');
-  return t('market.scenarioFailure');
+  return t('market.scenarioRecorded');
 }
 
 function scoreLabel(scenario: TimedMarketScenario, t: (key: string) => string) {
-  if (scenario.status === 'active') return t('market.scenarioScorePending');
   if (scenario.status === 'void') return t('market.scenarioScoreUnavailable');
   return `${scenario.observationPoints} ${t('market.scenarioScaleShort')}`;
 }
@@ -58,7 +55,7 @@ export function TimedScenarioResultDialog({
   const active = scenario.status === 'active' && remaining > 0;
   const awaitingQuote = scenario.status === 'active' && remaining <= 0;
   const status = awaitingQuote ? t('market.scenarioAwaitingConfirmation') : resultLabel(scenario, t);
-  const tone = active ? 'active' : scenario.status === 'void' ? 'void' : scenario.result === 'confirmed' ? 'confirmed' : scenario.result === 'not-confirmed' ? 'not-confirmed' : 'flat';
+  const tone = active ? 'active' : scenario.status === 'void' ? 'void' : 'recorded';
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -111,15 +108,11 @@ export function TimedScenarioResultDialog({
           <div><span>{t('market.scenarioReferencePrice')}</span><strong>{formatMarketPrice(scenario.referencePrice)}</strong></div>
           <div><span>{t('market.scenarioScore')}</span><strong>{scoreLabel(scenario, t)}</strong></div>
           <div><span>{t('market.scenarioExpires')}</span><strong>{formatDateTime(scenario.expiresAt)}</strong></div>
-          <div><span>{t('market.scenarioSettlementPrice')}</span><strong>{scenario.settlementPrice ? formatMarketPrice(scenario.settlementPrice) : '—'}</strong></div>
         </div>
 
         <footer className="scenario-result-dialog__footer">
           <ShieldCheck size={15} />
-          <div>
-            <strong>{getContent('market.observationSafety', language)}</strong>
-            {scenario.status === 'settled' && scenario.adminNote ? <p className="scenario-result-dialog__admin-note"><span>{t('market.scenarioAdminNote')}</span>{scenario.adminNote}</p> : null}
-          </div>
+          <strong>{getContent('market.observationSafety', language)}</strong>
         </footer>
       </section>
     </div>

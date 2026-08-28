@@ -122,6 +122,17 @@ const contentTypes = {
 // the source of truth once an administrator saves a revision.
 const contentSettingDefaults = {
   'market.observationSafety': {
+    zh: '用于观察市场；不执行真实订单或改变余额。',
+    ms: 'Untuk memerhati pasaran; tiada pesanan langsung atau perubahan baki.',
+    en: 'For market observation; no live orders or balance changes.',
+  },
+};
+
+// A previous release stored these exact starter values in PostgreSQL. Migrate
+// only those untouched defaults so an administrator's custom copy is never
+// overwritten during deployment.
+const legacyContentSettingDefaults = {
+  'market.observationSafety': {
     zh: '仅用于市场观察，不创建真实订单或改变余额。',
     ms: 'Untuk pemerhatian pasaran sahaja; tiada pesanan langsung atau perubahan baki.',
     en: 'Market observation only; no live orders or balance changes.',
@@ -178,7 +189,7 @@ function validateObservationSafetyCopy(values) {
   if (!zh || !ms || !en) return 'Chinese, Bahasa Melayu and English copy are all required';
   const unsafeClaim = /(保证(?:收益|盈利)|稳赚|无风险|保本|guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu;
   if (unsafeClaim.test(`${zh}\n${ms}\n${en}`)) return 'The market-observation notice cannot include profit guarantees or risk-free claims';
-  const zhSafe = /(市场|观察|记录)/u.test(zh) && /(不创建|不产生|不会|不作).{0,100}(订单|交易|余额|资金)/u.test(zh);
+  const zhSafe = /(市场|观察|记录)/u.test(zh) && /(不创建|不产生|不执行|不会|不作).{0,100}(订单|交易|余额|资金)/u.test(zh);
   const msSafe = /(pemerhatian|pasaran)/iu.test(ms) && /(tiada|tidak|bukan).{0,100}(pesanan|dagangan|baki)/iu.test(ms);
   const enSafe = /(market|observation)/iu.test(en) && /\b(no|not|without)\b.{0,100}\b(live|order|orders|balance|balances)\b/iu.test(en);
   if (!zhSafe || !msSafe || !enSafe) return 'The notice must keep the market-observation, no-live-order, and no-balance-change disclosure in every language';
@@ -588,6 +599,15 @@ async function initDatabase() {
     ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note_updated_at TIMESTAMPTZ;
     ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note_updated_by TEXT;
     `);
+    const contentKey = 'market.observationSafety';
+    const legacyCopy = legacyContentSettingDefaults[contentKey];
+    const currentCopy = contentSettingDefaults[contentKey];
+    await candidate.query(
+      `UPDATE ad88_content_settings
+       SET zh_value=$5, ms_value=$6, en_value=$7, updated_at=NOW()
+       WHERE key=$1 AND zh_value=$2 AND ms_value=$3 AND en_value=$4`,
+      [contentKey, legacyCopy.zh, legacyCopy.ms, legacyCopy.en, currentCopy.zh, currentCopy.ms, currentCopy.en],
+    );
     pool = candidate;
   } catch (error) {
     await candidate.end().catch(() => undefined);
