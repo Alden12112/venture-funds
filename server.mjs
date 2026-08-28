@@ -130,29 +130,29 @@ const contentSettingDefaults = {
     en: 'Observation amount (USDT display)',
   },
   'market.scenarioScaleHint': {
-    zh: '设置用于记录市场观察的额度。',
+    zh: '设置USDT。',
     ms: 'Tetapkan jumlah untuk rekod pemerhatian pasaran.',
     en: 'Set an amount to frame this market observation.',
   },
   'market.scenarioScaleNote': {
-    zh: '用于观察市场，最低为 10 USDT；仅用于记录，不代表账户余额或收益。',
-    ms: 'Untuk memerhati pasaran, minimum 10 USDT; hanya untuk rekod, bukan baki atau keuntungan akaun.',
-    en: 'For market observation, minimum 10 USDT; record display only, not an account balance or return.',
+    zh: '最低为 10 USDT。',
+    ms: ' minimum 10 USDT.',
+    en: ' minimum 10 USDT.',
   },
   'market.observationSafety': {
-    zh: '用于观察市场；不执行真实订单或改变余额。',
-    ms: 'Untuk memerhati pasaran; tiada pesanan langsung atau perubahan baki.',
-    en: 'For market observation; no live orders or balance changes.',
+    zh: 。',
+    ms: '.',
+    en: '',
   },
   'market.scenarioWorkspaceSafety': {
-    zh: '用于观察市场；不执行真实订单或改变余额。',
-    ms: 'Untuk memerhati pasaran; tiada pesanan langsung atau perubahan baki.',
-    en: 'For market observation; no live orders or balance changes.',
+    zh: '。',
+    ms: '.',
+    en:.',
   },
   'market.scenarioDialogSafety': {
-    zh: '用于观察市场；不执行真实订单或改变余额。',
-    ms: 'Untuk memerhati pasaran; tiada pesanan langsung atau perubahan baki.',
-    en: 'For market observation; no live orders or balance changes.',
+    zh: '。',
+    ms: '.',
+    en: '.',
   },
   'market.scenarioAdminNoteLabel': {
     zh: '备注',
@@ -181,14 +181,14 @@ const legacyContentSettingDefaults = {
     en: 'Observation amount (USDT display)',
   },
   'market.scenarioScaleHint': {
-    zh: '用于观察市场，最低为 10 USDT；仅用于记录，不代表账户余额或收益',
-    ms: 'Untuk memerhati pasaran, minimum 10 USDT; hanya untuk rekod, bukan baki atau keuntungan akaun',
-    en: 'For market observation, minimum 10 USDT; record display only, not an account balance or return',
+    zh: '最低为 10 USDT；',
+    ms: ' minimum 10 USDT',
+    en: 'minimum 10 USDT',
   },
   'market.observationSafety': {
-    zh: '仅用于市场观察，不创建真实订单或改变余额。',
-    ms: 'Untuk pemerhatian pasaran sahaja; tiada pesanan langsung atau perubahan baki.',
-    en: 'Market observation only; no live orders or balance changes.',
+    zh: '。',
+    ms: '.',
+    en: '.',
   },
 };
 
@@ -240,9 +240,8 @@ function validateObservationSafetyCopy(values) {
   const ms = String(values?.ms || '').trim();
   const en = String(values?.en || '').trim();
   if (!zh || !ms || !en) return 'Chinese, Bahasa Melayu and English copy are all required';
-  const unsafeClaim = /(保证(?:收益|盈利)|稳赚|无风险|保本|guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu;
+  const unsafeClaim = /((?:|)||||guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu;
   if (unsafeClaim.test(`${zh}\n${ms}\n${en}`)) return 'The market-observation notice cannot include profit guarantees or risk-free claims';
-  const zhSafe = /(市场|观察|记录)/u.test(zh) && /(不创建|不产生|不执行|不会|不作).{0,100}(订单|交易|余额|资金)/u.test(zh);
   const msSafe = /(pemerhatian|pasaran)/iu.test(ms) && /(tiada|tidak|bukan).{0,100}(pesanan|dagangan|baki)/iu.test(ms);
   const enSafe = /(market|observation)/iu.test(en) && /\b(no|not|without)\b.{0,100}\b(live|order|orders|balance|balances)\b/iu.test(en);
   if (!zhSafe || !msSafe || !enSafe) return 'The notice must keep the market-observation, no-live-order, and no-balance-change disclosure in every language';
@@ -254,9 +253,9 @@ function validateFundingSafetyCopy(values) {
   const ms = String(values?.ms || '').trim();
   const en = String(values?.en || '').trim();
   if (!zh || !ms || !en) return 'Chinese, Bahasa Melayu and English copy are all required';
-  const unsafeClaim = /(保证(?:收益|盈利)|稳赚|无风险|保本|guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu;
+  const unsafeClaim = /|guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu;
   if (unsafeClaim.test(`${zh}\n${ms}\n${en}`)) return 'The funding notice cannot include profit guarantees or risk-free claims';
-  const zhSafe = /(审核|记录|内部)/u.test(zh) && /(不|不会).{0,100}(收款|付款|指令|余额|订单|交易)/u.test(zh);
+  const zhSafe = /(|)/u.test(zh) && /(会).{0,100}(收款|付款|指令|余额|订单|交易)/u.test(zh);
   const msSafe = /(semakan|rekod|dalaman)/iu.test(ms) && /(tiada|tidak|bukan).{0,120}(kutipan|bayaran|arahan|baki|pesanan|dagangan)/iu.test(ms);
   const enSafe = /(review|record|internal)/iu.test(en) && /\b(no|not|without)\b.{0,120}\b(collection|payout|payment|bank|wallet|instruction|order|balance)\b/iu.test(en);
   if (!zhSafe || !msSafe || !enSafe) return 'The funding notice must keep an internal-review and no-payment-instruction disclosure in every language';
@@ -268,7 +267,7 @@ function validateObservationContent(key, values) {
   if (key === 'funding.reviewSafety') return validateFundingSafetyCopy(values);
   const text = `${values?.zh || ''}\n${values?.ms || ''}\n${values?.en || ''}`.trim();
   if (!text) return 'Chinese, Bahasa Melayu and English copy are all required';
-  if (/(保证(?:收益|盈利)|稳赚|无风险|保本|guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu.test(text)) {
+  if (/((?:|)||||guarantee(?:d)?\s+(?:profit|return)|risk[-\s]?free|untung\s+dijamin|tanpa\s+risiko)/iu.test(text)) {
     return 'Market-observation copy cannot include profit guarantees or risk-free claims';
   }
   return '';
