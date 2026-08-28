@@ -107,6 +107,7 @@ export default defineConfig({
             '/api/notifications': localApiOrigin,
             '/api/profile': localApiOrigin,
             '/api/content-settings': localApiOrigin,
+            '/api/market-scenarios': localApiOrigin,
             '/api/market/status': localApiOrigin,
         },
     },

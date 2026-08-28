@@ -69,7 +69,7 @@ export function MarketPage() {
   const { session } = useAuth();
   const { t } = useLanguage();
   const [searchParams] = useSearchParams();
-  const [symbol, setSymbol] = useState('XAU');
+  const [symbol, setSymbol] = useState('BTC');
   const [timeframe, setTimeframe] = useState<TimeframeCode>('M15');
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);

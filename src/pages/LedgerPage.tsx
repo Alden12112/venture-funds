@@ -1,59 +1,99 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Clock3, RefreshCw } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { LoadingState, StatusPill } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
 import { formatDateTime } from '@/lib/format';
 import { apiFetch } from '@/lib/api';
-import type { TradeAuditEvent } from '@/types';
+import type { TimedMarketScenario } from '@/types';
 import { useLanguage } from '@/context/language-context';
 
-const tradeFilters = ['All', 'open', 'close', 'partial-close', 'liquidation'] as const;
+function formatObservationDuration(seconds: number, t: (key: string) => string) {
+  if (seconds >= 60 * 60) {
+    const hours = Math.floor(seconds / (60 * 60));
+    const minutes = Math.floor((seconds % (60 * 60)) / 60);
+    return `${hours}${t('market.scenarioHours')}${minutes ? ` ${minutes}${t('market.scenarioMinutes')}` : ''}`;
+  }
+  if (seconds >= 60) {
+    return `${Math.floor(seconds / 60)}${t('market.scenarioMinutes')}${seconds % 60 ? ` ${seconds % 60}${t('market.scenarioSeconds')}` : ''}`;
+  }
+  return `${seconds}${t('market.scenarioSeconds')}`;
+}
 
-function actionTranslationKey(action: TradeAuditEvent['action']) {
-  if (action === 'open') return 'ledger.open';
-  if (action === 'partial-close') return 'ledger.partialClose';
-  if (action === 'close') return 'ledger.close';
-  if (action === 'liquidation') return 'ledger.liquidation';
-  return 'ledger.riskUpdate';
+function observationResult(scenario: TimedMarketScenario, t: (key: string) => string) {
+  if (scenario.status === 'active') return t('ledger.observationPending');
+  if (scenario.status === 'void') return t('ledger.observationCancelled');
+  if (scenario.result === 'confirmed') return t('market.scenarioConfirmed');
+  if (scenario.result === 'not-confirmed') return t('market.scenarioNotConfirmed');
+  if (scenario.result === 'flat') return t('market.scenarioFlat');
+  return t('ledger.observationRecorded');
+}
+
+function observationResultTone(scenario: TimedMarketScenario) {
+  if (scenario.status === 'active') return 'warning' as const;
+  if (scenario.status === 'void' || scenario.result === 'not-confirmed') return 'critical' as const;
+  if (scenario.result === 'confirmed') return 'success' as const;
+  return 'info' as const;
+}
+
+function observationDetail(scenario: TimedMarketScenario, t: (key: string) => string) {
+  const direction = scenario.direction === 'up' ? t('market.scenarioUp') : t('market.scenarioDown');
+  const result = observationResult(scenario, t);
+  const note = scenario.status === 'settled' && scenario.adminNote
+    ? ` · ${t('ledger.observationNote')}: ${scenario.adminNote}`
+    : '';
+  return `${direction} · ${result}${note}`;
 }
 
 export function LedgerPage() {
   const { t } = useLanguage();
   const [refreshKey, setRefreshKey] = useState(0);
-  const [filter, setFilter] = useState<(typeof tradeFilters)[number]>('All');
-  const trades = useAsyncResource(() => apiFetch<TradeAuditEvent[]>('/api/trades'), [refreshKey]);
+  const scenarios = useAsyncResource(() => apiFetch<TimedMarketScenario[]>('/api/market-scenarios'), [refreshKey]);
 
-  const visibleTrades = useMemo(() => {
-    if (trades.status !== 'success') return [];
-    return trades.data.filter((trade) => filter === 'All' || trade.action === filter);
-  }, [filter, trades]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setRefreshKey((value) => value + 1), 2_000);
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'visible') setRefreshKey((value) => value + 1);
+    };
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+    };
+  }, []);
 
-  if (trades.status === 'loading') return <LoadingState label={t('ledger.loading')} />;
-  if (trades.status === 'error') return <div className="state-block state-block--error"><strong>{t('ledger.error')}</strong><p>{trades.error}</p></div>;
-  if (trades.status !== 'success') return <LoadingState label={t('ledger.loading')} />;
+  if (scenarios.status === 'loading') return <LoadingState label={t('ledger.loading')} />;
+  if (scenarios.status === 'error') return <div className="state-block state-block--error"><strong>{t('ledger.error')}</strong><p>{scenarios.error}</p></div>;
+  if (scenarios.status !== 'success') return <LoadingState label={t('ledger.loading')} />;
 
   return (
     <div className="page-stack">
       <PageHeader
-        eyebrow={t('ledger.eyebrow')}
-        title={t('ledger.title')}
-        description={t('ledger.description')}
-        actions={<button type="button" className="btn btn--ghost btn--sm" onClick={() => setRefreshKey((value) => value + 1)}>{t('action.refresh')}</button>}
+        eyebrow={t('ledger.observationEyebrow')}
+        title={t('ledger.observationTitle')}
+        description={t('ledger.observationDescription')}
+        actions={<button type="button" className="btn btn--ghost btn--sm" onClick={() => setRefreshKey((value) => value + 1)} disabled={scenarios.refreshing} aria-busy={scenarios.refreshing}><RefreshCw size={15} className={scenarios.refreshing ? 'spin' : ''} /> {t('action.refresh')}</button>}
       />
 
-      <section className="panel trade-history-panel">
+      <section className="panel trade-history-panel observation-ledger-panel">
         <div className="panel__head">
-          <div><span className="eyebrow">{t('ledger.tradeAudit')}</span><h2>{t('ledger.tradeAudit')}</h2><p>{t('ledger.tradeAuditHint')}</p></div>
-          <div className="chip-row">{tradeFilters.map((item) => <button key={item} type="button" className={`chip ${filter === item ? 'is-active' : ''}`} onClick={() => setFilter(item)}>{item === 'All' ? t('ledger.allActivity') : t(actionTranslationKey(item))}</button>)}</div>
+          <div><span className="eyebrow">{t('ledger.observationEyebrow')}</span><h2>{t('ledger.observationRecords')}</h2><p>{t('ledger.observationHint')}</p></div>
+          <StatusPill tone={scenarios.data.length ? 'info' : 'muted'}>{scenarios.data.length} {t('ledger.observationRecords')}</StatusPill>
         </div>
-        <div className="table-wrap trade-history-scroll" tabIndex={0}>
+        {scenarios.refreshError ? <div className="notice-banner notice-banner--warning" role="status"><Clock3 size={15} /><span>{t('data.refreshError')}</span></div> : null}
+        <div className="table-wrap trade-history-scroll observation-ledger-scroll" tabIndex={0}>
           <table className="table table--interactive">
-            <thead><tr><th>{t('ledger.time')}</th><th>{t('ledger.instrument')}</th><th>{t('ledger.action')}</th><th>{t('ledger.lots')}</th><th className="text-end">{t('ledger.referencePrice')}</th><th className="text-end">{t('ledger.pnl')}</th></tr></thead>
+            <thead><tr><th>{t('ledger.time')}</th><th>{t('ledger.instrument')}</th><th>{t('ledger.observationDuration')}</th><th className="text-end">{t('ledger.observationAmount')}</th><th>{t('ledger.observationResult')}</th></tr></thead>
             <tbody>
-              {visibleTrades.length ? visibleTrades.map((trade) => {
-                const closed = trade.action === 'close' || trade.action === 'partial-close' || trade.action === 'liquidation';
-                return <tr key={trade.id}><td>{formatDateTime(trade.createdAt)}</td><td><strong>{trade.symbol}</strong><div className="text-small text-muted">{trade.side === 'long' ? t('market.long') : t('market.short')}</div></td><td><StatusPill tone={trade.action === 'liquidation' ? 'critical' : closed ? 'info' : 'success'}>{t(actionTranslationKey(trade.action))}</StatusPill></td><td>{trade.lots.toFixed(2)}</td><td className="text-end">{trade.price.toFixed(4)}</td><td className={`text-end ${trade.pnl == null ? 'text-muted' : trade.pnl >= 0 ? 'trend trend--up' : 'trend trend--down'}`}>{trade.pnl == null ? '—' : `${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)} U`}</td></tr>;
-              }) : <tr><td colSpan={6}><div className="empty-inline"><span>{t('ledger.noTrades')}</span></div></td></tr>}
+              {scenarios.data.length ? scenarios.data.map((scenario) => (
+                <tr key={scenario.id}>
+                  <td>{formatDateTime(scenario.createdAt)}</td>
+                  <td><strong>{scenario.symbol}</strong><div className="text-small text-muted">{scenario.direction === 'up' ? t('market.scenarioUp') : t('market.scenarioDown')}</div></td>
+                  <td>{formatObservationDuration(scenario.durationSeconds, t)}</td>
+                  <td className="text-end"><strong>{scenario.observationPoints} USDT</strong></td>
+                  <td><div className="observation-result-cell"><StatusPill tone={observationResultTone(scenario)}>{observationResult(scenario, t)}</StatusPill><span>{observationDetail(scenario, t)}</span></div></td>
+                </tr>
+              )) : <tr><td colSpan={5}><div className="empty-inline"><span>{t('ledger.noObservations')}</span></div></td></tr>}
             </tbody>
           </table>
         </div>

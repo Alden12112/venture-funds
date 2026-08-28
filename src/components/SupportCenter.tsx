@@ -7,9 +7,6 @@ import { formatDateTime } from '@/lib/format';
 import { useLanguage } from '@/context/language-context';
 import type { SupportMessage } from '@/types';
 
-const whatsappUrl = 'https://wa.me/60178541111';
-const telegramUrl = 'https://t.me/Alden_1022';
-
 export function SupportCenter({ adminMode = false, initialDraft = '' }: { adminMode?: boolean; initialDraft?: string }) {
   const { session } = useAuth();
   const { t } = useLanguage();
@@ -107,12 +104,6 @@ export function SupportCenter({ adminMode = false, initialDraft = '' }: { adminM
           </div>
         </div>
         <div className="support-console__actions">
-          <a className="support-channel support-channel--whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer" aria-label={t('support.openWhatsApp')}>
-            <MessageCircle size={16} /> WhatsApp
-          </a>
-          <a className="support-channel support-channel--telegram" href={telegramUrl} target="_blank" rel="noreferrer" aria-label={t('support.openTelegram')}>
-            <Send size={16} /> Telegram
-          </a>
           <button type="button" className="icon-button icon-button--small" onClick={() => void loadMessages()} aria-label={t('support.refresh')}><RefreshCw size={15} /></button>
         </div>
       </div>

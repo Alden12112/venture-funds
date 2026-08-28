@@ -25,8 +25,11 @@ import {
   FUNDING_PROCESSING_NOTE_KEY,
   FUNDING_REVIEW_SAFETY_KEY,
   MARKET_OBSERVATION_CONTENT_KEYS,
+  MARKET_OBSERVATION_SAFETY_KEY,
   MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY,
+  MARKET_SCENARIO_DIRECTION_HINT_KEY,
   MARKET_SCENARIO_DIALOG_SAFETY_KEY,
+  MARKET_SCENARIO_INPUT_NOTE_KEY,
   MARKET_SCENARIO_SCALE_HINT_KEY,
   MARKET_SCENARIO_SCALE_KEY,
   MARKET_SCENARIO_SCALE_NOTE_KEY,
@@ -191,6 +194,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     { key: MARKET_SCENARIO_SCALE_KEY, label: t('admin.contentObservationTitle'), location: t('admin.contentLocationAmountTitle'), rows: 2 },
     { key: MARKET_SCENARIO_SCALE_HINT_KEY, label: t('admin.contentObservationAmountHint'), location: t('admin.contentLocationAmountTitle'), rows: 2 },
     { key: MARKET_SCENARIO_SCALE_NOTE_KEY, label: t('admin.contentObservationAmountNote'), location: t('admin.contentLocationAmountNote'), rows: 3 },
+    { key: MARKET_SCENARIO_INPUT_NOTE_KEY, label: t('admin.contentObservationInputLabel'), location: t('admin.contentLocationAmountNote'), rows: 2 },
+    { key: MARKET_SCENARIO_DIRECTION_HINT_KEY, label: t('admin.contentObservationDirectionHint'), location: t('admin.contentLocationDirection'), rows: 2 },
+    { key: MARKET_OBSERVATION_SAFETY_KEY, label: t('admin.contentObservationSharedSafety'), location: t('admin.contentLocationSharedSafety'), rows: 3 },
     { key: MARKET_SCENARIO_WORKSPACE_SAFETY_KEY, label: t('admin.contentObservationWorkspaceSafety'), location: t('admin.contentLocationWorkspaceSafety'), rows: 3 },
     { key: MARKET_SCENARIO_DIALOG_SAFETY_KEY, label: t('admin.contentObservationDialogSafety'), location: t('admin.contentLocationDialogSafety'), rows: 3 },
     { key: MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY, label: t('admin.contentObservationAdminNote'), location: t('admin.contentLocationResultNote'), rows: 2 },
@@ -353,7 +359,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const monthDepositMyr = monthDepositRequests.reduce((sum, item) => sum + item.amountMyr, 0);
   const monthWithdrawalMyr = monthWithdrawalRequests.reduce((sum, item) => sum + item.amountMyr, 0);
   const newsItems = news.status === 'success' ? news.data.items : [];
-  const contentCount = newsItems.length;
+  const contentCount = contentFields.length;
   const report = admin.data.report;
   const creditByEmail = new Map(admin.data.creditAccounts.map((account) => [account.email.toLowerCase(), account]));
   const grantLookup = grantTarget.trim().toLowerCase();
@@ -1082,9 +1088,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                     <code>{key}</code>
                   </div>
                   <div className="form-grid admin-content-editor__fields">
-                    <label className="field"><span>{t('admin.contentChinese')}</span><textarea rows={rows} maxLength={500} value={contentDraft[key].zh} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, [key]: { ...current[key], zh: event.target.value } })); }} /></label>
-                    <label className="field"><span>{t('admin.contentMalay')}</span><textarea rows={rows} maxLength={500} value={contentDraft[key].ms} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, [key]: { ...current[key], ms: event.target.value } })); }} /></label>
-                    <label className="field"><span>{t('admin.contentEnglish')}</span><textarea rows={rows} maxLength={500} value={contentDraft[key].en} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, [key]: { ...current[key], en: event.target.value } })); }} /></label>
+                    <label className="field"><span>{t('admin.contentChinese')}</span><textarea rows={rows} value={contentDraft[key].zh} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, [key]: { ...current[key], zh: event.target.value } })); }} /></label>
+                    <label className="field"><span>{t('admin.contentMalay')}</span><textarea rows={rows} value={contentDraft[key].ms} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, [key]: { ...current[key], ms: event.target.value } })); }} /></label>
+                    <label className="field"><span>{t('admin.contentEnglish')}</span><textarea rows={rows} value={contentDraft[key].en} onChange={(event) => { setContentDirty(true); setContentMessage(''); setContentDraft((current) => ({ ...current, [key]: { ...current[key], en: event.target.value } })); }} /></label>
                   </div>
                 </section>
               ))}

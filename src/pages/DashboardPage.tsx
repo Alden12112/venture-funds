@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, BriefcaseBusiness, HandCoins, Newspaper, Radar, ShieldCheck, TrendingUp, WalletCards } from 'lucide-react';
+import { AlertTriangle, ArrowRight, BriefcaseBusiness, Newspaper, Radar, ShieldCheck, TrendingUp, WalletCards } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, EmptyState, LoadingState, StatCard, StatusPill } from '@/components/Stats';
 import { Sparkline } from '@/components/Charts';
@@ -13,8 +13,8 @@ import { loadNotificationBundle } from '@/adapters/notification-adapter';
 import { formatCurrency, formatDateTime, formatMarketCurrency, formatPercent } from '@/lib/format';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
-import { createRemoteCreditRequest, loadRemoteCreditAccount, loadRemoteCreditRequests } from '@/lib/credits';
-import type { CreditAccount, CreditRequest } from '@/types';
+import { loadRemoteCreditAccount } from '@/lib/credits';
+import type { CreditAccount } from '@/types';
 import { assetNameKey } from '@/data/assets';
 import { labelCalendarTitle, labelCountry, labelMarket, labelNewsCategory, labelNewsImpact, labelNewsSummary } from '@/lib/news-labels';
 import { VentureCampaignRail } from '@/components/VentureCampaignRail';
@@ -26,23 +26,19 @@ const dashboardStatusKeys: Record<string, string> = {
 export function DashboardPage() {
   const { session } = useAuth();
   const { t } = useLanguage();
-  const market = useAsyncResource(() => loadMarketBundle('XAU'), []);
+  const market = useAsyncResource(() => loadMarketBundle('BTC'), []);
   const ledger = useAsyncResource(() => loadLedgerBundle(), []);
   const research = useAsyncResource(() => loadNewsBundle(), []);
   const notifications = useAsyncResource(() => loadNotificationBundle(), []);
-  const [creditAmount, setCreditAmount] = useState(100);
-  const [creditReason, setCreditReason] = useState('');
   const [creditVersion, setCreditVersion] = useState(0);
   const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(null);
-  const [creditRequests, setCreditRequests] = useState<CreditRequest[]>([]);
 
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
-    void Promise.all([loadRemoteCreditAccount(session), loadRemoteCreditRequests(session)]).then(([account, requests]) => {
+    void loadRemoteCreditAccount(session).then((account) => {
       if (cancelled) return;
       setCreditAccount(account);
-      setCreditRequests(requests);
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [creditVersion, session]);
@@ -50,20 +46,11 @@ export function DashboardPage() {
   useEffect(() => {
     const refresh = (event: Event) => {
       const key = (event as CustomEvent<{ key?: string }>).detail?.key;
-      if (key === 'creditAccounts' || key === 'creditRequests') setCreditVersion((value) => value + 1);
+      if (key === 'creditAccounts') setCreditVersion((value) => value + 1);
     };
     window.addEventListener('ad88:storage-sync', refresh);
     return () => window.removeEventListener('ad88:storage-sync', refresh);
   }, []);
-
-  const submitCreditRequest = async () => {
-    if (!session) return;
-    const amount = Math.max(1, Math.round(creditAmount));
-    await createRemoteCreditRequest(session, amount, creditReason.trim() || t('dashboard.marginAllocationReview'));
-    setCreditAmount(100);
-    setCreditReason('');
-    setCreditVersion((value) => value + 1);
-  };
 
   if ([market, ledger, notifications].some((resource) => resource.status === 'loading')) {
     return <LoadingState label={t('dashboard.loading')} />;
@@ -83,7 +70,6 @@ export function DashboardPage() {
   const pendingLedger = ledger.data.entries.filter((entry) => entry.status === 'pending').length;
   const unread = notifications.data.items.filter((item) => !item.read).length;
   const trendSeries = market.data.candles.slice(-24).map((item) => item.close);
-  const recentCreditRequests = creditRequests.slice(0, 3);
   const topMoves = [...market.data.assets].sort((left, right) => Math.abs(right.change24h) - Math.abs(left.change24h)).slice(0, 3);
   const researchItems = research.status === 'success' ? research.data.items.slice(0, 3) : [];
   const nextEvent = research.status === 'success' ? research.data.events[0] : null;
@@ -113,7 +99,7 @@ export function DashboardPage() {
       <section className="metric-grid metric-grid--command">
          <StatCard label={t('dashboard.accountValue')} value={formatCurrency(totalAssets)} note={totalAssets ? t('dashboard.paperBalance') : t('dashboard.noFundedBalance')} />
          <StatCard label={t('dashboard.buyingPower')} value={formatCurrency(availableMargin)} />
-         <StatCard label={t('dashboard.reviewQueue')} value={String(pendingLedger + recentCreditRequests.filter((item) => item.status === 'pending').length)} note={t('dashboard.reviewQueueHint')} />
+         <StatCard label={t('dashboard.reviewQueue')} value={String(pendingLedger)} note={t('dashboard.reviewQueueHint')} />
          <StatCard label={t('dashboard.attentionRequired')} value={String(unread)} note={unread ? t('dashboard.unreadAlerts') : t('dashboard.noUnreadAlerts')} />
       </section>
 
@@ -129,8 +115,6 @@ export function DashboardPage() {
         <article className="panel credit-console">
            <div className="panel__head"><div><h2><WalletCards size={18} /> {t('dashboard.accountControls')}</h2><p>{t('dashboard.accountControlsHint')}</p></div><StatusPill tone={pendingMargin ? 'warning' : 'info'}>{pendingMargin ? `${pendingMargin} U${t('dashboard.pendingReview')}` : t('dashboard.noPendingReview')}</StatusPill></div>
            <div className="credit-balance-grid"><StatCard label={t('dashboard.balance')} value={`${totalAssets.toFixed(2)} U`} note={t('dashboard.paperBalance')} /><StatCard label={t('dashboard.available')} value={`${availableMargin.toFixed(2)} U`} note={t('market.availableMargin')} /><StatCard label={t('dashboard.inReview')} value={`${pendingMargin.toFixed(2)} U`} note={t('dashboard.notTradableYet')} /></div>
-           <div className="form-grid"><label className="field"><span>{t('dashboard.requestedU')}</span><input type="number" min="1" step="1" value={creditAmount} onChange={(event) => setCreditAmount(Number(event.target.value))} /></label><label className="field"><span>{t('dashboard.reviewContext')}</span><input placeholder={t('dashboard.marginAllocationReview')} value={creditReason} onChange={(event) => setCreditReason(event.target.value)} /></label></div>
-           <button type="button" className="btn btn--primary" onClick={() => void submitCreditRequest()}><HandCoins size={16} /> {t('dashboard.submitReview')}</button>
         </article>
 
         <article className="panel market-intelligence-panel">
@@ -153,10 +137,6 @@ export function DashboardPage() {
       </section>
 
       <section className="content-grid content-grid--two">
-         <article className="panel">
-           <div className="panel__head"><div><h2>{t('dashboard.marginHistory')}</h2><p>{t('dashboard.marginHistoryHint')}</p></div></div>
-           {recentCreditRequests.length ? <div className="stack-list">{recentCreditRequests.map((request) => <div key={request.id} className="stack-list__row"><div><strong>{request.amount} U</strong><span>{request.reason}</span></div><div className="stack-list__meta"><StatusPill tone={request.status === 'approved' ? 'success' : request.status === 'pending' ? 'warning' : 'critical'}>{labelStatus(request.status)}</StatusPill><span>{formatDateTime(request.requestedAt)}</span></div></div>)}</div> : <EmptyState title={t('dashboard.noReviewRequests')} text={t('dashboard.submitReviewAbove')} />}
-        </article>
         <article className="panel command-center__alerts">
            <div className="panel__head"><div><h2>{t('dashboard.workspaceAlerts')}</h2><p>{t('dashboard.workspaceAlertsHint')}</p></div><Link to="/app/notifications" className="link-action">{t('dashboard.openAlerts')} <ArrowRight size={16} /></Link></div>
            {notifications.data.items.length ? <div className="stack-list">{notifications.data.items.slice(0, 4).map((item) => <div key={item.id} className="stack-list__row"><div><strong>{item.title}</strong><span>{item.body}</span></div><div className="stack-list__meta"><StatusPill tone={item.read ? 'muted' : 'warning'}>{item.read ? t('ui.read') : t('ui.unread')}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div></div>)}</div> : <EmptyState title={t('dashboard.noAlerts')} text={t('dashboard.notificationsSoon')} />}

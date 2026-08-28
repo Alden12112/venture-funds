@@ -8,6 +8,8 @@ import { formatDateTime, formatMarketPrice } from '@/lib/format';
 import type { TimedMarketScenario, TimedScenarioDirection, TimedScenarioUnit } from '@/types';
 import { TimedScenarioResultDialog } from '@/components/TimedScenarioResultDialog';
 import {
+  MARKET_SCENARIO_DIRECTION_HINT_KEY,
+  MARKET_SCENARIO_INPUT_NOTE_KEY,
   MARKET_SCENARIO_SCALE_HINT_KEY,
   MARKET_SCENARIO_SCALE_KEY,
   MARKET_SCENARIO_SCALE_NOTE_KEY,
@@ -169,13 +171,13 @@ export function TimedScenarioWorkspace({ symbol, price }: { symbol: string; pric
         <div className="scenario-step scenario-step--points">
           <div className="scenario-step__title"><span>02</span><div><strong>{getContent(MARKET_SCENARIO_SCALE_KEY, language)}</strong><small>{getContent(MARKET_SCENARIO_SCALE_HINT_KEY, language)}</small></div></div>
           <label className="field scenario-points-field"><span>{getContent(MARKET_SCENARIO_SCALE_KEY, language)}</span><div className="scenario-points-input"><input type="number" min="10" step="1" value={observationPoints} onChange={(event) => setObservationPoints(event.target.value)} aria-invalid={!pointsValid} /><b aria-hidden="true">USDT</b></div></label>
-          <div className="scenario-points-note" role="note"><MessageSquareText size={14} aria-hidden="true" /><div><strong>{t('market.scenarioInputNote')}</strong><p>{getContent(MARKET_SCENARIO_SCALE_NOTE_KEY, language)}</p></div></div>
+          <div className="scenario-points-note" role="note" data-content-key={MARKET_SCENARIO_SCALE_NOTE_KEY}><MessageSquareText size={14} aria-hidden="true" /><div><strong>{getContent(MARKET_SCENARIO_INPUT_NOTE_KEY, language)}</strong><p>{getContent(MARKET_SCENARIO_SCALE_NOTE_KEY, language)}</p></div></div>
           <div className="scenario-points-presets" aria-label={t('market.scenarioScalePresets')}>{pointPresets.map((value) => <button key={value} type="button" className={`scenario-points-preset ${points === value ? 'is-active' : ''}`} onClick={() => setObservationPoints(String(value))}>{value}</button>)}</div>
         </div>
 
         <div className="scenario-step scenario-step--direction">
-          <div className="scenario-step__title"><span>03</span><div><strong>{t('market.scenarioDirection')}</strong><small>{t('market.scenarioDirectionHint')}</small></div></div>
-          <div className="scenario-direction-grid"><button type="button" className={`scenario-direction scenario-direction--up ${direction === 'up' ? 'is-active' : ''}`} onClick={() => setDirection('up')}><ArrowUpRight size={21} /><strong>{t('market.scenarioUp')}</strong><small>{t('market.scenarioUpHint')}</small></button><button type="button" className={`scenario-direction scenario-direction--down ${direction === 'down' ? 'is-active' : ''}`} onClick={() => setDirection('down')}><ArrowDownRight size={21} /><strong>{t('market.scenarioDown')}</strong><small>{t('market.scenarioDownHint')}</small></button></div>
+          <div className="scenario-step__title"><span>03</span><div><strong>{t('market.scenarioDirection')}</strong><small>{getContent(MARKET_SCENARIO_DIRECTION_HINT_KEY, language)}</small></div></div>
+          <div className="scenario-direction-grid"><button type="button" className={`scenario-direction scenario-direction--up ${direction === 'up' ? 'is-active' : ''}`} onClick={() => setDirection('up')}><ArrowUpRight size={21} /><strong>{t('market.scenarioUp')}</strong></button><button type="button" className={`scenario-direction scenario-direction--down ${direction === 'down' ? 'is-active' : ''}`} onClick={() => setDirection('down')}><ArrowDownRight size={21} /><strong>{t('market.scenarioDown')}</strong></button></div>
           <div className="scenario-direction-readout"><Gauge size={15} /><span>{directionLabel(direction, t)}</span><strong>{formatDuration(durationSeconds, t)}</strong></div>
         </div>
       </div>
