@@ -12,6 +12,47 @@ export const MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY = 'market.scenarioAdminNoteLab
 export const FUNDING_PROCESSING_NOTE_KEY = 'funding.processingNote';
 export const FUNDING_REVIEW_SAFETY_KEY = 'funding.reviewSafety';
 
+/** A compact, explicit status label for the protected DEMO observation flow. */
+export const compactObservationSafetyCopy: Record<LanguageCode, string> = {
+  zh: 'DEMO 观察模式 · 仅记录；不执行真实订单、不改变余额。',
+  ms: 'Mod DEMO pemerhatian · rekod sahaja; tiada pesanan sebenar atau perubahan baki.',
+  en: 'DEMO observation mode · record only; no live orders or balance changes.',
+};
+
+const observationSafetyKeys = new Set<string>([
+  MARKET_OBSERVATION_SAFETY_KEY,
+  MARKET_SCENARIO_WORKSPACE_SAFETY_KEY,
+  MARKET_SCENARIO_DIALOG_SAFETY_KEY,
+]);
+
+// A previous release used a longer sentence in these fields. The API migration
+// replaces known legacy values, while this client-side guard keeps an already
+// cached response from briefly bringing that sentence back into the UI.
+const legacyObservationSafetyValues: Record<LanguageCode, string[]> = {
+  zh: [
+    ['用于观察市场', '不执行真实订单', '或改变余额'].join('；'),
+    ['用于观察市场', '不执行真实订单'].join('；'),
+    ['仅用于市场观察', '不创建真实订单', '或改变余额'].join('，'),
+  ],
+  ms: [
+    ['Untuk memerhati pasaran', 'tiada pesanan langsung atau perubahan baki'].join('; '),
+    ['Untuk pemerhatian pasaran sahaja', 'tiada pesanan langsung atau perubahan baki'].join('; '),
+  ],
+  en: [
+    ['For market observation', 'no live orders or balance changes'].join('; '),
+    ['Market observation only', 'no live orders or balance changes'].join('; '),
+  ],
+};
+
+function normalizedCopy(value: string) {
+  return String(value || '').trim().replace(/[。.!；;，,\s]+/gu, '').toLocaleLowerCase();
+}
+
+function isLegacyObservationSafetyValue(value: string, language: LanguageCode) {
+  const normalized = normalizedCopy(value);
+  return Boolean(normalized) && legacyObservationSafetyValues[language].some((candidate) => normalizedCopy(candidate) === normalized);
+}
+
 export const MARKET_OBSERVATION_CONTENT_KEYS = [
   MARKET_SCENARIO_SCALE_KEY,
   MARKET_SCENARIO_SCALE_HINT_KEY,
@@ -40,9 +81,9 @@ export const defaultSharedContent: Record<string, Record<LanguageCode, string>> 
     en: 'Set an amount to frame this market observation.',
   },
   [MARKET_SCENARIO_SCALE_NOTE_KEY]: {
-    zh: '用于观察市场，最低为 10 USDT；仅用于记录，不代表账户余额或收益。',
-    ms: 'Untuk memerhati pasaran, minimum 10 USDT; hanya untuk rekod, bukan baki atau keuntungan akaun.',
-    en: 'For market observation, minimum 10 USDT; record display only, not an account balance or return.',
+    zh: '最低为 10 USDT；仅用于记录，不代表账户余额或收益。',
+    ms: 'Minimum 10 USDT; rekod sahaja, bukan baki atau keuntungan akaun.',
+    en: 'Minimum 10 USDT; record only, not an account balance or return.',
   },
   [MARKET_SCENARIO_INPUT_NOTE_KEY]: {
     zh: '备注',
@@ -55,19 +96,13 @@ export const defaultSharedContent: Record<string, Record<LanguageCode, string>> 
     en: 'Choose the market direction to record',
   },
   [MARKET_OBSERVATION_SAFETY_KEY]: {
-    zh: '用于观察市场；不执行真实订单或改变余额。',
-    ms: 'Untuk memerhati pasaran; tiada pesanan langsung atau perubahan baki.',
-    en: 'For market observation; no live orders or balance changes.',
+    ...compactObservationSafetyCopy,
   },
   [MARKET_SCENARIO_WORKSPACE_SAFETY_KEY]: {
-    zh: '用于观察市场；不执行真实订单或改变余额。',
-    ms: 'Untuk memerhati pasaran; tiada pesanan langsung atau perubahan baki.',
-    en: 'For market observation; no live orders or balance changes.',
+    ...compactObservationSafetyCopy,
   },
   [MARKET_SCENARIO_DIALOG_SAFETY_KEY]: {
-    zh: '用于观察市场；不执行真实订单或改变余额。',
-    ms: 'Untuk memerhati pasaran; tiada pesanan langsung atau perubahan baki.',
-    en: 'For market observation; no live orders or balance changes.',
+    ...compactObservationSafetyCopy,
   },
   [MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY]: {
     zh: '备注',
@@ -93,11 +128,15 @@ export function getDefaultSharedContentSetting(key: string): SharedContentSettin
 
 export function getSharedContentValue(settings: SharedContentSetting[], key: string, language: LanguageCode) {
   const setting = settings.find((item) => item.key === key);
-  if (!setting) return getDefaultSharedContentSetting(key).values[language];
+  const fallback = getDefaultSharedContentSetting(key).values[language];
+  if (!setting) return fallback;
   // An empty string is a deliberate editor value, not a missing value. This
   // lets administrators hide optional labels/notes without them reappearing
   // from the bundled defaults.
-  return Object.prototype.hasOwnProperty.call(setting.values, language)
+  const value = Object.prototype.hasOwnProperty.call(setting.values, language)
     ? setting.values[language]
-    : getDefaultSharedContentSetting(key).values[language];
+    : fallback;
+  return observationSafetyKeys.has(key) && isLegacyObservationSafetyValue(value, language)
+    ? compactObservationSafetyCopy[language]
+    : value;
 }

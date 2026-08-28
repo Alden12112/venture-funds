@@ -5452,6 +5452,9 @@ table {
 .scenario-safety-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 15px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .scenario-safety-note svg { flex: 0 0 auto; margin-top: 1px; color: var(--accent-strong); }
 
+.dashboard-observation-disclosure { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 4px auto 0; max-width: 720px; color: color-mix(in srgb, var(--muted) 78%, transparent); font-size: 10px; line-height: 1.4; text-align: center; }
+.dashboard-observation-disclosure svg { flex: 0 0 auto; color: color-mix(in srgb, var(--accent-strong) 65%, transparent); }
+
 .scenario-history { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 17px; }
 .scenario-history__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 11px; }
 .scenario-history__head > div { display: grid; gap: 3px; }

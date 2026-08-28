@@ -18,6 +18,8 @@ import type { CreditAccount } from '@/types';
 import { assetNameKey } from '@/data/assets';
 import { labelCalendarTitle, labelCountry, labelMarket, labelNewsCategory, labelNewsImpact, labelNewsSummary } from '@/lib/news-labels';
 import { VentureCampaignRail } from '@/components/VentureCampaignRail';
+import { useContentSettings } from '@/context/content-settings-context';
+import { MARKET_SCENARIO_DIALOG_SAFETY_KEY } from '@/lib/content-settings';
 
 const dashboardStatusKeys: Record<string, string> = {
   approved: 'status.approved', settled: 'status.settled', pending: 'status.pending', rejected: 'status.rejected',
@@ -25,7 +27,8 @@ const dashboardStatusKeys: Record<string, string> = {
 
 export function DashboardPage() {
   const { session } = useAuth();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
+  const { getContent } = useContentSettings();
   const market = useAsyncResource(() => loadMarketBundle('BTC'), []);
   const ledger = useAsyncResource(() => loadLedgerBundle(), []);
   const research = useAsyncResource(() => loadNewsBundle(), []);
@@ -142,6 +145,11 @@ export function DashboardPage() {
            {notifications.data.items.length ? <div className="stack-list">{notifications.data.items.slice(0, 4).map((item) => <div key={item.id} className="stack-list__row"><div><strong>{item.title}</strong><span>{item.body}</span></div><div className="stack-list__meta"><StatusPill tone={item.read ? 'muted' : 'warning'}>{item.read ? t('ui.read') : t('ui.unread')}</StatusPill><span>{formatDateTime(item.createdAt)}</span></div></div>)}</div> : <EmptyState title={t('dashboard.noAlerts')} text={t('dashboard.notificationsSoon')} />}
         </article>
       </section>
+
+      <div className="dashboard-observation-disclosure" role="note">
+        <ShieldCheck size={13} aria-hidden="true" />
+        <span>{getContent(MARKET_SCENARIO_DIALOG_SAFETY_KEY, language)}</span>
+      </div>
     </div>
   );
 }

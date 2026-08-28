@@ -1,10 +1,10 @@
 import { useEffect } from 'react';
-import { Clock3, Eye, ShieldCheck, X } from 'lucide-react';
+import { Clock3, Eye, X } from 'lucide-react';
 import { useLanguage } from '@/context/language-context';
 import { useContentSettings } from '@/context/content-settings-context';
 import { formatDateTime, formatMarketPrice } from '@/lib/format';
 import type { TimedMarketScenario } from '@/types';
-import { MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY, MARKET_SCENARIO_DIALOG_SAFETY_KEY, MARKET_SCENARIO_SCALE_KEY } from '@/lib/content-settings';
+import { MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY, MARKET_SCENARIO_SCALE_KEY } from '@/lib/content-settings';
 
 function remainingSeconds(scenario: TimedMarketScenario, now: number) {
   return Math.max(0, Math.ceil((new Date(scenario.expiresAt).getTime() - now) / 1000));
@@ -115,10 +115,6 @@ export function TimedScenarioResultDialog({
           </div>
         </div>
 
-        <footer className="scenario-result-dialog__footer">
-          <ShieldCheck size={15} />
-          <strong>{getContent(MARKET_SCENARIO_DIALOG_SAFETY_KEY, language)}</strong>
-        </footer>
       </section>
     </div>
   );
