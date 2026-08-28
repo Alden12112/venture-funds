@@ -158,6 +158,7 @@ export function NewsPage() {
 
       <div className="news-observation-disclosure" role="note">
         <ShieldCheck size={12} aria-hidden="true" />
+        <span className="news-observation-disclosure__context">{t('news.observationContext')}</span>
         <span>{getContent(MARKET_SCENARIO_DIALOG_SAFETY_KEY, language)}</span>
       </div>
     </div>

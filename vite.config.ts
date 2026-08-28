@@ -103,6 +103,7 @@ export default defineConfig({
       '/api/admin': localApiOrigin,
       '/api/support': localApiOrigin,
       '/api/trades': localApiOrigin,
+      '/api/paper': localApiOrigin,
       '/api/sync': localApiOrigin,
       '/api/credits': localApiOrigin,
       '/api/ledger': localApiOrigin,

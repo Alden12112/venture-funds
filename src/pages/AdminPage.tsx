@@ -10,7 +10,7 @@ import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { approveRemoteCreditRequest, grantRemoteCredits, rejectRemoteCreditRequest } from '@/lib/credits';
-import { buildInternationalPhone, countryDirectory, getCountryOption, isValidCountryPhone, phoneDigitsHint } from '@/data/countries';
+import { buildInternationalPhone, countryDirectory, getCountryOption, isValidCountryPhone, normalizeCountryPhoneInput, phoneDigitsHint } from '@/data/countries';
 import { isValidEmail } from '@/lib/auth';
 import { apiFetch } from '@/lib/api';
 import { SupportCenter } from '@/components/SupportCenter';
@@ -645,7 +645,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <label className="field"><span>{t('admin.fullName')}</span><input value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} /></label>
               <label className="field"><span>{t('admin.email')}</span><input type="email" value={accountForm.email} onChange={(event) => setAccountForm({ ...accountForm, email: event.target.value })} /></label>
               <label className="field"><span>{t('admin.countryRegion')}</span><select value={accountForm.country} onChange={(event) => setAccountForm({ ...accountForm, country: event.target.value, phone: '' })}>{countryDirectory.map((country) => <option key={`${country.code}-${country.name}`} value={country.name}>{country.name} (+{country.dialCode})</option>)}</select></label>
-              <label className="field"><span>{t('admin.phoneDigits').replace('{digits}', phoneDigitsHint(accountCountry))}</span><div className="phone-input"><span className="phone-input__prefix">+{accountCountry.dialCode}</span><input type="tel" inputMode="numeric" maxLength={accountPhoneMaxLength} value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value.replace(/\D/g, '').slice(0, accountPhoneMaxLength) })} /></div></label>
+              <label className="field"><span>{t('admin.phoneDigits').replace('{digits}', phoneDigitsHint(accountCountry))}</span><div className="phone-input"><span className="phone-input__prefix">+{accountCountry.dialCode}</span><input type="tel" inputMode="numeric" maxLength={accountPhoneMaxLength} value={accountForm.phone} onChange={(event) => setAccountForm({ ...accountForm, phone: normalizeCountryPhoneInput(accountCountry, event.target.value) })} /></div></label>
               <label className="field"><span>{t('admin.initialPassword')}</span><input type="password" autoComplete="new-password" value={accountForm.password} onChange={(event) => setAccountForm({ ...accountForm, password: event.target.value })} /></label>
               <label className="field"><span>{t('admin.accountRole')}</span><select value={accountForm.role} onChange={(event) => setAccountForm({ ...accountForm, role: event.target.value as 'user' | 'admin' })}><option value="user">{t('admin.client')}</option><option value="admin">{t('admin.administrator')}</option></select></label>
             </div>

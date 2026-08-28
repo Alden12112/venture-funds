@@ -108,11 +108,11 @@ export function TimedScenarioResultDialog({
           <div><span>{t('market.scenarioDialogDirection')}</span><strong>{directionLabel(scenario, t)}</strong></div>
           <div><span>{t('market.scenarioReferencePrice')}</span><strong>{formatMarketPrice(scenario.referencePrice)}</strong></div>
           <div><span>{getContent(MARKET_SCENARIO_SCALE_KEY, language)}</span><strong>{scoreLabel(scenario, t)}</strong></div>
-          <div><span>{t('market.scenarioExpires')}</span><strong>{formatDateTime(scenario.expiresAt)}</strong></div>
-          <div className="scenario-result-dialog__detail-note">
+          <div className="scenario-result-dialog__detail-note" data-testid="scenario-result-note">
             <span>{getContent(MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY, language)}</span>
             <strong>{scenario.status === 'settled' && scenario.adminNote ? scenario.adminNote : '—'}</strong>
           </div>
+          <div><span>{t('market.scenarioExpires')}</span><strong>{formatDateTime(scenario.expiresAt)}</strong></div>
         </div>
 
       </section>

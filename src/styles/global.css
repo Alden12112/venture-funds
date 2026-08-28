@@ -5316,6 +5316,33 @@ table {
   margin-top: 9px;
 }
 
+.scenario-account-availability {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning-soft) 48%, var(--surface-strong));
+}
+.scenario-account-availability > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.scenario-account-availability span,
+.scenario-account-availability small { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.scenario-account-availability strong { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.scenario-account-availability small { overflow-wrap: anywhere; }
+.scenario-account-availability--ready {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border));
+  background: color-mix(in srgb, var(--success-soft) 46%, var(--surface-strong));
+}
+.scenario-account-availability--ready strong { color: var(--success); }
+.scenario-account-availability--blocked strong { color: var(--warning); }
+
 .scenario-points-preset {
   min-height: 34px;
   border: 1px solid var(--border);
@@ -5469,6 +5496,7 @@ table {
 .scenario-history__symbol { display: inline-grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; border-radius: 10px; background: var(--surface); color: var(--accent-strong); font-size: 11px; font-weight: 850; letter-spacing: .03em; }
 .scenario-history__identity > div, .scenario-history__reference, .scenario-history__clock { display: grid; gap: 3px; min-width: 0; }
 .scenario-history__identity strong { font-size: 12px; }
+.scenario-history__amount { display: block; color: var(--accent-strong); font-size: 11px; font-variant-numeric: tabular-nums; letter-spacing: .01em; }
 .scenario-history__identity span:not(.scenario-history__symbol), .scenario-history__reference span, .scenario-history__clock span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .scenario-history__reference { justify-items: end; text-align: right; }
 .scenario-history__reference strong, .scenario-history__clock strong { font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -5684,6 +5712,7 @@ table {
   .scenario-history__reference { display: none; }
   .scenario-history__clock { grid-column: 2; }
   .scenario-history__identity { grid-column: 1; }
+  .scenario-history__amount { font-size: 12px; }
   .scenario-history__list { max-height: min(430px, 56dvh); }
   .scenario-submit-row { align-items: stretch; flex-direction: column; }
   .scenario-submit-row .scenario-submit { width: 100%; }

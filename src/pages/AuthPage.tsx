@@ -8,7 +8,7 @@ import { useAuth } from '@/context/auth-context';
 import { EmptyState } from '@/components/Stats';
 import { useLanguage } from '@/context/language-context';
 import { isValidEmail, isValidInternationalPhone } from '@/lib/auth';
-import { buildInternationalPhone, countryDirectory, defaultCountry, getCountryOption, isValidCountryPhone, phoneDigitsHint } from '@/data/countries';
+import { buildInternationalPhone, countryDirectory, defaultCountry, getCountryOption, isValidCountryPhone, normalizeCountryPhoneInput, phoneDigitsHint, phonePrefixHint } from '@/data/countries';
 import { apiFetch } from '@/lib/api';
 
 export function AuthPage() {
@@ -35,12 +35,15 @@ export function AuthPage() {
 
   const selectedCountry = getCountryOption(form.country);
   const phoneMaxLength = Array.isArray(selectedCountry.digits) ? selectedCountry.digits[1] : selectedCountry.digits;
+  const countryPrefixRule = phonePrefixHint(selectedCountry)
+    ? t('auth.phonePrefixRule').replace('{prefix}', phonePrefixHint(selectedCountry))
+    : '';
   const setCountry = (countryName: string) => {
     const country = getCountryOption(countryName);
     setForm((current) => ({
       ...current,
       country: country.name,
-      phone: current.phone.replace(/\D/g, '').slice(0, Array.isArray(country.digits) ? country.digits[1] : country.digits),
+      phone: normalizeCountryPhoneInput(country, current.phone),
     }));
   };
 
@@ -110,7 +113,7 @@ export function AuthPage() {
         return;
       }
       if (!isValidCountryPhone(selectedCountry, form.phone)) {
-        setError(t('auth.completePhone').replace('{country}', selectedCountry.name).replace('{dialCode}', String(selectedCountry.dialCode)).replace('{digits}', phoneDigitsHint(selectedCountry)));
+        setError(t('auth.completePhone').replace('{country}', selectedCountry.name).replace('{dialCode}', String(selectedCountry.dialCode)).replace('{digits}', phoneDigitsHint(selectedCountry)).replace('{prefix}', countryPrefixRule));
         return;
       }
       if (form.password.length < 8) {
@@ -261,9 +264,9 @@ export function AuthPage() {
                   <span>{t('auth.phone')}</span>
                   <div className="phone-input">
                     <span className="phone-input__prefix">+{selectedCountry.dialCode}</span>
-                   <input required type="tel" inputMode="numeric" maxLength={phoneMaxLength} value={form.phone} placeholder={t('auth.phoneDigitsPlaceholder').replace('{digits}', phoneDigitsHint(selectedCountry))} onChange={(event) => setForm({ ...form, phone: event.target.value.replace(/\D/g, '').slice(0, phoneMaxLength) })} />
+                   <input required type="tel" inputMode="numeric" maxLength={phoneMaxLength} value={form.phone} placeholder={t('auth.phoneDigitsPlaceholder').replace('{digits}', phoneDigitsHint(selectedCountry))} onChange={(event) => setForm({ ...form, phone: normalizeCountryPhoneInput(selectedCountry, event.target.value) })} />
                   </div>
-                   <small className="field-hint">{t('auth.phoneDigitsHint').replace('{digits}', phoneDigitsHint(selectedCountry))}</small>
+                   <small className="field-hint">{t('auth.phoneDigitsHint').replace('{digits}', phoneDigitsHint(selectedCountry)).replace('{prefix}', countryPrefixRule)}</small>
                 </label>
                 <label className="field">
                   <span>{t('auth.country')}</span>

@@ -3,12 +3,14 @@ export interface CountryOption {
   name: string;
   dialCode: string;
   digits: number | [number, number];
+  /** Optional national prefixes, entered after the displayed calling code. */
+  nationalPrefixes?: readonly string[];
 }
 
 // Calling codes are kept in one catalogue so registration, profile editing and
 // admin account creation always apply the same international-phone rules.
 const rawCountryDirectory: CountryOption[] = [
-  { code: 'MY', name: 'Malaysia', dialCode: '60', digits: [9, 10] },
+  { code: 'MY', name: 'Malaysia', dialCode: '60', digits: [9, 10], nationalPrefixes: ['10', '11', '12', '13', '14', '15', '16', '17', '18', '19'] },
   { code: 'SG', name: 'Singapore', dialCode: '65', digits: 8 },
   { code: 'CN', name: 'China', dialCode: '86', digits: 11 },
   { code: 'ID', name: 'Indonesia', dialCode: '62', digits: [9, 12] },
@@ -236,12 +238,27 @@ export function phoneDigitsHint(country: CountryOption) {
   return Array.isArray(country.digits) ? `${country.digits[0]}-${country.digits[1]}` : String(country.digits);
 }
 
+export function phonePrefixHint(country: CountryOption) {
+  return country.nationalPrefixes?.length ? country.nationalPrefixes.join(', ') : '';
+}
+
+export function normalizeCountryPhoneInput(country: CountryOption, value: string) {
+  const max = Array.isArray(country.digits) ? country.digits[1] : country.digits;
+  let digits = value.replace(/\D/g, '');
+  const dialCode = country.dialCode.replace(/\D/g, '');
+  // The UI already renders the calling code. If a user pastes a complete
+  // international number, remove that code once so it cannot be duplicated.
+  if (digits.startsWith(dialCode) && digits.length > max) digits = digits.slice(dialCode.length);
+  return digits.slice(0, max);
+}
+
 export function isValidCountryPhone(country: CountryOption, value: string) {
-  const digits = value.replace(/\D/g, '');
+  const digits = normalizeCountryPhoneInput(country, value);
   const [min, max] = Array.isArray(country.digits) ? country.digits : [country.digits, country.digits];
-  return digits.length >= min && digits.length <= max;
+  const hasAllowedPrefix = !country.nationalPrefixes?.length || country.nationalPrefixes.some((prefix) => digits.startsWith(prefix));
+  return digits.length >= min && digits.length <= max && hasAllowedPrefix;
 }
 
 export function buildInternationalPhone(country: CountryOption, value: string) {
-  return `+${country.dialCode} ${value.replace(/\D/g, '')}`;
+  return `+${country.dialCode} ${normalizeCountryPhoneInput(country, value)}`;
 }

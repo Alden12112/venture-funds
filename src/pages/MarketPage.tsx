@@ -559,7 +559,7 @@ export function MarketPage() {
       </section>
 
 
-      <TimedScenarioWorkspace symbol={symbol} price={livePrice} />
+      <TimedScenarioWorkspace symbol={symbol} price={livePrice} availableUsdt={creditAccount?.available ?? null} />
     </div>
   );
 }
