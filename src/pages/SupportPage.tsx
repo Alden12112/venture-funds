@@ -9,10 +9,10 @@ export function SupportPage() {
   const params = new URLSearchParams(location.search);
   const isFundingContext = params.get('topic') === 'funding';
   const kind = params.get('kind') === 'withdraw' ? t('funding.withdraw') : t('funding.deposit');
-  const bank = params.get('bank') || t('funding.bankSupport');
+  const method = params.get('method') === 'tng' ? t('funding.tng') : params.get('bank') || t('funding.bankSupport');
   const reference = params.get('request') || '—';
   const initialDraft = isFundingContext
-    ? t('support.fundingDraft').replace('{context}', `${kind} · ${bank} · ${reference}`)
+    ? t('support.fundingDraft').replace('{context}', `${kind} · ${method} · ${reference}`)
     : '';
   return (
     <div className="page-stack">

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Ban, CheckCircle2, ChevronDown, ChevronUp, Crosshair, Minus, Plus, RefreshCw, Ruler, Settings2, Trash2, Undo2, XCircle } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { CandleChart } from '@/components/Charts';
+import { AssetLogo } from '@/components/AssetLogo';
 import { TimedScenarioWorkspace } from '@/components/TimedScenarioWorkspace';
 import type { ChartDrawing } from '@/components/Charts';
 import { DataMeta, LoadingState, StatCard, StatusPill } from '@/components/Stats';
@@ -33,16 +34,6 @@ function computePnl(position: PaperPosition, exitPrice: number, lots = position.
   return position.side === 'long'
     ? (exitPrice - position.entryPrice) * units
     : (position.entryPrice - exitPrice) * units;
-}
-
-function AssetLogo({ symbol, size = 'md' }: { symbol: string; size?: 'sm' | 'md' | 'lg' }) {
-  const product = getMarketProduct(symbol);
-  const icon = getMarketIcon(symbol);
-  return (
-    <span className={`asset-logo asset-logo--${product.tone} asset-logo--${size} ${icon ? 'asset-logo--image' : ''}`} aria-hidden="true">
-      {icon ? <img className="asset-logo__image" src={icon} alt="" decoding="async" /> : product.mark}
-    </span>
-  );
 }
 
 function InstrumentArtwork({ symbol }: { symbol: string }) {

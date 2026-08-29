@@ -1,19 +1,57 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Headphones, MessageCircle, RefreshCw, Send, ShieldCheck } from 'lucide-react';
+import { ExternalLink, Headphones, MessageCircle, RefreshCw, Send, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { apiFetch, ApiError, isApiUnavailable } from '@/lib/api';
 import { readStorage, writeStorage } from '@/lib/storage';
 import { formatDateTime } from '@/lib/format';
 import { useLanguage } from '@/context/language-context';
+import { useContentSettings } from '@/context/content-settings-context';
+import { SUPPORT_TELEGRAM_KEY, SUPPORT_WHATSAPP_KEY } from '@/lib/content-settings';
+import { buildTelegramUrl, buildWhatsappUrl } from '@/lib/support-links';
 import type { SupportMessage } from '@/types';
+
+function SupportChannelActions({
+  whatsappUrl,
+  telegramUrl,
+  t,
+}: {
+  whatsappUrl: string;
+  telegramUrl: string;
+  t: (key: string) => string;
+}) {
+  if (!whatsappUrl && !telegramUrl) return null;
+  return (
+    <div className="support-channel-actions" aria-label={t('support.externalChannels')}>
+      {whatsappUrl ? (
+        <a className="support-channel-link support-channel-link--whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer">
+          <span className="support-channel-link__brand" aria-hidden="true"><MessageCircle size={16} /></span>
+          <span>{t('support.whatsapp')}</span>
+          <ExternalLink size={13} aria-hidden="true" />
+          <span className="sr-only">{t('support.openChannel')}</span>
+        </a>
+      ) : null}
+      {telegramUrl ? (
+        <a className="support-channel-link support-channel-link--telegram" href={telegramUrl} target="_blank" rel="noreferrer">
+          <span className="support-channel-link__brand" aria-hidden="true"><Send size={15} /></span>
+          <span>{t('support.telegram')}</span>
+          <ExternalLink size={13} aria-hidden="true" />
+          <span className="sr-only">{t('support.openChannel')}</span>
+        </a>
+      ) : null}
+    </div>
+  );
+}
 
 export function SupportCenter({ adminMode = false, initialDraft = '' }: { adminMode?: boolean; initialDraft?: string }) {
   const { session } = useAuth();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
+  const { getContent } = useContentSettings();
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [draft, setDraft] = useState(initialDraft);
   const [activeThreadId, setActiveThreadId] = useState('');
   const [status, setStatus] = useState('');
+  const whatsappUrl = buildWhatsappUrl(getContent(SUPPORT_WHATSAPP_KEY, language));
+  const telegramUrl = buildTelegramUrl(getContent(SUPPORT_TELEGRAM_KEY, language));
 
   const loadMessages = async () => {
     if (!session) return;
@@ -102,6 +140,7 @@ export function SupportCenter({ adminMode = false, initialDraft = '' }: { adminM
             <p>{adminMode ? t('support.adminDescription') : t('support.clientDescription')}</p>
             <small className="support-console__retention">{t('support.retention')}</small>
           </div>
+          <SupportChannelActions whatsappUrl={whatsappUrl} telegramUrl={telegramUrl} t={t} />
         </div>
         <div className="support-console__actions">
           <button type="button" className="icon-button icon-button--small" onClick={() => void loadMessages()} aria-label={t('support.refresh')}><RefreshCw size={15} /></button>

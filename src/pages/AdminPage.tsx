@@ -34,6 +34,8 @@ import {
   MARKET_SCENARIO_SCALE_KEY,
   MARKET_SCENARIO_SCALE_NOTE_KEY,
   MARKET_SCENARIO_WORKSPACE_SAFETY_KEY,
+  SUPPORT_TELEGRAM_KEY,
+  SUPPORT_WHATSAPP_KEY,
 } from '@/lib/content-settings';
 
 const tabs = ['Accounts', 'Registration Review', 'Deposit Review', 'Withdrawal Review', 'U Management', 'Ledger', 'Monthly Report', 'Trade Audit', 'Order Management', 'Activity & Alerts', 'Support Inbox', 'Content', 'Approval Flow', 'Blacklist'] as const;
@@ -96,6 +98,10 @@ const defaultMarketObservationCopy = Object.fromEntries(
 ) as Record<(typeof MARKET_OBSERVATION_CONTENT_KEYS)[number], Record<LanguageCode, string>>;
 type MarketObservationContentKey = (typeof MARKET_OBSERVATION_CONTENT_KEYS)[number];
 type MarketObservationContentDraft = Record<MarketObservationContentKey, Record<LanguageCode, string>>;
+type SupportChannelDraft = {
+  whatsapp: string;
+  telegram: string;
+};
 
 function timedScenarioRemainingSeconds(scenario: TimedMarketScenario, now: number) {
   return Math.max(0, Math.ceil((new Date(scenario.expiresAt).getTime() - now) / 1000));
@@ -184,12 +190,17 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [contentDirty, setContentDirty] = useState(false);
   const [contentSaving, setContentSaving] = useState(false);
   const [contentMessage, setContentMessage] = useState('');
+  const [supportChannelDraft, setSupportChannelDraft] = useState<SupportChannelDraft>({ whatsapp: '', telegram: '' });
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
 
   const serverContentSettings = admin.status === 'success'
     ? new Map(admin.data.contentSettings.map((setting) => [setting.key, setting]))
     : new Map();
+  const readSupportChannel = (key: string) => {
+    const values = serverContentSettings.get(key)?.values;
+    return [values?.en, values?.zh, values?.ms].find((value) => typeof value === 'string' && value.length > 0) ?? '';
+  };
   const contentFields: Array<{ key: MarketObservationContentKey; label: string; location: string; rows: number }> = [
     { key: MARKET_SCENARIO_SCALE_KEY, label: t('admin.contentObservationTitle'), location: t('admin.contentLocationAmountTitle'), rows: 2 },
     { key: MARKET_SCENARIO_SCALE_HINT_KEY, label: t('admin.contentObservationAmountHint'), location: t('admin.contentLocationAmountTitle'), rows: 2 },
@@ -253,6 +264,10 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
       setContentDraft((current) => Object.fromEntries(
         MARKET_OBSERVATION_CONTENT_KEYS.map((key) => [key, serverContentSettings.get(key)?.values ?? current[key] ?? defaultMarketObservationCopy[key]]),
       ) as MarketObservationContentDraft);
+      setSupportChannelDraft({
+        whatsapp: readSupportChannel(SUPPORT_WHATSAPP_KEY),
+        telegram: readSupportChannel(SUPPORT_TELEGRAM_KEY),
+      });
     }
   }, [contentDirty, admin.status, admin.data?.contentSettings]);
 
@@ -359,7 +374,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const monthDepositMyr = monthDepositRequests.reduce((sum, item) => sum + item.amountMyr, 0);
   const monthWithdrawalMyr = monthWithdrawalRequests.reduce((sum, item) => sum + item.amountMyr, 0);
   const newsItems = news.status === 'success' ? news.data.items : [];
-  const contentCount = contentFields.length;
+  const contentCount = contentFields.length + 2;
   const report = admin.data.report;
   const creditByEmail = new Map(admin.data.creditAccounts.map((account) => [account.email.toLowerCase(), account]));
   const grantLookup = grantTarget.trim().toLowerCase();
@@ -555,7 +570,19 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     try {
       await apiFetch('/api/admin/content-settings', {
         method: 'PUT',
-        body: JSON.stringify({ settings: MARKET_OBSERVATION_CONTENT_KEYS.map((key) => ({ key, values: contentDraft[key] })) }),
+        body: JSON.stringify({
+          settings: [
+            ...MARKET_OBSERVATION_CONTENT_KEYS.map((key) => ({ key, values: contentDraft[key] })),
+            {
+              key: SUPPORT_WHATSAPP_KEY,
+              values: { zh: supportChannelDraft.whatsapp, ms: supportChannelDraft.whatsapp, en: supportChannelDraft.whatsapp },
+            },
+            {
+              key: SUPPORT_TELEGRAM_KEY,
+              values: { zh: supportChannelDraft.telegram, ms: supportChannelDraft.telegram, en: supportChannelDraft.telegram },
+            },
+          ],
+        }),
       });
       setContentDirty(false);
       setContentMessage(t('admin.contentSaved'));
@@ -1086,6 +1113,39 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
               <StatusPill tone={serverContentSettings.size ? 'success' : 'warning'}>{serverContentSettings.size ? t('admin.connected') : t('admin.monitoring')}</StatusPill>
             </div>
             <div className="admin-content-editor__sections">
+              <section className="admin-content-editor__section admin-support-channel-editor" data-content-key="support.channels">
+                <div className="admin-content-editor__section-head">
+                  <div><strong>{t('admin.contentSupportChannels')}</strong><span>{t('admin.contentLocationSupportChannels')}</span></div>
+                  <code>support.channels</code>
+                </div>
+                <p className="admin-support-channel-editor__hint">{t('admin.contentSupportChannelsHint')}</p>
+                <div className="form-grid admin-support-channel-editor__fields">
+                  <label className="field">
+                    <span>{t('admin.contentWhatsapp')}</span>
+                    <input
+                      data-testid="admin-support-whatsapp"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="off"
+                      value={supportChannelDraft.whatsapp}
+                      onChange={(event) => { setContentDirty(true); setContentMessage(''); setSupportChannelDraft((current) => ({ ...current, whatsapp: event.target.value })); }}
+                      placeholder={t('admin.contentWhatsappPlaceholder')}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>{t('admin.contentTelegram')}</span>
+                    <input
+                      data-testid="admin-support-telegram"
+                      type="text"
+                      inputMode="text"
+                      autoComplete="off"
+                      value={supportChannelDraft.telegram}
+                      onChange={(event) => { setContentDirty(true); setContentMessage(''); setSupportChannelDraft((current) => ({ ...current, telegram: event.target.value })); }}
+                      placeholder={t('admin.contentTelegramPlaceholder')}
+                    />
+                  </label>
+                </div>
+              </section>
               {contentFields.map(({ key, label, location, rows }) => (
                 <section className="admin-content-editor__section" key={key}>
                   <div className="admin-content-editor__section-head">

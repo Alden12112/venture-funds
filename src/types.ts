@@ -181,9 +181,9 @@ export type FundingMethod = 'tng' | 'bank';
 export interface FundingRate {
   /** MYR per 1 U before the review-side adjustment. */
   baseRate: number;
-  /** Deposit quote: base MYR/U + 0.03. */
+  /** Deposit quote: base MYR/U + 0.05. */
   depositRate: number;
-  /** Withdrawal quote: base MYR/U - 0.03. */
+  /** Withdrawal quote: base MYR/U - 0.05. */
   withdrawalRate: number;
   source: string;
   updatedAt: string;

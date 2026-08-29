@@ -182,6 +182,16 @@ const contentSettingDefaults = {
     ms: 'Untuk rekod semakan dalaman; tiada kutipan, bayaran automatik atau arahan bank dan dompet dibuat.',
     en: 'For internal review records; no collection, automatic payout, or bank or wallet instruction is created.',
   },
+  'support.whatsapp': {
+    zh: '',
+    ms: '',
+    en: '',
+  },
+  'support.telegram': {
+    zh: '',
+    ms: '',
+    en: '',
+  },
 };
 
 // A previous release stored these exact starter values in PostgreSQL. Migrate
@@ -2109,8 +2119,8 @@ function buildFundingRate(baseRate, source, cacheState = 'fresh') {
   const normalizedBase = roundFundingAmount(baseRate, 4);
   return {
     baseRate: normalizedBase,
-    depositRate: roundFundingAmount(normalizedBase + 0.03, 4),
-    withdrawalRate: roundFundingAmount(Math.max(0.01, normalizedBase - 0.03), 4),
+    depositRate: roundFundingAmount(normalizedBase + 0.05, 4),
+    withdrawalRate: roundFundingAmount(Math.max(0.01, normalizedBase - 0.05), 4),
     source,
     updatedAt: new Date().toISOString(),
     cacheState,

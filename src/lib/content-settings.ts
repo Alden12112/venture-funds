@@ -11,6 +11,10 @@ export const MARKET_SCENARIO_DIALOG_SAFETY_KEY = 'market.scenarioDialogSafety';
 export const MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY = 'market.scenarioAdminNoteLabel';
 export const FUNDING_PROCESSING_NOTE_KEY = 'funding.processingNote';
 export const FUNDING_REVIEW_SAFETY_KEY = 'funding.reviewSafety';
+export const SUPPORT_WHATSAPP_KEY = 'support.whatsapp';
+export const SUPPORT_TELEGRAM_KEY = 'support.telegram';
+
+export const SUPPORT_CHANNEL_CONTENT_KEYS = [SUPPORT_WHATSAPP_KEY, SUPPORT_TELEGRAM_KEY] as const;
 
 /** A compact, explicit status label for the protected DEMO observation flow. */
 export const compactObservationSafetyCopy: Record<LanguageCode, string> = {
@@ -118,6 +122,16 @@ export const defaultSharedContent: Record<string, Record<LanguageCode, string>> 
     zh: '用于内部审核记录；不会收款、自动付款或创建银行与钱包指令。',
     ms: 'Untuk rekod semakan dalaman; tiada kutipan, bayaran automatik atau arahan bank dan dompet dibuat.',
     en: 'For internal review records; no collection, automatic payout, or bank or wallet instruction is created.',
+  },
+  [SUPPORT_WHATSAPP_KEY]: {
+    zh: '',
+    ms: '',
+    en: '',
+  },
+  [SUPPORT_TELEGRAM_KEY]: {
+    zh: '',
+    ms: '',
+    en: '',
   },
 };
 

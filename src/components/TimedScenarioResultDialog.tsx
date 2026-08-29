@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
 import { Clock3, Eye, X } from 'lucide-react';
+import { AssetLogo } from '@/components/AssetLogo';
 import { useLanguage } from '@/context/language-context';
 import { useContentSettings } from '@/context/content-settings-context';
-import { formatDateTime, formatMarketPrice } from '@/lib/format';
+import { formatDateTime } from '@/lib/format';
 import type { TimedMarketScenario } from '@/types';
-import { MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY, MARKET_SCENARIO_SCALE_KEY } from '@/lib/content-settings';
+import { MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY } from '@/lib/content-settings';
 
 function remainingSeconds(scenario: TimedMarketScenario, now: number) {
   return Math.max(0, Math.ceil((new Date(scenario.expiresAt).getTime() - now) / 1000));
@@ -34,11 +35,6 @@ function resultLabel(scenario: TimedMarketScenario, t: (key: string) => string) 
   if (scenario.status === 'void') return t('market.scenarioCancelled');
   if (scenario.status === 'active') return t('market.scenarioWaiting');
   return t('market.scenarioRecorded');
-}
-
-function scoreLabel(scenario: TimedMarketScenario, t: (key: string) => string) {
-  if (scenario.status === 'void') return t('market.scenarioScoreUnavailable');
-  return `${scenario.observationPoints} ${t('market.scenarioScaleShort')}`;
 }
 
 export function TimedScenarioResultDialog({
@@ -88,7 +84,7 @@ export function TimedScenarioResultDialog({
 
         <div className="scenario-result-dialog__identity">
           <div className="scenario-result-dialog__instrument">
-            <span>{scenario.symbol}</span>
+            <AssetLogo symbol={scenario.symbol} size="md" className="scenario-result-dialog__asset-logo" />
             <div><strong>{directionLabel(scenario, t)}</strong></div>
           </div>
           <div className={`scenario-result-dialog__state scenario-result-dialog__state--${tone}`}>
@@ -103,16 +99,16 @@ export function TimedScenarioResultDialog({
           <div className="scenario-result-dialog__progress" aria-hidden="true"><span style={{ width: `${progressPercent(scenario, now)}%` }} /></div>
         </div>
 
+        <div className="scenario-result-dialog__end-time" data-testid="scenario-result-end-time">
+          <Clock3 size={16} aria-hidden="true" />
+          <div><span>{t('market.scenarioExpires')}</span><strong>{formatDateTime(scenario.expiresAt)}</strong></div>
+        </div>
+
         <div className="scenario-result-dialog__details">
-          <div><span>{t('market.scenarioSelected')}</span><strong>{scenario.symbol}</strong></div>
-          <div><span>{t('market.scenarioDialogDirection')}</span><strong>{directionLabel(scenario, t)}</strong></div>
-          <div><span>{t('market.scenarioReferencePrice')}</span><strong>{formatMarketPrice(scenario.referencePrice)}</strong></div>
-          <div><span>{getContent(MARKET_SCENARIO_SCALE_KEY, language)}</span><strong>{scoreLabel(scenario, t)}</strong></div>
           <div className="scenario-result-dialog__detail-note" data-testid="scenario-result-note">
             <span>{getContent(MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY, language)}</span>
-            <strong>{scenario.status === 'settled' && scenario.adminNote ? scenario.adminNote : '—'}</strong>
+            <strong>{scenario.adminNote || '—'}</strong>
           </div>
-          <div><span>{t('market.scenarioExpires')}</span><strong>{formatDateTime(scenario.expiresAt)}</strong></div>
         </div>
 
       </section>

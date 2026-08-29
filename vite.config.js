@@ -105,6 +105,7 @@ export default defineConfig({
             '/api/sync': localApiOrigin,
             '/api/credits': localApiOrigin,
             '/api/ledger': localApiOrigin,
+            '/api/funding': localApiOrigin,
             '/api/notifications': localApiOrigin,
             '/api/profile': localApiOrigin,
             '/api/content-settings': localApiOrigin,

@@ -60,7 +60,6 @@ export function FundingPage() {
   const [amountInput, setAmountInput] = useState('100');
   const [accountHolder, setAccountHolder] = useState('');
   const [accountReference, setAccountReference] = useState('');
-  const [customerNote, setCustomerNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const funding = useAsyncResource(async () => {
@@ -113,16 +112,13 @@ export function FundingPage() {
         bankName: method === 'bank' ? bankName : undefined,
         accountHolder: requiresAccountDetails ? accountHolder.trim() : undefined,
         accountReference: requiresAccountDetails ? accountReference : undefined,
-        customerNote: customerNote.trim() || undefined,
-        supportRequired: method === 'bank',
+        supportRequired: true,
       });
-      setFeedback({ tone: 'success', message: method === 'bank' ? t('funding.supportQueued') : t('funding.requestQueued') });
+      setFeedback({ tone: 'success', message: t('funding.supportQueued') });
       setRefreshKey((value) => value + 1);
-      setCustomerNote('');
-      if (method === 'bank') {
-        const params = new URLSearchParams({ topic: 'funding', request: request.id, kind: flow, method: 'bank', bank: bankName });
-        navigate(`/app/support?${params.toString()}`);
-      }
+      const params = new URLSearchParams({ topic: 'funding', request: request.id, kind: flow, method });
+      if (method === 'bank') params.set('bank', bankName);
+      navigate(`/app/support?${params.toString()}`);
     } catch (error) {
       setFeedback({ tone: 'error', message: error instanceof Error ? error.message : t('funding.requestFailed') });
     } finally {
@@ -165,7 +161,7 @@ export function FundingPage() {
           </div>
 
           <div className="funding-section-head"><div><span className="eyebrow">{t('funding.stepOne')}</span><h2>{t('funding.chooseMethod')}</h2></div><span>{t('funding.methodHint')}</span></div>
-          {method === 'bank' ? <div className="funding-processing-note"><Headphones size={16} /><span>{getContent(FUNDING_PROCESSING_NOTE_KEY, language)}</span></div> : null}
+          <div className="funding-processing-note"><Headphones size={16} /><span>{method === 'bank' ? getContent(FUNDING_PROCESSING_NOTE_KEY, language) : t('funding.supportReview')}</span></div>
           <div className="payment-method-grid">
             <button type="button" className={`payment-method payment-method--tng ${method === 'tng' ? 'is-selected' : ''}`} onClick={() => { setMethod('tng'); setFeedback(null); }}>
               <span className="payment-method__logo payment-method__logo--tng"><WalletCards size={14} /><b>TNG</b></span><span><strong>{t('funding.tng')}</strong><small>{t('funding.tngHint')}</small></span>{method === 'tng' ? <CheckCircle2 size={18} /> : null}
@@ -184,7 +180,6 @@ export function FundingPage() {
               <label className="field"><span>{t('funding.accountHolder')}</span><input autoComplete="off" value={accountHolder} maxLength={80} onChange={(event) => setAccountHolder(event.target.value)} placeholder={t('funding.accountHolderPlaceholder')} /></label>
               <label className="field"><span>{method === 'tng' ? t('funding.walletReference') : t('funding.accountReference')}</span><input autoComplete="off" inputMode="numeric" value={accountReference} maxLength={24} onChange={(event) => setAccountReference(event.target.value.replace(/\D/g, '').slice(0, 24))} placeholder={method === 'tng' ? t('funding.walletReferencePlaceholder') : t('funding.accountReferencePlaceholder')} /><small className="field-hint">{t('funding.accountDetailsHint')}</small></label>
             </> : null}
-            <label className="field funding-note-field"><span>{t('funding.requestNote')}</span><textarea value={customerNote} maxLength={320} rows={3} onChange={(event) => setCustomerNote(event.target.value)} placeholder={t('funding.requestNotePlaceholder')} /><small className="field-hint">{t('funding.requestNoteHint')}</small></label>
           </div>
           {feedback ? <div className={`notice-banner ${feedback.tone === 'error' ? 'notice-banner--error' : ''}`}>{feedback.message}</div> : null}
         </div>
@@ -198,14 +193,14 @@ export function FundingPage() {
             <div className="funding-conversion__total"><span>{flow === 'deposit' ? t('funding.paperUToCredit') : t('funding.myrReviewValue')}</span><strong>{flow === 'deposit' ? `${(previewU || 0).toFixed(4)} U` : formatCurrency(previewMyr || 0, 'MYR')}</strong></div>
           </div>
           <div className="funding-quote-card__safety"><ShieldCheck size={15} /><span>{getContent(FUNDING_REVIEW_SAFETY_KEY, language)}</span></div>
-          <button type="button" className="btn btn--primary btn--block" onClick={() => void submitFunding()} disabled={!validPreview || busy} aria-busy={busy}>{method === 'bank' ? t('funding.continueSupport') : flow === 'deposit' ? t('funding.submitDeposit') : t('funding.submitWithdrawal')}</button>
+          <button type="button" className="btn btn--primary btn--block" onClick={() => void submitFunding()} disabled={!validPreview || busy} aria-busy={busy}>{t('funding.continueSupport')}</button>
         </aside>
       </section>
 
       <section className="panel funding-request-panel">
         <div className="panel__head"><div><span className="eyebrow">{t('funding.requestTrail')}</span><h2>{t('funding.fundingLedger')}</h2><p>{t('funding.fundingLedgerHint')}</p></div><div className="chip-row">{filters.map((item) => <button key={item} type="button" className={`chip ${filter === item ? 'is-active' : ''}`} onClick={() => setFilter(item)}>{t(filterKeys[item])}</button>)}</div></div>
-        <div className="table-wrap funding-history-scroll" tabIndex={0}><table className="table table--interactive funding-table"><thead><tr><th>{t('ledger.time')}</th><th>{t('ledger.type')}</th><th>{t('funding.method')}</th><th>{t('funding.requestNote')}</th><th className="text-end">{t('funding.myr')}</th><th className="text-end">{t('funding.paperU')}</th><th>{t('funding.rate')}</th><th>{t('ledger.status')}</th></tr></thead><tbody>
-          {filteredRequests.length ? filteredRequests.map((request) => <tr key={request.id}><td>{formatDateTime(request.createdAt)}</td><td><strong>{request.kind === 'deposit' ? t('funding.deposit') : t('funding.withdraw')}</strong><div className="text-small text-muted">{request.supportRequired ? t('funding.supportReview') : t('funding.directReview')}</div></td><td>{fundingMethodName(request, t)}{request.accountReference ? <div className="text-small text-muted">{request.accountReference}</div> : null}</td><td className="funding-request-note">{request.customerNote || '—'}{request.reviewerNote ? <div className="text-small text-muted">{t('funding.reviewNote')}: {request.reviewerNote}</div> : null}</td><td className="text-end">{formatCurrency(request.amountMyr, 'MYR')}</td><td className="text-end"><strong>{request.amountU.toFixed(4)} U</strong></td><td>RM {request.rate.toFixed(4)} / U</td><td><StatusPill tone={request.status === 'approved' ? 'success' : request.status === 'pending' ? 'warning' : 'critical'}>{t(statusKeys[request.status])}</StatusPill></td></tr>) : <tr><td colSpan={8}><div className="empty-inline"><span>{t('funding.noRequests')}</span></div></td></tr>}
+        <div className="table-wrap funding-history-scroll" tabIndex={0}><table className="table table--interactive funding-table"><thead><tr><th>{t('ledger.time')}</th><th>{t('ledger.type')}</th><th>{t('funding.method')}</th><th className="text-end">{t('funding.myr')}</th><th className="text-end">{t('funding.paperU')}</th><th>{t('funding.rate')}</th><th>{t('ledger.status')}</th></tr></thead><tbody>
+          {filteredRequests.length ? filteredRequests.map((request) => <tr key={request.id}><td>{formatDateTime(request.createdAt)}</td><td><strong>{request.kind === 'deposit' ? t('funding.deposit') : t('funding.withdraw')}</strong><div className="text-small text-muted">{request.supportRequired ? t('funding.supportReview') : t('funding.directReview')}</div></td><td>{fundingMethodName(request, t)}{request.accountReference ? <div className="text-small text-muted">{request.accountReference}</div> : null}</td><td className="text-end">{formatCurrency(request.amountMyr, 'MYR')}</td><td className="text-end"><strong>{request.amountU.toFixed(4)} U</strong></td><td>RM {request.rate.toFixed(4)} / U</td><td><StatusPill tone={request.status === 'approved' ? 'success' : request.status === 'pending' ? 'warning' : 'critical'}>{t(statusKeys[request.status])}</StatusPill></td></tr>) : <tr><td colSpan={7}><div className="empty-inline"><span>{t('funding.noRequests')}</span></div></td></tr>}
         </tbody></table></div>
       </section>
     </div>
