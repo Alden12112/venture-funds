@@ -539,7 +539,7 @@ function validateCredentials(input) {
   if (name.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email) || !/^\+?[1-9][\d\s().-]{7,20}$/.test(phone) || !validCountryPhone || password.length < 8) {
     return { error: 'invalid registration fields' };
   }
-  return { name, email, phone, country, password };
+  return { name, email, phone: `+${phoneDigits}`, country, password };
 }
 
 function pruneRegistrationChallenges() {
@@ -832,6 +832,10 @@ async function accountExists(email, phone) {
   return [...memoryAccounts.values()].some((account) => account.email === email.toLowerCase() || normalizePhone(account.phone) === normalizePhone(phone));
 }
 
+function isAccountUniqueViolation(error) {
+  return Boolean(error && typeof error === 'object' && error.code === '23505');
+}
+
 async function isBlacklisted(email, phone) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedPhone = normalizePhone(phone);
@@ -949,7 +953,13 @@ async function handleAuth(req, res, requestUrl) {
     if (challenge.error) return sendJson(res, 400, challenge);
     if (await isBlacklisted(input.email, input.phone)) return sendJson(res, 403, { error: 'registration is blocked' });
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
-    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Professional', tradingScore: 0, joinedAt: new Date().toISOString() }, input.password);
+    let account;
+    try {
+      account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: 'user', status: 'active', tier: 'Professional', tradingScore: 0, joinedAt: new Date().toISOString() }, input.password);
+    } catch (error) {
+      if (isAccountUniqueViolation(error)) return sendJson(res, 409, { error: 'email or phone already exists' });
+      throw error;
+    }
     await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
     await createNotification(account.id, 'system', 'Account approved', 'Your account is active and has synchronized to the administrator review record.', 'success', '/app/settings');
     return sendJson(res, 201, sessionResponse(account));
@@ -1113,7 +1123,13 @@ async function handleAdmin(req, res, requestUrl) {
     if (await isBlacklisted(input.email, input.phone)) return sendJson(res, 403, { error: 'registration is blocked' });
     if (await accountExists(input.email, input.phone)) return sendJson(res, 409, { error: 'email or phone already exists' });
     const requestedRole = body.role === 'admin' ? 'admin' : 'user';
-    const account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: requestedRole, status: 'active', tier: requestedRole === 'admin' ? 'Enterprise' : 'Professional', tradingScore: requestedRole === 'admin' ? 100 : 0, joinedAt: new Date().toISOString() }, input.password);
+    let account;
+    try {
+      account = await saveAccount({ id: randomUUID(), name: input.name, email: input.email, phone: input.phone, country: input.country, role: requestedRole, status: 'active', tier: requestedRole === 'admin' ? 'Enterprise' : 'Professional', tradingScore: requestedRole === 'admin' ? 100 : 0, joinedAt: new Date().toISOString() }, input.password);
+    } catch (error) {
+      if (isAccountUniqueViolation(error)) return sendJson(res, 409, { error: 'email or phone already exists' });
+      throw error;
+    }
     await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
     await createNotification(account.id, 'system', 'Account created by administrator', 'This account was created in the administrator workspace and is active.', 'success', '/app/settings');
     return sendJson(res, 201, normalizeAccount(account));

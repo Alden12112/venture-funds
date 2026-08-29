@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/Stats';
 import { useLanguage } from '@/context/language-context';
 import { isValidEmail, isValidInternationalPhone } from '@/lib/auth';
 import { buildInternationalPhone, countryDirectory, defaultCountry, getCountryOption, isValidCountryPhone, normalizeCountryPhoneInput, phoneDigitsHint, phonePrefixHint } from '@/data/countries';
-import { apiFetch } from '@/lib/api';
+import { ApiError, apiFetch } from '@/lib/api';
 
 export function AuthPage() {
   const { mode } = useParams();
@@ -141,7 +141,9 @@ export function AuthPage() {
         return;
       } catch (error) {
         const message = error instanceof Error ? error.message : 'auth.registrationFailed';
-        setError(message === 'registration challenge failed' ? 'auth.challengeFailed' : message);
+        const duplicateContact = (error instanceof ApiError && error.status === 409) || message === 'email or phone already exists';
+        const invalidRegistration = error instanceof ApiError && error.status === 400 && message === 'invalid registration fields';
+        setError(message === 'registration challenge failed' ? 'auth.challengeFailed' : duplicateContact ? 'auth.duplicateContact' : invalidRegistration ? 'auth.invalidRegistration' : message);
         void loadRegistrationChallenge();
         return;
       }

@@ -14,30 +14,46 @@ function SupportChannelActions({
   whatsappUrl,
   telegramUrl,
   t,
+  compact = false,
 }: {
   whatsappUrl: string;
   telegramUrl: string;
   t: (key: string) => string;
+  compact?: boolean;
 }) {
-  if (!whatsappUrl && !telegramUrl) return null;
+  const whatsappLabel = `${t('support.whatsapp')} · ${whatsappUrl ? t('support.openChannel') : t('support.channelNotConfigured')}`;
+  const telegramLabel = `${t('support.telegram')} · ${telegramUrl ? t('support.openChannel') : t('support.channelNotConfigured')}`;
+  const linkClass = (channel: 'whatsapp' | 'telegram', configured: boolean) => [
+    'support-channel-link',
+    `support-channel-link--${channel}`,
+    compact ? 'support-channel-link--compact' : '',
+    configured ? '' : 'support-channel-link--unconfigured',
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className="support-channel-actions" aria-label={t('support.externalChannels')}>
+    <div className={`support-channel-actions ${compact ? 'support-channel-actions--compact' : ''}`} aria-label={t('support.externalChannels')}>
       {whatsappUrl ? (
-        <a className="support-channel-link support-channel-link--whatsapp" href={whatsappUrl} target="_blank" rel="noreferrer">
+        <a className={linkClass('whatsapp', true)} href={whatsappUrl} target="_blank" rel="noreferrer" aria-label={compact ? whatsappLabel : undefined} title={whatsappLabel} data-channel-configured="true">
           <span className="support-channel-link__brand" aria-hidden="true"><MessageCircle size={16} /></span>
-          <span>{t('support.whatsapp')}</span>
-          <ExternalLink size={13} aria-hidden="true" />
-          <span className="sr-only">{t('support.openChannel')}</span>
+          {!compact ? <><span>{t('support.whatsapp')}</span><ExternalLink size={13} aria-hidden="true" /><span className="sr-only">{t('support.openChannel')}</span></> : null}
         </a>
-      ) : null}
+      ) : (
+        <span className={linkClass('whatsapp', false)} role="img" aria-disabled="true" aria-label={whatsappLabel} title={whatsappLabel} data-channel-configured="false">
+          <span className="support-channel-link__brand" aria-hidden="true"><MessageCircle size={16} /></span>
+          {!compact ? <span>{t('support.whatsapp')}</span> : null}
+        </span>
+      )}
       {telegramUrl ? (
-        <a className="support-channel-link support-channel-link--telegram" href={telegramUrl} target="_blank" rel="noreferrer">
+        <a className={linkClass('telegram', true)} href={telegramUrl} target="_blank" rel="noreferrer" aria-label={compact ? telegramLabel : undefined} title={telegramLabel} data-channel-configured="true">
           <span className="support-channel-link__brand" aria-hidden="true"><Send size={15} /></span>
-          <span>{t('support.telegram')}</span>
-          <ExternalLink size={13} aria-hidden="true" />
-          <span className="sr-only">{t('support.openChannel')}</span>
+          {!compact ? <><span>{t('support.telegram')}</span><ExternalLink size={13} aria-hidden="true" /><span className="sr-only">{t('support.openChannel')}</span></> : null}
         </a>
-      ) : null}
+      ) : (
+        <span className={linkClass('telegram', false)} role="img" aria-disabled="true" aria-label={telegramLabel} title={telegramLabel} data-channel-configured="false">
+          <span className="support-channel-link__brand" aria-hidden="true"><Send size={15} /></span>
+          {!compact ? <span>{t('support.telegram')}</span> : null}
+        </span>
+      )}
     </div>
   );
 }
@@ -140,9 +156,9 @@ export function SupportCenter({ adminMode = false, initialDraft = '' }: { adminM
             <p>{adminMode ? t('support.adminDescription') : t('support.clientDescription')}</p>
             <small className="support-console__retention">{t('support.retention')}</small>
           </div>
-          <SupportChannelActions whatsappUrl={whatsappUrl} telegramUrl={telegramUrl} t={t} />
         </div>
         <div className="support-console__actions">
+          <SupportChannelActions whatsappUrl={whatsappUrl} telegramUrl={telegramUrl} t={t} compact />
           <button type="button" className="icon-button icon-button--small" onClick={() => void loadMessages()} aria-label={t('support.refresh')}><RefreshCw size={15} /></button>
         </div>
       </div>

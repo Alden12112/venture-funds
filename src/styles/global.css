@@ -3470,6 +3470,12 @@ table {
   justify-content: flex-start;
 }
 
+.support-console__actions {
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
 .support-console__title > div {
   display: grid;
   gap: 4px;
@@ -3509,6 +3515,7 @@ table {
 
 .support-console:not(.support-console--admin) .support-console__body {
   grid-template-columns: 1fr;
+  min-height: clamp(600px, 72vh, 780px);
 }
 
 .support-threads {
@@ -3615,9 +3622,9 @@ table {
   align-content: start;
   gap: 10px;
   min-height: 0;
-  min-height: 330px;
-  max-height: 620px;
-  padding: 18px;
+  min-height: 420px;
+  max-height: 720px;
+  padding: 22px;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -3677,13 +3684,12 @@ table {
   align-items: center;
   flex-wrap: wrap;
   gap: 7px;
-  margin-left: auto;
+  margin-left: 0;
   min-width: 0;
 }
 
-.support-console__title > .support-channel-actions {
-  display: flex;
-  gap: 7px;
+.support-console__actions .support-channel-actions {
+  flex-wrap: nowrap;
 }
 
 .support-channel-link {
@@ -3719,6 +3725,15 @@ table {
 .support-channel-link--whatsapp .support-channel-link__brand { background: #1aa366; }
 .support-channel-link--telegram .support-channel-link__brand { background: #328fca; }
 .support-channel-link > svg { color: var(--muted); }
+.support-channel-link--compact {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+}
+.support-channel-link--compact .support-channel-link__brand { width: 28px; height: 28px; }
+.support-channel-link--unconfigured { opacity: .34; cursor: not-allowed; }
 
 .support-empty {
   padding: 15px 10px;
@@ -4331,9 +4346,12 @@ table {
   }
 
   .support-console__title { flex-wrap: wrap; }
-  .support-channel-actions { width: 100%; margin-left: 46px; }
+  .support-console__actions { align-items: center; flex-wrap: nowrap; }
+  .support-console__actions .support-channel-actions { width: auto; margin-left: 0; }
   .support-channel-link { flex: 1 1 140px; justify-content: center; }
-  .support-chat__messages { min-height: 300px; max-height: 460px; }
+  .support-console__actions .support-channel-link--compact { flex: 0 0 36px; }
+  .support-console:not(.support-console--admin) .support-console__body { min-height: 560px; }
+  .support-console:not(.support-console--admin) .support-chat__messages { min-height: 360px; max-height: 56dvh; padding: 16px; }
 
   .support-composer {
     grid-template-columns: 1fr;
