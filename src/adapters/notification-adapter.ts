@@ -1,10 +1,11 @@
 import type { NotificationBundle, NotificationItem } from '@/types';
 import { readStorage } from '@/lib/storage';
 import { apiFetch } from '@/lib/api';
+import { isNotificationCenterItem } from '@/lib/notifications';
 
 export async function loadNotificationBundle(): Promise<NotificationBundle> {
   const readState = readStorage<Record<string, boolean>>('notificationReads', {});
-  const items = await apiFetch<NotificationItem[]>('/api/notifications');
+  const items = (await apiFetch<NotificationItem[]>('/api/notifications')).filter(isNotificationCenterItem);
   return {
     items: items.map((item) => ({ ...item, read: readState[item.id] ?? item.read })),
     source: {

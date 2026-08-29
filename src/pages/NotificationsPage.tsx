@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BellRing, CheckCheck, CircleDollarSign, ExternalLink, MailOpen, RefreshCw, Settings2, TrendingUp } from 'lucide-react';
+import { AlertTriangle, BellRing, CheckCheck, CircleDollarSign, ExternalLink, MailOpen, RefreshCw, Settings2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/PageHeader';
 import { EmptyState, LoadingState, StatCard, StatusPill } from '@/components/Stats';
@@ -9,19 +9,24 @@ import { formatDateTime } from '@/lib/format';
 import type { NotificationItem } from '@/types';
 import { writeStorage } from '@/lib/storage';
 import { useLanguage } from '@/context/language-context';
+import { isNotificationCenterItem, notificationCenterCategories, type NotificationCenterItem } from '@/lib/notifications';
 
-const categories = ['All', 'system', 'market', 'task', 'fund'] as const;
-const categoryLabels: Record<(typeof categories)[number], string> = {
+const categories = ['All', ...notificationCenterCategories] as const;
+type NotificationFilter = (typeof categories)[number];
+const categoryLabels: Record<NotificationFilter, string> = {
   All: 'ui.all',
   system: 'ui.system',
-  market: 'ui.market',
+  task: 'ui.task',
+  fund: 'ui.funding',
+};
+const notificationLabelKeys: Record<NotificationCenterItem['category'], string> = {
+  system: 'ui.system',
   task: 'ui.task',
   fund: 'ui.funding',
 };
 
-function NotificationIcon({ category, level }: Pick<NotificationItem, 'category' | 'level'>) {
+function NotificationIcon({ category, level }: Pick<NotificationCenterItem, 'category' | 'level'>) {
   if (level === 'critical') return <AlertTriangle size={18} />;
-  if (category === 'market') return <TrendingUp size={18} />;
   if (category === 'fund') return <CircleDollarSign size={18} />;
   if (category === 'task') return <CheckCheck size={18} />;
   return <Settings2 size={18} />;
@@ -32,7 +37,7 @@ export function NotificationsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const bundle = useAsyncResource(() => loadNotificationBundle(), [refreshKey]);
-  const [category, setCategory] = useState<(typeof categories)[number]>('All');
+  const [category, setCategory] = useState<NotificationFilter>('All');
   const [items, setItems] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
@@ -56,7 +61,9 @@ export function NotificationsPage() {
   };
 
   const filtered = useMemo(() => {
-    return items.filter((item) => category === 'All' || item.category === category);
+    return items
+      .filter(isNotificationCenterItem)
+      .filter((item) => category === 'All' || item.category === category);
   }, [category, items]);
 
   const unread = filtered.filter((item) => !item.read).length;
@@ -93,9 +100,8 @@ export function NotificationsPage() {
     });
   };
 
-  const targetFor = (item: NotificationItem) => {
+  const targetFor = (item: NotificationCenterItem) => {
     if (item.targetPath) return item.targetPath;
-    if (item.category === 'market') return '/app/market';
     if (item.category === 'fund') return '/app/funding';
     if (item.category === 'task') return '/app/news';
     return '/app/settings';
@@ -158,7 +164,7 @@ export function NotificationsPage() {
                 <div className="notification-item__title">
                   <span className={`notification-item__icon notification-item__icon--${item.level}`}><NotificationIcon category={item.category} level={item.level} /></span>
                   <div>
-              <span className="eyebrow">{t(categoryLabels[item.category])}</span>
+              <span className="eyebrow">{t(notificationLabelKeys[item.category])}</span>
                     <h2>{item.title}</h2>
                   </div>
                 </div>
@@ -172,7 +178,7 @@ export function NotificationsPage() {
               <p className="notification-item__body">{item.body}</p>
               <div className="notification-item__footer">
                 <div className="news-item__meta">
-                  <span>{t(categoryLabels[item.category])}</span>
+                  <span>{t(notificationLabelKeys[item.category])}</span>
                   <span>{formatDateTime(item.createdAt)}</span>
                 </div>
                 <Link className="link-action link-action--inline notification-item__open" to={targetFor(item)} onClick={() => markRead(item.id)}>

@@ -153,7 +153,7 @@ export function SupportCenter({ adminMode = false, initialDraft = '' }: { adminM
           <div>
             <span className="eyebrow">{adminMode ? t('support.operationsDesk') : t('support.clientCare')}</span>
             <h2>{adminMode ? t('support.inbox') : t('support.contact')}</h2>
-            <p>{adminMode ? t('support.adminDescription') : t('support.clientDescription')}</p>
+            {adminMode ? <p>{t('support.adminDescription')}</p> : null}
             <small className="support-console__retention">{t('support.retention')}</small>
           </div>
         </div>

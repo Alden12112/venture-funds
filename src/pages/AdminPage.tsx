@@ -19,6 +19,7 @@ import { BrandMark } from '@/components/BrandMark';
 import { labelCountry, labelNewsCategory, labelNewsSentiment } from '@/lib/news-labels';
 import { clearFundingHistory, deleteFundingHistoryItem, reviewFundingRequest } from '@/lib/funding';
 import { deleteRemoteLedgerEntry } from '@/adapters/ledger-adapter';
+import { isNotificationCenterItem } from '@/lib/notifications';
 import type { FundingRequest, LanguageCode, TimedMarketScenario } from '@/types';
 import {
   getDefaultSharedContentSetting,
@@ -351,7 +352,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     ? admin.data.timedScenarios.find((item) => item.id === selectedTimedScenarioId) ?? null
     : null;
   const visibleLedger = admin.data.ledgerEntries.filter((item) => matches(item.userEmail) || matches(item.userName) || matches(item.note) || matches(item.type));
-  const visibleNotifications = admin.data.notifications.filter((item) => matches(item.title) || matches(item.body) || matches(item.category));
+  const visibleNotifications = admin.data.notifications.filter(isNotificationCenterItem).filter((item) => matches(item.title) || matches(item.body) || matches(item.category));
   const visibleCreditAccounts = admin.data.creditAccounts.filter((item) => matches(item.userName) || matches(item.email) || matches(item.userId));
   const visibleBlacklist = admin.data.blacklist.filter((item) => matches(item.name) || matches(item.email) || matches(item.phone) || matches(item.reason));
   const visibleFundingRequests = admin.data.fundingRequests.filter((item) => matches(item.userName) || matches(item.email) || matches(item.bankName) || matches(item.method) || matches(item.status));

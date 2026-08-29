@@ -19,7 +19,6 @@ export function SupportPage() {
       <PageHeader
         eyebrow={t('support.clientCare')}
         title={t('support.contact')}
-        description={t('support.clientDescription')}
       />
       <SupportCenter initialDraft={initialDraft} />
     </div>

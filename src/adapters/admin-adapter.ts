@@ -3,6 +3,7 @@ import { loadLedgerBundle } from '@/adapters/ledger-adapter';
 import { loadRemoteAdminCredits } from '@/lib/credits';
 import { apiFetch } from '@/lib/api';
 import { loadAdminFundingRequests } from '@/lib/funding';
+import { isNotificationCenterItem } from '@/lib/notifications';
 
 function delay<T>(value: T, ms = 180): Promise<T> {
   return new Promise((resolve) => {
@@ -52,7 +53,7 @@ export async function loadAdminBundle(): Promise<AdminBundle> {
     safe('credits', () => loadRemoteAdminCredits(), { accounts: [], requests: [] }),
     safe('funding', () => loadAdminFundingRequests(), emptyFundingRequests),
     safe('blacklist', () => apiFetch<BlacklistEntry[]>('/api/admin/blacklist'), []),
-    safe('notifications', () => apiFetch<AdminBundle['notifications']>('/api/admin/notifications'), []),
+    safe('notifications', async () => (await apiFetch<AdminBundle['notifications']>('/api/admin/notifications')).filter(isNotificationCenterItem), []),
     safe('market', () => apiFetch<AdminBundle['marketStatus']>('/api/market/status'), emptyMarketStatus),
     safe('content settings', () => apiFetch<SharedContentSettingsResponse>('/api/admin/content-settings'), {
       settings: [],
