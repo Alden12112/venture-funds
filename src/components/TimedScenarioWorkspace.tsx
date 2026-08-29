@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3, Eye, Gauge, LoaderCircle, MessageSquareText, ShieldCheck, TimerReset, XCircle } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3, Eye, Gauge, LoaderCircle, MessageSquareText, TimerReset, XCircle } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { useLanguage } from '@/context/language-context';
 import { useContentSettings } from '@/context/content-settings-context';
@@ -183,7 +183,6 @@ export function TimedScenarioWorkspace({
       <div className="scenario-instrument-strip">
         <div className="scenario-instrument-strip__asset"><AssetLogo symbol={symbol} size="md" className="scenario-instrument-logo" /><div><span>{t('market.scenarioSelected')}</span><strong>{symbol}</strong></div></div>
         <div className="scenario-instrument-strip__quote"><span>{t('market.scenarioCurrent')}</span><strong>{formatMarketPrice(price)}</strong></div>
-        <div className="scenario-instrument-strip__status"><ShieldCheck size={15} /> {t('market.scenarioServerCapture')}</div>
       </div>
 
       {feedback ? <div className={`notice-banner notice-banner--${feedback.tone}`} role="status" aria-live="polite">{feedback.tone === 'success' ? <CheckCircle2 size={16} /> : <XCircle size={16} />}<span>{feedback.message}</span></div> : null}

@@ -3,9 +3,12 @@ import { Clock3, Eye, X } from 'lucide-react';
 import { AssetLogo } from '@/components/AssetLogo';
 import { useLanguage } from '@/context/language-context';
 import { useContentSettings } from '@/context/content-settings-context';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, formatMarketPrice } from '@/lib/format';
 import type { TimedMarketScenario } from '@/types';
-import { MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY } from '@/lib/content-settings';
+import {
+  MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY,
+  MARKET_SCENARIO_SCALE_KEY,
+} from '@/lib/content-settings';
 
 function remainingSeconds(scenario: TimedMarketScenario, now: number) {
   return Math.max(0, Math.ceil((new Date(scenario.expiresAt).getTime() - now) / 1000));
@@ -105,6 +108,14 @@ export function TimedScenarioResultDialog({
         </div>
 
         <div className="scenario-result-dialog__details">
+          <div data-testid="scenario-result-reference-price">
+            <span>{t('market.scenarioReferencePrice')}</span>
+            <strong>{formatMarketPrice(scenario.referencePrice)}</strong>
+          </div>
+          <div data-testid="scenario-result-observation-amount">
+            <span>{getContent(MARKET_SCENARIO_SCALE_KEY, language)}</span>
+            <strong>{scenario.observationPoints} {t('market.scenarioScaleShort')}</strong>
+          </div>
           <div className="scenario-result-dialog__detail-note" data-testid="scenario-result-note">
             <span>{getContent(MARKET_SCENARIO_ADMIN_NOTE_LABEL_KEY, language)}</span>
             <strong>{scenario.adminNote || '—'}</strong>

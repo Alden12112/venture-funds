@@ -2119,8 +2119,8 @@ function buildFundingRate(baseRate, source, cacheState = 'fresh') {
   const normalizedBase = roundFundingAmount(baseRate, 4);
   return {
     baseRate: normalizedBase,
-    depositRate: roundFundingAmount(normalizedBase + 0.05, 4),
-    withdrawalRate: roundFundingAmount(Math.max(0.01, normalizedBase - 0.05), 4),
+    depositRate: normalizedBase,
+    withdrawalRate: normalizedBase,
     source,
     updatedAt: new Date().toISOString(),
     cacheState,
