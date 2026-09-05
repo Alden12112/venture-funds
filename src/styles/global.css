@@ -2189,6 +2189,7 @@ table {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
+  min-block-size: 18px;
   color: var(--muted);
   font-size: 10px;
   line-height: 1.2;
@@ -4390,7 +4391,7 @@ table {
 
   .instrument-banner__feed-state {
     justify-content: flex-start;
-    white-space: normal;
+    white-space: nowrap;
     text-align: left;
   }
 

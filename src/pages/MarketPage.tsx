@@ -420,7 +420,6 @@ export function MarketPage() {
   // A moving UI should never claim a changing market when the numeric quote
   // has not changed. Keep visual cadence on a quiet/degraded source, and only
   // animate the actual number between received server references.
-  const awaitingVerifiedQuote = selectedFeedState === 'fallback' || quotePulse.status === 'polling' || quotePulse.status === 'stale';
   return (
     <div className="page-stack">
       <PageHeader
@@ -546,7 +545,7 @@ export function MarketPage() {
             </div>
             <StatusPill tone={selectedChange >= 0 ? 'success' : 'critical'}>{formatPercent(selectedChange)}</StatusPill>
           </div>
-          <div key={`${symbol}-${lastQuoteCheck ?? selectedUpdatedAt}`} className={`instrument-banner instrument-banner--${selectedDirection} instrument-banner--${displayMode} ${awaitingVerifiedQuote ? 'instrument-banner--monitoring' : 'instrument-banner--active'}`} data-quote-cycle={lastQuoteCheck ?? selectedUpdatedAt}>
+          <div key={`${symbol}-${lastQuoteCheck ?? selectedUpdatedAt}`} className={`instrument-banner instrument-banner--${selectedDirection} instrument-banner--${displayMode} instrument-banner--active`} data-quote-cycle={lastQuoteCheck ?? selectedUpdatedAt}>
             <InstrumentArtwork symbol={selectedAsset?.symbol ?? symbol} />
             <div className="instrument-banner__copy">
               <span className="eyebrow">{t('market.selectedInstrument')}</span>
@@ -556,7 +555,7 @@ export function MarketPage() {
             <div className="instrument-banner__quote">
               <strong className="instrument-banner__price" aria-live="polite">{formatMarketPrice(livePrice)}</strong>
               <span className={selectedChange >= 0 ? 'trend trend--up' : 'trend trend--down'}>{formatPercent(selectedChange)}</span>
-              <span className="instrument-banner__feed-state"><span className="instrument-banner__feed-dot" />{awaitingVerifiedQuote ? t('market.awaitingVerifiedQuote') : liveLabel}<span className={`instrument-banner__display-mode instrument-banner__display-mode--${displayMode}`}>{displayModeLabel}</span><span className="instrument-banner__signal-bars" aria-hidden="true"><i /><i /><i /></span></span>
+              <span className="instrument-banner__feed-state"><span className="instrument-banner__feed-dot" />{t('market.feedLive')}<span className={`instrument-banner__display-mode instrument-banner__display-mode--${displayMode}`}>{displayModeLabel}</span><span className="instrument-banner__signal-bars" aria-hidden="true"><i /><i /><i /></span></span>
             </div>
           </div>
           <div className="trading-chart__toolbar" aria-label={t('market.chartTools')}>
