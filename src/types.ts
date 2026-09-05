@@ -148,7 +148,15 @@ export interface SupportMessage {
   userPhone?: string;
   senderRole: 'user' | 'admin';
   body: string;
+  attachments?: SupportAttachment[];
   createdAt: string;
+}
+
+export interface SupportAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataUrl: string;
 }
 
 export interface LedgerEntry {

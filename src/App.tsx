@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { LoaderCircle } from 'lucide-react';
 import { AuthProvider } from '@/context/auth-context';
 import { ThemeProvider } from '@/context/theme-context';
 import { LanguageProvider } from '@/context/language-context';
@@ -23,7 +24,7 @@ import { ContentSettingsProvider } from '@/context/content-settings-context';
 
 function PageLoading({ admin = false }: { admin?: boolean }) {
   const { t } = useLanguage();
-  return <div className="page-loading">{admin ? t('ui.loadingAdminSession') : t('ui.loadingSecureSession')}</div>;
+  return <div className="page-loading" aria-live="polite" aria-busy="true"><LoaderCircle size={20} className="spin" />{admin ? t('ui.loadingAdminSession') : t('ui.loadingSecureSession')}</div>;
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {

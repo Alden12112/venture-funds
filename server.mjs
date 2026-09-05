@@ -46,6 +46,7 @@ const memoryFundingRequests = new Map();
 const memoryTimedScenarios = new Map();
 const memoryContentSettings = new Map();
 const registrationChallenges = new Map();
+const recoveryStartAttempts = new Map();
 const marketProxyCache = new Map();
 const yahooQuoteCache = new Map();
 // Quotes for instruments retired from the new-order catalogue. They are only
@@ -117,7 +118,14 @@ const contentTypes = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
+  '.gif': 'image/gif',
 };
+
+const defaultRequestBodyLimit = 1_000_000;
+const supportImageMaxBytes = 1_500_000;
+const supportImageLimit = 3;
+const supportMessageRequestBodyLimit = 6_500_000;
+const supportImageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 // USER-PROTECTED BLOCK (explicit user request): preserve this content-settings
 // implementation and its safety validators. Do not rewrite, simplify, or
@@ -448,8 +456,8 @@ function decodePart(value) {
   return Buffer.from(value, 'base64url').toString('utf8');
 }
 
-function createToken(payload) {
-  const body = encodePart(JSON.stringify({ ...payload, exp: Date.now() + 1000 * 60 * 60 * 24 * 7 }));
+function createToken(payload, ttlMs = 1000 * 60 * 60 * 24 * 7) {
+  const body = encodePart(JSON.stringify({ ...payload, exp: Date.now() + ttlMs }));
   const signature = createHmac('sha256', authSecret).update(body).digest('base64url');
   return `${body}.${signature}`;
 }
@@ -481,25 +489,38 @@ function requireSession(req, res, role) {
     }
   }
   const session = verifyToken(getToken(req));
-  if (!session || (role && session.role !== role)) {
+  if (!session || session.purpose === 'password-recovery' || (role && session.role !== role)) {
     sendJson(res, 401, { error: 'unauthorized' });
     return null;
   }
   return session;
 }
 
-async function readBody(req) {
+function requirePasswordRecoverySession(req, res) {
+  const session = verifyToken(getToken(req));
+  if (!session || session.purpose !== 'password-recovery' || session.role !== 'recovery') {
+    sendJson(res, 401, { error: 'password recovery session expired' });
+    return null;
+  }
+  return session;
+}
+
+async function readBody(req, maxBytes = defaultRequestBodyLimit) {
   let body = '';
+  let receivedBytes = 0;
   for await (const chunk of req) {
-    body += chunk;
-    if (body.length > 1_000_000) throw new Error('request too large');
+    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+    receivedBytes += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(text);
+    if (receivedBytes > maxBytes) throw new Error('request too large');
+    body += text;
   }
   return body ? JSON.parse(body) : {};
 }
 
 async function forwardToRemoteApi(req, res, requestUrl, body, bridgeAuth = false) {
   if (!remoteApiOrigin) return false;
-  const payload = body === undefined && req.method !== 'GET' && req.method !== 'HEAD' ? await readBody(req) : body;
+  const bodyLimit = requestUrl.pathname.startsWith('/api/support/') ? supportMessageRequestBodyLimit : defaultRequestBodyLimit;
+  const payload = body === undefined && req.method !== 'GET' && req.method !== 'HEAD' ? await readBody(req, bodyLimit) : body;
   const target = `${remoteApiOrigin}${requestUrl.pathname}${requestUrl.search}`;
   const headers = { accept: 'application/json' };
   const token = getToken(req);
@@ -540,6 +561,32 @@ function validateCredentials(input) {
     return { error: 'invalid registration fields' };
   }
   return { name, email, phone: `+${phoneDigits}`, country, password };
+}
+
+function allowRecoveryStart(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  const key = forwarded || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const prior = recoveryStartAttempts.get(key);
+  const windowMs = 15 * 60 * 1000;
+  if (!prior || now - prior.startedAt >= windowMs) {
+    recoveryStartAttempts.set(key, { startedAt: now, count: 1 });
+    return true;
+  }
+  if (prior.count >= 5) return false;
+  prior.count += 1;
+  return true;
+}
+
+function createPasswordRecoveryToken(account) {
+  return createToken({
+    sub: account.id,
+    email: account.email,
+    name: account.name,
+    phone: account.phone,
+    role: 'recovery',
+    purpose: 'password-recovery',
+  }, 30 * 60 * 1000);
 }
 
 function pruneRegistrationChallenges() {
@@ -637,6 +684,7 @@ async function initDatabase() {
       user_phone TEXT NOT NULL DEFAULT '',
       sender_role TEXT NOT NULL,
       body TEXT NOT NULL,
+      attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS ad88_trade_events (
@@ -751,6 +799,7 @@ async function initDatabase() {
       updated_by TEXT NOT NULL DEFAULT ''
     );
     ALTER TABLE ad88_support_messages ADD COLUMN IF NOT EXISTS user_phone TEXT NOT NULL DEFAULT '';
+    ALTER TABLE ad88_support_messages ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;
     ALTER TABLE ad88_funding_requests ADD COLUMN IF NOT EXISTS customer_note TEXT NOT NULL DEFAULT '';
     ALTER TABLE ad88_trade_events ADD COLUMN IF NOT EXISTS pnl NUMERIC;
     ALTER TABLE ad88_timed_scenarios ADD COLUMN IF NOT EXISTS admin_note TEXT NOT NULL DEFAULT '';
@@ -854,6 +903,30 @@ async function saveAccount(account, password) {
     memoryAccounts.set(account.id, { ...account, password_hash: passwordHash });
   }
   return account;
+}
+
+async function resetAccountPassword(id, password, administrator) {
+  const nextPassword = String(password || '');
+  if (nextPassword.length < 8 || nextPassword.length > 256) {
+    return { error: 'password must be between 8 and 256 characters', status: 400 };
+  }
+  const account = await findAccountById(id);
+  if (!account || account.role === 'admin') return { error: 'account not found', status: 404 };
+  const passwordHash = hashPassword(nextPassword);
+  if (pool) {
+    await pool.query('UPDATE ad88_accounts SET password_hash=$2 WHERE id=$1 AND role <> $3', [account.id, passwordHash, 'admin']);
+  } else {
+    memoryAccounts.set(account.id, { ...account, password_hash: passwordHash });
+  }
+  await createNotification(
+    account.id,
+    'task',
+    'Password updated',
+    'Client Support updated your password after account verification. You can now sign in with the new password.',
+    'info',
+    '/auth/login',
+  );
+  return { account: normalizeAccount(account), resetBy: administrator.email || administrator.name || 'VENTURE FUNDS Administrator' };
 }
 
 async function listAccounts() {
@@ -963,6 +1036,28 @@ async function handleAuth(req, res, requestUrl) {
     await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
     await createNotification(account.id, 'system', 'Account approved', 'Your account is active and has synchronized to the administrator review record.', 'success', '/app/settings');
     return sendJson(res, 201, sessionResponse(account));
+  }
+
+  if (req.method === 'POST' && requestUrl.pathname === '/api/auth/recovery/start') {
+    if (appSurface === 'admin') return sendJson(res, 404, { error: 'not found' });
+    if (!allowRecoveryStart(req)) return sendJson(res, 429, { error: 'please wait before trying password recovery again' });
+    const body = await readBody(req);
+    const email = String(body.email || '').trim().toLowerCase();
+    const phone = normalizePhone(body.phone);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email) || phone.length < 8) {
+      return sendJson(res, 400, { error: 'enter the registered email and phone number' });
+    }
+    const account = await findAccount(email);
+    const matched = account
+      && account.role !== 'admin'
+      && account.email === email
+      && normalizePhone(account.phone) === phone;
+    if (!matched) return sendJson(res, 200, { verified: false });
+    return sendJson(res, 200, {
+      verified: true,
+      recoveryToken: createPasswordRecoveryToken(account),
+      identity: { name: account.name, email: account.email, phone: account.phone },
+    });
   }
 
   if (req.method === 'POST' && requestUrl.pathname === '/api/auth/login') {
@@ -1133,6 +1228,13 @@ async function handleAdmin(req, res, requestUrl) {
     await getOrCreateCreditAccount({ sub: account.id, name: account.name, email: account.email });
     await createNotification(account.id, 'system', 'Account created by administrator', 'This account was created in the administrator workspace and is active.', 'success', '/app/settings');
     return sendJson(res, 201, normalizeAccount(account));
+  }
+
+  const passwordResetMatch = requestUrl.pathname.match(/^\/api\/admin\/users\/([^/]+)\/password$/);
+  if (req.method === 'POST' && passwordResetMatch) {
+    const body = await readBody(req);
+    const result = await resetAccountPassword(passwordResetMatch[1], body.password, session);
+    return result.error ? sendJson(res, result.status || 400, result) : sendJson(res, 200, result);
   }
 
   const blacklistMatch = requestUrl.pathname.match(/^\/api\/admin\/users\/([^/]+)\/blacklist$/);
@@ -1747,7 +1849,46 @@ async function handleSync(req, res, requestUrl) {
   return sendJson(res, 404, { error: 'sync route not found' });
 }
 
+function hasValidSupportImageSignature(mimeType, bytes) {
+  if (mimeType === 'image/png') return bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a;
+  if (mimeType === 'image/jpeg') return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (mimeType === 'image/gif') {
+    const signature = bytes.subarray(0, 6).toString('ascii');
+    return signature === 'GIF87a' || signature === 'GIF89a';
+  }
+  if (mimeType === 'image/webp') return bytes.length >= 12 && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
+  return false;
+}
+
+function normalizeSupportAttachments(value) {
+  if (value === undefined || value === null) return { attachments: [] };
+  if (!Array.isArray(value)) return { attachments: [], error: 'invalid image attachment' };
+  if (value.length > supportImageLimit) return { attachments: [], error: 'too many image attachments' };
+  const attachments = [];
+  let totalBytes = 0;
+  for (const input of value) {
+    if (!input || typeof input !== 'object') return { attachments: [], error: 'invalid image attachment' };
+    const mimeType = String(input.mimeType || '').toLowerCase();
+    const dataUrl = String(input.dataUrl || '');
+    const match = dataUrl.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/);
+    if (!supportImageMimeTypes.has(mimeType) || !match || match[1] !== mimeType || match[2].length % 4 !== 0) {
+      return { attachments: [], error: 'invalid image attachment' };
+    }
+    const bytes = Buffer.from(match[2], 'base64');
+    if (!bytes.length || bytes.length > supportImageMaxBytes || !hasValidSupportImageSignature(mimeType, bytes)) {
+      return { attachments: [], error: 'invalid image attachment' };
+    }
+    totalBytes += bytes.length;
+    if (totalBytes > supportImageLimit * supportImageMaxBytes) return { attachments: [], error: 'image attachments are too large' };
+    const name = String(input.name || 'image').trim().replace(/[\u0000-\u001f<>]/g, ' ').slice(0, 120) || 'image';
+    const id = /^[0-9a-f-]{36}$/i.test(String(input.id || '')) ? String(input.id) : randomUUID();
+    attachments.push({ id, name, mimeType, dataUrl });
+  }
+  return { attachments };
+}
+
 function normalizeSupportMessage(row) {
+  const attachmentResult = normalizeSupportAttachments(row.attachments);
   return {
     id: row.id,
     threadId: row.threadId ?? row.thread_id,
@@ -1757,6 +1898,7 @@ function normalizeSupportMessage(row) {
     userPhone: row.userPhone ?? row.user_phone ?? '',
     senderRole: row.senderRole ?? row.sender_role,
     body: row.body,
+    attachments: attachmentResult.attachments,
     createdAt: row.createdAt ?? row.created_at,
   };
 }
@@ -2578,6 +2720,49 @@ async function handleAdminFunding(req, res, requestUrl) {
 }
 
 async function handleSupport(req, res, requestUrl) {
+  if (requestUrl.pathname === '/api/support/recovery/messages') {
+    const recoverySession = requirePasswordRecoverySession(req, res);
+    if (!recoverySession) return true;
+    const account = await findAccountById(recoverySession.sub);
+    if (!account || account.role === 'admin' || account.email !== recoverySession.email) {
+      return sendJson(res, 401, { error: 'password recovery session expired' });
+    }
+    const threadId = `recovery-${account.id}`;
+    if (req.method === 'GET') {
+      if (pool) {
+        const result = await pool.query('SELECT * FROM ad88_support_messages WHERE user_id = $1 AND thread_id = $2 ORDER BY created_at ASC', [account.id, threadId]);
+        return sendJson(res, 200, result.rows.map(normalizeSupportMessage));
+      }
+      return sendJson(res, 200, memorySupportMessages.filter((item) => item.userId === account.id && item.threadId === threadId).map(normalizeSupportMessage));
+    }
+    if (req.method === 'POST') {
+      const input = await readBody(req, supportMessageRequestBodyLimit);
+      const body = String(input.body || '').trim().slice(0, 2000);
+      const attachmentResult = normalizeSupportAttachments(input.attachments);
+      if (attachmentResult.error) return sendJson(res, 400, { error: attachmentResult.error });
+      if (!body && !attachmentResult.attachments.length) return sendJson(res, 400, { error: 'message or image is required' });
+      const message = {
+        id: randomUUID(),
+        threadId,
+        userId: account.id,
+        userName: account.name,
+        userEmail: account.email,
+        userPhone: account.phone,
+        senderRole: 'user',
+        body,
+        attachments: attachmentResult.attachments,
+        createdAt: new Date().toISOString(),
+      };
+      if (pool) {
+        await pool.query('INSERT INTO ad88_support_messages (id, thread_id, user_id, user_name, user_email, user_phone, sender_role, body, attachments, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [message.id, message.threadId, message.userId, message.userName, message.userEmail, message.userPhone, message.senderRole, message.body, message.attachments, message.createdAt]);
+      } else {
+        memorySupportMessages.push(message);
+      }
+      return sendJson(res, 201, message);
+    }
+    return sendJson(res, 404, { error: 'password recovery support route not found' });
+  }
+
   const session = requireSession(req, res);
   if (!session) return true;
   await pruneSupportMessages();
@@ -2589,12 +2774,14 @@ async function handleSupport(req, res, requestUrl) {
       return sendJson(res, 200, result.rows.map(normalizeSupportMessage));
     }
     const messages = session.role === 'admin' ? memorySupportMessages : memorySupportMessages.filter((item) => item.userId === session.sub);
-    return sendJson(res, 200, messages);
+    return sendJson(res, 200, messages.map(normalizeSupportMessage));
   }
   if (req.method === 'POST' && requestUrl.pathname === '/api/support/messages') {
-    const input = await readBody(req);
+    const input = await readBody(req, supportMessageRequestBodyLimit);
     const body = String(input.body || '').trim().slice(0, 2000);
-    if (!body) return sendJson(res, 400, { error: 'message is required' });
+    const attachmentResult = normalizeSupportAttachments(input.attachments);
+    if (attachmentResult.error) return sendJson(res, 400, { error: attachmentResult.error });
+    if (!body && !attachmentResult.attachments.length) return sendJson(res, 400, { error: 'message or image is required' });
     const requestedThreadId = String(input.threadId || '').trim();
     const existing = requestedThreadId ? memorySupportMessages.find((item) => item.threadId === requestedThreadId) : null;
     let threadId = requestedThreadId;
@@ -2620,9 +2807,9 @@ async function handleSupport(req, res, requestUrl) {
     } else if (!threadId) {
       threadId = `support-${randomUUID()}`;
     }
-    const message = { id: randomUUID(), threadId, userId, userName, userEmail, userPhone: session.phone ?? '', senderRole: session.role, body, createdAt: new Date().toISOString() };
+    const message = { id: randomUUID(), threadId, userId, userName, userEmail, userPhone: session.phone ?? '', senderRole: session.role, body, attachments: attachmentResult.attachments, createdAt: new Date().toISOString() };
     if (pool) {
-      await pool.query('INSERT INTO ad88_support_messages (id, thread_id, user_id, user_name, user_email, user_phone, sender_role, body, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', [message.id, message.threadId, message.userId, message.userName, message.userEmail, message.userPhone, message.senderRole, message.body, message.createdAt]);
+      await pool.query('INSERT INTO ad88_support_messages (id, thread_id, user_id, user_name, user_email, user_phone, sender_role, body, attachments, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [message.id, message.threadId, message.userId, message.userName, message.userEmail, message.userPhone, message.senderRole, message.body, message.attachments, message.createdAt]);
     } else {
       memorySupportMessages.push(message);
     }

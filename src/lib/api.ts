@@ -30,7 +30,10 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}) {
   headers.set('accept', 'application/json');
   if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
   const token = getAuthToken();
-  if (token) headers.set('authorization', `Bearer ${token}`);
+  // Recovery support uses a short-lived, scope-limited token. Preserve an
+  // explicit authorization header so it never gets replaced by a browser's
+  // normal account session.
+  if (token && !headers.has('authorization')) headers.set('authorization', `Bearer ${token}`);
   let response: Response;
   try {
     response = await fetch(path, { ...init, headers });

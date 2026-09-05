@@ -10,7 +10,7 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeName>(() => readStorage('theme', 'linen'));
+  const [theme, setThemeState] = useState<ThemeName>(() => readStorage('theme', 'midnight'));
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

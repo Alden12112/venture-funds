@@ -81,6 +81,13 @@ export function DashboardPage() {
 
       <MarketTicker assets={market.data.assets} />
 
+      <section className="metric-grid metric-grid--command">
+         <StatCard label={t('dashboard.accountValue')} value={formatCurrency(totalAssets)} note={totalAssets ? t('dashboard.paperBalance') : t('dashboard.noFundedBalance')} />
+         <StatCard label={t('dashboard.buyingPower')} value={formatCurrency(availableMargin)} />
+         <StatCard label={t('dashboard.reviewQueue')} value={String(pendingLedger)} note={t('dashboard.reviewQueueHint')} />
+         <StatCard label={t('dashboard.attentionRequired')} value={String(unread)} note={unread ? t('dashboard.unreadAlerts') : t('dashboard.noUnreadAlerts')} />
+      </section>
+
       <section className="command-center__hero">
         <div className="command-center__hero-copy">
            <span className="eyebrow">{t('dashboard.heroEyebrow')}</span>
@@ -94,13 +101,6 @@ export function DashboardPage() {
           <Sparkline values={trendSeries} positive={market.data.selected.change24h >= 0} />
           <DataMeta source={market.data.source} />
         </div>
-      </section>
-
-      <section className="metric-grid metric-grid--command">
-         <StatCard label={t('dashboard.accountValue')} value={formatCurrency(totalAssets)} note={totalAssets ? t('dashboard.paperBalance') : t('dashboard.noFundedBalance')} />
-         <StatCard label={t('dashboard.buyingPower')} value={formatCurrency(availableMargin)} />
-         <StatCard label={t('dashboard.reviewQueue')} value={String(pendingLedger)} note={t('dashboard.reviewQueueHint')} />
-         <StatCard label={t('dashboard.attentionRequired')} value={String(unread)} note={unread ? t('dashboard.unreadAlerts') : t('dashboard.noUnreadAlerts')} />
       </section>
 
        <section className="platform-assurance-rail" aria-label={t('dashboard.description')}>

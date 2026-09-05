@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpFromLine, CalendarDays, ClipboardCheck, Clock3, Eye, FileText, HandCoins, Languages, LayoutDashboard, MessageCircle, MinusCircle, Newspaper, PlusCircle, ReceiptText, ShieldBan, Trash2, UserPlus, Users, WalletCards, XCircle, type LucideIcon } from 'lucide-react';
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpFromLine, CalendarDays, ClipboardCheck, Clock3, Eye, FileText, HandCoins, KeyRound, Languages, LayoutDashboard, MessageCircle, MinusCircle, Newspaper, PlusCircle, ReceiptText, ShieldBan, Trash2, UserPlus, Users, WalletCards, XCircle, type LucideIcon } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { DataMeta, LoadingState, StatCard, StatusPill, EmptyState } from '@/components/Stats';
 import { useAsyncResource } from '@/lib/useAsyncResource';
@@ -20,7 +20,7 @@ import { labelCountry, labelNewsCategory, labelNewsSentiment } from '@/lib/news-
 import { clearFundingHistory, deleteFundingHistoryItem, reviewFundingRequest } from '@/lib/funding';
 import { deleteRemoteLedgerEntry } from '@/adapters/ledger-adapter';
 import { isNotificationCenterItem } from '@/lib/notifications';
-import type { FundingRequest, LanguageCode, TimedMarketScenario } from '@/types';
+import type { FundingRequest, LanguageCode, TimedMarketScenario, UserProfile } from '@/types';
 import {
   getDefaultSharedContentSetting,
   FUNDING_PROCESSING_NOTE_KEY,
@@ -179,6 +179,10 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [grantAmount, setGrantAmount] = useState(100);
   const [accountForm, setAccountForm] = useState({ name: '', email: '', phone: '', country: 'Malaysia', password: '', role: 'user' as 'user' | 'admin' });
   const [accountMessage, setAccountMessage] = useState('');
+  const [passwordResetTargetId, setPasswordResetTargetId] = useState<string | null>(null);
+  const [passwordResetDraft, setPasswordResetDraft] = useState('');
+  const [passwordResetConfirm, setPasswordResetConfirm] = useState('');
+  const [passwordResetBusy, setPasswordResetBusy] = useState(false);
   const [fundingMessage, setFundingMessage] = useState('');
   const [creditMessage, setCreditMessage] = useState('');
   const [adminNow, setAdminNow] = useState(() => Date.now());
@@ -389,6 +393,9 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     user.name.toLowerCase().includes(grantLookup) ||
     user.id.toLowerCase().includes(grantLookup),
   );
+  const passwordResetTarget = passwordResetTargetId
+    ? admin.data.users.find((user) => user.id === passwordResetTargetId && user.role !== 'admin') ?? null
+    : null;
   const accountCountry = getCountryOption(accountForm.country);
   const accountPhoneMaxLength = Array.isArray(accountCountry.digits) ? accountCountry.digits[1] : accountCountry.digits;
   const fundingMethodLabel = (request: FundingRequest) => request.method === 'tng' ? t('funding.tng') : request.bankName || t('funding.bankSupport');
@@ -496,6 +503,46 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
     } catch (error) {
       setAccountMessage(error instanceof Error ? error.message : t('admin.accountDeletionFailed'));
       return;
+    }
+  };
+
+  const openPasswordReset = (user: UserProfile) => {
+    setPasswordResetTargetId(user.id);
+    setPasswordResetDraft('');
+    setPasswordResetConfirm('');
+    setAccountMessage('');
+  };
+
+  const closePasswordReset = (force = false) => {
+    if (passwordResetBusy && !force) return;
+    setPasswordResetTargetId(null);
+    setPasswordResetDraft('');
+    setPasswordResetConfirm('');
+  };
+
+  const resetAccountPassword = async () => {
+    if (!passwordResetTarget || passwordResetBusy) return;
+    if (passwordResetDraft.length < 8) {
+      setAccountMessage(t('admin.passwordResetMin'));
+      return;
+    }
+    if (passwordResetDraft !== passwordResetConfirm) {
+      setAccountMessage(t('admin.passwordResetMismatch'));
+      return;
+    }
+    setPasswordResetBusy(true);
+    try {
+      await apiFetch(`/api/admin/users/${encodeURIComponent(passwordResetTarget.id)}/password`, {
+        method: 'POST',
+        body: JSON.stringify({ password: passwordResetDraft }),
+      });
+      setAccountMessage(t('admin.passwordResetSuccess').replace('{name}', passwordResetTarget.name));
+      closePasswordReset(true);
+      setRefreshKey((value) => value + 1);
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : t('admin.passwordResetFailed'));
+    } finally {
+      setPasswordResetBusy(false);
     }
   };
 
@@ -699,7 +746,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                       <td>{user.tier}</td>
                       <td className="text-end">{credit?.balance ?? 0} U</td>
                       <td>{formatDateTime(user.joinedAt)}</td>
-                      <td>{user.role !== 'admin' ? <button type="button" className="btn btn--danger btn--sm" onClick={() => deleteAccount(user.id)}><Trash2 size={14} />{t('admin.delete')}</button> : <span className="text-muted">{t('admin.adminProtected')}</span>}</td>
+                      <td>{user.role !== 'admin' ? <div className="admin-account-actions"><button type="button" className="btn btn--danger btn--sm" onClick={() => deleteAccount(user.id)}><Trash2 size={14} />{t('admin.delete')}</button><button type="button" className="btn btn--ghost btn--sm" onClick={() => openPasswordReset(user)}><KeyRound size={14} />{t('admin.resetPassword')}</button></div> : <span className="text-muted">{t('admin.adminProtected')}</span>}</td>
                     </tr>
                   );
                 }) : <tr><td colSpan={9}><div className="empty-inline"><span>{t('admin.noAccounts')}</span></div></td></tr>}
@@ -707,6 +754,24 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             </table>
           </div>
         </article>
+      ) : null}
+
+      {passwordResetTarget ? (
+        <div className="admin-password-reset-backdrop" role="presentation" onMouseDown={() => closePasswordReset()}>
+          <section className="admin-password-reset" role="dialog" aria-modal="true" aria-labelledby="password-reset-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="admin-password-reset__head">
+              <div><span className="eyebrow"><KeyRound size={13} /> {t('admin.resetPassword')}</span><h2 id="password-reset-title">{t('admin.passwordResetTitle')}</h2><p>{t('admin.passwordResetHint')}</p></div>
+              <button type="button" className="icon-button icon-button--small" onClick={() => closePasswordReset()} aria-label={t('admin.cancel')}><XCircle size={17} /></button>
+            </div>
+            <div className="admin-password-reset__identity"><strong>{passwordResetTarget.name}</strong><span>{passwordResetTarget.email}</span><span>{passwordResetTarget.phone}</span></div>
+            <div className="form-grid">
+              <label className="field"><span>{t('auth.createPassword')}</span><input type="password" autoComplete="new-password" value={passwordResetDraft} onChange={(event) => setPasswordResetDraft(event.target.value)} /></label>
+              <label className="field"><span>{t('auth.confirmPassword')}</span><input type="password" autoComplete="new-password" value={passwordResetConfirm} onChange={(event) => setPasswordResetConfirm(event.target.value)} /></label>
+            </div>
+            <p className="admin-password-reset__protection">{t('admin.passwordProtected')}</p>
+            <div className="admin-password-reset__actions"><button type="button" className="btn btn--ghost" onClick={() => closePasswordReset()} disabled={passwordResetBusy}>{t('admin.cancel')}</button><button type="button" className="btn btn--primary" onClick={() => void resetAccountPassword()} disabled={passwordResetBusy || !passwordResetDraft || !passwordResetConfirm}>{t('admin.resetPasswordSave')}</button></div>
+          </section>
+        </div>
       ) : null}
 
       {tab === 'Registration Review' ? (

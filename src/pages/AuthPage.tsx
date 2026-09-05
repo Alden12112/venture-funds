@@ -1,19 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ArrowRight, CheckCircle2, ShieldCheck, Smartphone, Mail, Languages, RefreshCw } from 'lucide-react';
 import { authModes } from '@/data/navigation';
 import { brand } from '@/data/brand';
 import { BrandMark } from '@/components/BrandMark';
 import { useAuth } from '@/context/auth-context';
-import { EmptyState } from '@/components/Stats';
 import { useLanguage } from '@/context/language-context';
 import { isValidEmail, isValidInternationalPhone } from '@/lib/auth';
 import { buildInternationalPhone, countryDirectory, defaultCountry, getCountryOption, isValidCountryPhone, normalizeCountryPhoneInput, phoneDigitsHint, phonePrefixHint } from '@/data/countries';
 import { ApiError, apiFetch } from '@/lib/api';
+import { SupportCenter, type RecoverySupportSession } from '@/components/SupportCenter';
+
+const registeredEmailStorageKey = 'venture.pending-registration-email';
+
+function pendingRegistrationEmail() {
+  if (typeof window === 'undefined') return '';
+  const candidate = window.sessionStorage.getItem(registeredEmailStorageKey) ?? '';
+  return isValidEmail(candidate) ? candidate : '';
+}
 
 export function AuthPage() {
   const { mode } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { session, signIn } = useAuth();
   const { language, setLanguage, t } = useLanguage();
   const [delivery, setDelivery] = useState<'email' | 'phone'>('email');
@@ -22,9 +31,11 @@ export function AuthPage() {
   const [registrationChallenge, setRegistrationChallenge] = useState<{ challengeId: string; prompt: string } | null>(null);
   const [challengeAnswer, setChallengeAnswer] = useState('');
   const [challengeLoading, setChallengeLoading] = useState(false);
+  const [recovery, setRecovery] = useState<RecoverySupportSession | null>(null);
+  const [registeredEmail, setRegisteredEmail] = useState('');
   const [form, setForm] = useState({
     name: '',
-    identifier: '',
+    identifier: pendingRegistrationEmail(),
     gmail: '',
     phone: '',
     country: defaultCountry.name,
@@ -72,6 +83,24 @@ export function AuthPage() {
     }
   }, [currentMode]);
 
+  useEffect(() => {
+    if (currentMode !== 'login') return;
+    const storedEmail = pendingRegistrationEmail();
+    const registeredEmail = storedEmail || (typeof location.state === 'object' && location.state
+      ? (location.state as { registeredEmail?: unknown }).registeredEmail
+      : undefined);
+    if (typeof registeredEmail !== 'string' || !isValidEmail(registeredEmail)) return;
+    setDelivery('email');
+    setRegisteredEmail(registeredEmail);
+    setForm((current) => ({ ...current, identifier: registeredEmail }));
+    if (storedEmail) window.sessionStorage.removeItem(registeredEmailStorageKey);
+    setSuccess('auth.readyFilled');
+  }, [currentMode, location.state]);
+
+  useEffect(() => {
+    if (currentMode !== 'recover') setRecovery(null);
+  }, [currentMode]);
+
   if (session) {
     return <Navigate to="/app/dashboard" replace />;
   }
@@ -91,11 +120,34 @@ export function AuthPage() {
 
   const handleSubmit = async () => {
     if (currentMode === 'recover') {
-      if (!form.identifier.trim()) {
-        setError('auth.errorIdentifier');
+      if (!form.gmail.trim() || !form.phone.trim()) {
+        setError('auth.recoveryContactRequired');
         return;
       }
-      setSuccess('auth.recoverQueued');
+      if (!isValidEmail(form.gmail)) {
+        setError('auth.validEmail');
+        return;
+      }
+      if (!isValidInternationalPhone(form.phone)) {
+        setError('auth.validPhone');
+        return;
+      }
+      try {
+        const result = await apiFetch<{ verified: boolean; recoveryToken?: string; identity?: RecoverySupportSession['identity'] }>('/api/auth/recovery/start', {
+          method: 'POST',
+          body: JSON.stringify({ email: form.gmail.trim(), phone: form.phone.trim() }),
+        });
+        if (!result.verified || !result.recoveryToken || !result.identity) {
+          setRecovery(null);
+          setError('auth.recoveryContactMismatch');
+          return;
+        }
+        setRecovery({ token: result.recoveryToken, identity: result.identity });
+        setSuccess('auth.recoveryChatReady');
+      } catch (error) {
+        setRecovery(null);
+        setError(error instanceof Error ? error.message : 'auth.recoveryUnavailable');
+      }
       return;
     }
 
@@ -137,7 +189,8 @@ export function AuthPage() {
             challengeAnswer,
           }),
         });
-        setSuccess('auth.accountCreated');
+        window.sessionStorage.setItem(registeredEmailStorageKey, form.gmail.trim());
+        navigate('/auth/login', { replace: true, state: { registeredEmail: form.gmail.trim() } });
         return;
       } catch (error) {
         const message = error instanceof Error ? error.message : 'auth.registrationFailed';
@@ -149,22 +202,23 @@ export function AuthPage() {
       }
     }
 
-    if (!form.identifier.trim() || !form.password) {
+    const loginIdentifier = (form.identifier || (delivery === 'email' ? registeredEmail : '')).trim();
+    if (!loginIdentifier || !form.password) {
       setError('auth.errorLoginRequired');
       return;
     }
-    if (delivery === 'email' && !isValidEmail(form.identifier)) {
+    if (delivery === 'email' && !isValidEmail(loginIdentifier)) {
       setError('auth.validEmail');
       return;
     }
-    if (delivery === 'phone' && !isValidInternationalPhone(form.identifier)) {
+    if (delivery === 'phone' && !isValidInternationalPhone(loginIdentifier)) {
       setError('auth.validPhone');
       return;
     }
     try {
       const result = await apiFetch<{ token: string; session: { id: string; name: string; email: string; phone?: string; country?: string; role?: 'user' | 'admin'; tradingScore?: number } }>('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ identifier: form.identifier, password: form.password }),
+        body: JSON.stringify({ identifier: loginIdentifier, password: form.password }),
       });
       if (result.session.role === 'admin') {
         setError('auth.adminSeparate');
@@ -202,13 +256,6 @@ export function AuthPage() {
 
       <main className="auth-card">
         <div className="auth-toolbar">
-          <div className="segmented-nav">
-            {authModes.map((item) => (
-              <Link key={item.key} to={`/auth/${item.key}`} className={`segmented-nav__item ${currentMode === item.key ? 'is-active' : ''}`}>
-                {item.key === 'login' ? t('auth.login') : item.key === 'register' ? t('auth.register') : t('auth.recover')}
-              </Link>
-            ))}
-          </div>
           <label className="locale-picker locale-picker--auth">
             <Languages size={15} aria-hidden="true" />
             <span className="sr-only">{t('app.language')}</span>
@@ -218,37 +265,31 @@ export function AuthPage() {
               <option value="ms">BM</option>
             </select>
           </label>
+          <div className="segmented-nav">
+            {authModes.map((item) => (
+              <Link key={item.key} to={`/auth/${item.key}`} className={`segmented-nav__item ${currentMode === item.key ? 'is-active' : ''}`}>
+                {item.key === 'login' ? t('auth.login') : item.key === 'register' ? t('auth.register') : t('auth.recover')}
+              </Link>
+            ))}
+          </div>
         </div>
 
         {currentMode === 'recover' ? (
           <div className="auth-form">
-            <div className="field-switch">
-              <button type="button" className={delivery === 'email' ? 'is-active' : ''} onClick={() => setDelivery('email')}>
-                <Mail size={16} />
-                {t('auth.email')}
-              </button>
-              <button type="button" className={delivery === 'phone' ? 'is-active' : ''} onClick={() => setDelivery('phone')}>
-                <Smartphone size={16} />
-                {t('auth.phone')}
-              </button>
-            </div>
             <label className="field">
-              <span>{delivery === 'email' ? t('auth.emailAddress') : t('auth.phone')}</span>
-              <input autoComplete="off" required value={form.identifier} onChange={(event) => setForm({ ...form, identifier: event.target.value })} />
+              <span>{t('auth.emailAddress')}</span>
+              <input autoComplete="email" required type="email" value={form.gmail} placeholder="name@company.com" onChange={(event) => setForm({ ...form, gmail: event.target.value })} />
             </label>
             <label className="field">
-              <span>{t('auth.verificationCode')}</span>
-              <div className="field-row">
-                <input value={form.code} onChange={(event) => setForm({ ...form, code: event.target.value })} placeholder={t('auth.codePlaceholder')} />
-                <button type="button" className="btn btn--ghost" onClick={() => setSuccess('auth.codeSent')}>
-                  {t('auth.send')}
-                </button>
-              </div>
+              <span>{t('auth.phone')}</span>
+              <input autoComplete="tel" required type="tel" inputMode="tel" value={form.phone} placeholder="+60 12 345 6789" onChange={(event) => setForm({ ...form, phone: event.target.value })} />
+              <small className="field-hint">{t('auth.recoveryPhoneHint')}</small>
             </label>
             <button type="button" className="btn btn--primary btn--block" onClick={handleSubmit}>
               {submitLabel} <ArrowRight size={16} />
             </button>
             {status ? <div className={`notice-banner notice-banner--${statusKind}`}><CheckCircle2 size={16} />{t(status)}</div> : null}
+            {recovery ? <div className="auth-recovery-chat"><SupportCenter recovery={recovery} initialDraft={t('support.recoveryDraft')} /></div> : null}
           </div>
         ) : (
           <div className="auth-form">
@@ -301,7 +342,7 @@ export function AuthPage() {
                 </div>
                 <label className="field">
                   <span>{delivery === 'email' ? t('auth.emailAddress') : t('auth.phone')}</span>
-                  <input autoComplete="off" required type={delivery === 'email' ? 'email' : 'tel'} placeholder={delivery === 'email' ? 'name@company.com' : '+60 12 345 6789'} value={form.identifier} onChange={(event) => setForm({ ...form, identifier: event.target.value })} />
+                  <input autoComplete="off" required type={delivery === 'email' ? 'email' : 'tel'} placeholder={delivery === 'email' ? 'name@company.com' : '+60 12 345 6789'} value={form.identifier || (delivery === 'email' ? registeredEmail : '')} onChange={(event) => { setRegisteredEmail(''); setForm({ ...form, identifier: event.target.value }); }} />
                 </label>
               </>
             ) : null}
@@ -330,8 +371,6 @@ export function AuthPage() {
           </div>
           <p>{t('auth.footer')}</p>
         </div>
-
-        {status && currentMode === 'recover' ? <EmptyState title={t('auth.flowReady')} text={t(status)} /> : null}
       </main>
     </div>
   );

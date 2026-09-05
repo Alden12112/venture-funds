@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Activity, Clock3, Database, GitBranch, ShieldCheck, Wifi } from 'lucide-react';
+import { Activity, Clock3, Database, GitBranch, LoaderCircle, ShieldCheck, Wifi } from 'lucide-react';
 import type { SourceMeta } from '@/types';
 import { formatDateTime } from '@/lib/format';
 import { useLanguage } from '@/context/language-context';
@@ -118,7 +118,8 @@ export function ErrorState({
 
 export function LoadingState({ label = 'Preparing your workspace' }: { label?: string }) {
   return (
-    <div className="skeleton-stack" aria-live="polite">
+    <div className="skeleton-stack loading-state" aria-live="polite" aria-busy="true">
+      <span className="loading-state__spinner" aria-hidden="true"><LoaderCircle size={20} /></span>
       <div className="skeleton skeleton--title" />
       <div className="skeleton skeleton--line" />
       <div className="skeleton skeleton--line" />

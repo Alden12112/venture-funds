@@ -91,6 +91,20 @@ function MarketShowcaseCard({ asset, active, onSelect }: { asset: MarketAsset; a
   );
 }
 
+function useCompactViewport() {
+  const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches);
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 700px)');
+    const update = () => setCompact(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+
+  return compact;
+}
+
 export function MarketPage() {
   const { session } = useAuth();
   const { t } = useLanguage();
@@ -111,6 +125,7 @@ export function MarketPage() {
   const [creditAccount, setCreditAccount] = useState<CreditAccount | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<{ tone: 'success' | 'warning' | 'error'; message: string } | null>(null);
+  const compactViewport = useCompactViewport();
   const market = useAsyncResource(() => loadMarketBundle(symbol, timeframe), [symbol, timeframe, refreshKey]);
 
   // Command Center market links carry a normalized symbol. Respect it once it
@@ -191,6 +206,9 @@ export function MarketPage() {
   };
   const fallbackPrice = selectedBaseAsset?.price ?? 0;
   const livePrice = displayPriceFor(symbol, fallbackPrice);
+  // Mobile keeps a deliberate, inspectable candle frame. Quotes still update
+  // everywhere else, while the chart stops following the client-side pulse.
+  const chartLatestPrice = compactViewport ? selectedBaseAsset?.price ?? livePrice : livePrice;
   const authoritativePrice = authoritativePriceFor(symbol, fallbackPrice);
   const selectedUpdatedAt = getMarketProduct(symbol).productId && live.lastTickAt[symbol]
     ? new Date(live.lastTickAt[symbol]).toISOString()
@@ -502,7 +520,7 @@ export function MarketPage() {
           ) : null}
         </article>
 
-        <article className="panel market-chart-panel market-chart-panel--pro">
+        <article className={`panel market-chart-panel market-chart-panel--pro ${compactViewport ? 'market-chart-panel--static-mobile' : ''}`}>
           <div className="panel__head">
             <div>
               <h2>{selectedAsset?.symbol} {t('market.chart')}</h2>
@@ -544,7 +562,7 @@ export function MarketPage() {
               <span>{t('ui.synchronizing')}</span>
             </div>
           ) : (
-            <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={livePrice} bid={executionQuote.bid} ask={executionQuote.ask} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
+            <CandleChart key={`${symbol}-${timeframe}`} candles={market.data.candles} latestPrice={chartLatestPrice} bid={executionQuote.bid} ask={executionQuote.ask} drawTool={chartTool} drawings={drawings} onAddDrawing={(drawing) => setDrawings((current) => [...current, drawing])} />
           )}
         </article>
       </section>
