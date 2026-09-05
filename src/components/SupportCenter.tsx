@@ -6,21 +6,10 @@ import { formatDateTime } from '@/lib/format';
 import { useLanguage } from '@/context/language-context';
 import { useContentSettings } from '@/context/content-settings-context';
 import { SUPPORT_TELEGRAM_KEY, SUPPORT_WHATSAPP_KEY } from '@/lib/content-settings';
+import { prepareSupportImage, supportImageLimit } from '@/lib/support-images';
+import { countUnreadSupportMessages, markSupportMessagesRead, type SupportReadScope } from '@/lib/support-read-state';
 import { buildTelegramUrl, buildWhatsappUrl } from '@/lib/support-links';
 import type { SupportAttachment, SupportMessage } from '@/types';
-
-const supportImageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-const supportImageLimit = 3;
-const supportImageMaxBytes = 1_500_000;
-
-function fileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener('load', () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('image read failed')));
-    reader.addEventListener('error', () => reject(new Error('image read failed')));
-    reader.readAsDataURL(file);
-  });
-}
 
 export interface RecoverySupportSession {
   token: string;
@@ -96,24 +85,29 @@ export function SupportCenter({
   const [attachments, setAttachments] = useState<SupportAttachment[]>([]);
   const [activeThreadId, setActiveThreadId] = useState('');
   const [status, setStatus] = useState('');
+  const [readVersion, setReadVersion] = useState(0);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const whatsappUrl = buildWhatsappUrl(getContent(SUPPORT_WHATSAPP_KEY, language));
   const telegramUrl = buildTelegramUrl(getContent(SUPPORT_TELEGRAM_KEY, language));
   const recoveryHeaders = recovery ? { authorization: `Bearer ${recovery.token}` } : undefined;
   const supportPath = recovery ? '/api/support/recovery/messages' : '/api/support/messages';
 
-  const loadMessages = async () => {
+  const readScope: SupportReadScope = adminMode ? 'admin' : 'user';
+
+  const loadMessages = async (preserveStatus = false) => {
     if (!session && !recovery) return;
     try {
       const remote = await apiFetch<SupportMessage[]>(supportPath, { headers: recoveryHeaders, cache: 'no-store' });
       setMessages(remote);
-      if (remote[0]) setActiveThreadId((current) => current || remote[0].threadId);
-      setStatus('');
+      if (remote.length) setActiveThreadId((current) => current || remote.at(-1)?.threadId || '');
+      if (!preserveStatus) setStatus('');
+      return remote;
     } catch {
       // Support is shared across devices. Do not replace the last server
       // state with a browser-only fallback, which can make each side appear
       // to be talking only to itself during a transient network failure.
-      setStatus(t('support.unavailable'));
+      if (!preserveStatus) setStatus(t('support.unavailable'));
+      return null;
     }
   };
 
@@ -140,14 +134,21 @@ export function SupportCenter({
     const grouped = new Map<string, SupportMessage[]>();
     messages.forEach((message) => grouped.set(message.threadId, [...(grouped.get(message.threadId) ?? []), message]));
     return Array.from(grouped.entries()).map(([threadId, threadMessages]) => {
-      const lastAdminMessage = threadMessages.map((message, index) => message.senderRole === 'admin' ? index : -1).reduce((latest, index) => Math.max(latest, index), -1);
-      const unread = threadMessages.slice(lastAdminMessage + 1).filter((message) => message.senderRole === 'user').length;
+      const unread = session ? countUnreadSupportMessages(threadMessages, readScope, session.id, threadId) : 0;
       return { threadId, messages: threadMessages, latest: threadMessages.at(-1)!, unread };
-    });
-  }, [messages]);
+    }).sort((left, right) => Date.parse(right.latest.createdAt) - Date.parse(left.latest.createdAt));
+  }, [messages, readScope, readVersion, session]);
 
   const selectedThread = threads.find((thread) => thread.threadId === activeThreadId) ?? threads[0];
   const visibleMessages = adminMode ? selectedThread?.messages ?? [] : messages;
+
+  useEffect(() => {
+    if (!session || recovery || !messages.length) return;
+    const messagesToMark = adminMode ? selectedThread?.messages ?? [] : messages;
+    if (markSupportMessagesRead(messagesToMark, readScope, session.id, adminMode ? selectedThread?.threadId : undefined)) {
+      setReadVersion((version) => version + 1);
+    }
+  }, [adminMode, messages, readScope, recovery, selectedThread?.threadId, session]);
 
   const selectAttachments = async (files: FileList | null) => {
     const selectedFiles = Array.from(files ?? []);
@@ -162,24 +163,11 @@ export function SupportCenter({
 
     const nextAttachments: SupportAttachment[] = [];
     for (const file of eligibleFiles) {
-      if (!supportImageMimeTypes.has(file.type)) {
-        setStatus(t('support.imageType'));
-        continue;
-      }
-      if (file.size <= 0 || file.size > supportImageMaxBytes) {
-        setStatus(t('support.imageTooLarge'));
-        continue;
-      }
-      try {
-        nextAttachments.push({
-          id: crypto.randomUUID(),
-          name: file.name.trim().slice(0, 120) || 'image',
-          mimeType: file.type,
-          dataUrl: await fileAsDataUrl(file),
-        });
-      } catch {
-        setStatus(t('support.deliveryFailed'));
-      }
+      const result = await prepareSupportImage(file);
+      if ('attachment' in result) nextAttachments.push(result.attachment);
+      else if (result.error === 'type') setStatus(t('support.imageType'));
+      else if (result.error === 'size') setStatus(t('support.imageTooLarge'));
+      else setStatus(t('support.deliveryFailed'));
     }
     if (nextAttachments.length) {
       setAttachments((current) => [...current, ...nextAttachments].slice(0, supportImageLimit));
@@ -206,7 +194,7 @@ export function SupportCenter({
       setDraft('');
       setAttachments([]);
       setStatus(t('support.sent'));
-      void loadMessages();
+      await loadMessages(true);
     } catch {
       setStatus(t('support.deliveryFailed'));
     }
@@ -234,7 +222,7 @@ export function SupportCenter({
         {adminMode ? (
           <aside className="support-threads" aria-label={t('support.inbox')}>
             {threads.length ? threads.map((thread) => (
-              <button type="button" key={thread.threadId} className={`support-thread ${selectedThread?.threadId === thread.threadId ? 'is-active' : ''}`} onClick={() => { setActiveThreadId(thread.threadId); setAttachments([]); }}>
+              <button type="button" key={thread.threadId} className={`support-thread ${selectedThread?.threadId === thread.threadId ? 'is-active' : ''}`} onClick={() => { setActiveThreadId(thread.threadId); setAttachments([]); if (session && markSupportMessagesRead(thread.messages, readScope, session.id, thread.threadId)) setReadVersion((version) => version + 1); }}>
                 <span className="support-thread__avatar">{thread.latest.userName.slice(0, 1).toUpperCase()}</span>
                 <span><strong>{thread.latest.userName}</strong><small>{thread.latest.userEmail} · {thread.latest.userPhone || t('support.noPhone')}</small><small>{thread.latest.body || (thread.latest.attachments?.length ? t('support.imageAttached').replace('{count}', String(thread.latest.attachments.length)) : '')}</small></span>
                 <time>{formatDateTime(thread.latest.createdAt)}</time>

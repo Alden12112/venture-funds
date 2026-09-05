@@ -20,6 +20,7 @@ import { labelCountry, labelNewsCategory, labelNewsSentiment } from '@/lib/news-
 import { clearFundingHistory, deleteFundingHistoryItem, reviewFundingRequest } from '@/lib/funding';
 import { deleteRemoteLedgerEntry } from '@/adapters/ledger-adapter';
 import { isNotificationCenterItem } from '@/lib/notifications';
+import { useSupportUnread } from '@/lib/support-read-state';
 import type { FundingRequest, LanguageCode, TimedMarketScenario, UserProfile } from '@/types';
 import {
   getDefaultSharedContentSetting,
@@ -196,6 +197,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
   const [contentSaving, setContentSaving] = useState(false);
   const [contentMessage, setContentMessage] = useState('');
   const [supportChannelDraft, setSupportChannelDraft] = useState<SupportChannelDraft>({ whatsapp: '', telegram: '' });
+  const { hasUnread: hasUnreadSupport, unreadCount: unreadSupportCount } = useSupportUnread(true);
   const admin = useAsyncResource(() => loadAdminBundle(), [refreshKey]);
   const news = useAsyncResource(() => loadNewsBundle(), []);
 
@@ -694,6 +696,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <button key={item} type="button" className={`chip admin-tab-chip ${tab === item ? 'is-active' : ''}`} onClick={() => selectTab(item)}>
               {(() => { const Icon = tabIcons[item]; return <Icon size={15} strokeWidth={1.8} aria-hidden="true" />; })()}
               <span>{t(tabTranslationKey[item])}</span>
+              {item === 'Support Inbox' && hasUnreadSupport ? <span className="workspace-unread-dot" role="status" aria-label={t('support.unreadCount').replace('{count}', String(unreadSupportCount))} /> : null}
             </button>
           ))}
         </div>
@@ -730,7 +733,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
             <table className="table table--interactive">
               <thead>
                 <tr>
-                  <th>{t('admin.fullName')}</th><th>{t('admin.email')}</th><th>{t('admin.role')}</th><th>{t('admin.status')}</th><th>{t('admin.region')}</th><th>{t('admin.tier')}</th><th className="text-end">{t('admin.balance')}</th><th>{t('admin.joined')}</th><th>{t('admin.action')}</th>
+                  <th>{t('admin.fullName')}</th><th>{t('admin.email')}</th><th>{t('admin.role')}</th><th>{t('admin.status')}</th><th>{t('admin.region')}</th><th>{t('admin.passwordSecurity')}</th><th className="text-end">{t('admin.balance')}</th><th>{t('admin.joined')}</th><th>{t('admin.action')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -743,7 +746,7 @@ export function AdminPage({ standalone = false }: { standalone?: boolean }) {
                       <td>{user.role === 'admin' ? t('admin.administrator') : t('admin.client')}</td>
                       <td><StatusPill tone={user.status === 'active' ? 'success' : user.status === 'pending' ? 'warning' : 'critical'}>{statusLabel(user.status)}</StatusPill></td>
                        <td>{labelCountry(user.country ?? '', t)}</td>
-                      <td>{user.tier}</td>
+                      <td><span className="password-security-state">{t('admin.passwordStoredProtected')}</span></td>
                       <td className="text-end">{credit?.balance ?? 0} U</td>
                       <td>{formatDateTime(user.joinedAt)}</td>
                       <td>{user.role !== 'admin' ? <div className="admin-account-actions"><button type="button" className="btn btn--danger btn--sm" onClick={() => deleteAccount(user.id)}><Trash2 size={14} />{t('admin.delete')}</button><button type="button" className="btn btn--ghost btn--sm" onClick={() => openPasswordReset(user)}><KeyRound size={14} />{t('admin.resetPassword')}</button></div> : <span className="text-muted">{t('admin.adminProtected')}</span>}</td>

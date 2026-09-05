@@ -22,6 +22,7 @@ import { useAuth } from '@/context/auth-context';
 import { useTheme } from '@/context/theme-context';
 import { useLanguage } from '@/context/language-context';
 import { useOnlineStatus } from '@/lib/useOnlineStatus';
+import { useSupportUnread } from '@/lib/support-read-state';
 import type { TranslationKey } from '@/i18n/translations';
 
 const iconMap = {
@@ -63,6 +64,7 @@ export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const { hasUnread: hasUnreadSupport, unreadCount: unreadSupportCount } = useSupportUnread();
 
   useEffect(() => {
     setMobileMoreOpen(false);
@@ -79,6 +81,7 @@ export function AppShell() {
       >
         <Icon size={17} aria-hidden="true" />
         <span>{t(navKeyByPath[link.to] ?? 'nav.dashboard')}</span>
+        {link.to === '/app/support' && hasUnreadSupport ? <span className="workspace-unread-dot" role="status" aria-label={t('support.unreadCount').replace('{count}', String(unreadSupportCount))} /> : null}
       </NavLink>
     );
   };
@@ -103,6 +106,7 @@ export function AppShell() {
       >
         <Icon size={17} aria-hidden="true" />
         <span>{t(navKeyByPath[link.to] ?? 'nav.dashboard')}</span>
+        {link.to === '/app/support' && hasUnreadSupport ? <span className="workspace-unread-dot" role="status" aria-label={t('support.unreadCount').replace('{count}', String(unreadSupportCount))} /> : null}
       </button>
     );
   };
