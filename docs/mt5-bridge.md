@@ -10,7 +10,7 @@ instruction or trade command. AD88 remains a paper-trading workspace.
 ```text
 MT5 terminal
   → AD88MarketBridge.mq5 (your terminal)
-  → HTTPS POST https://ad88-platform.onrender.com/api/mt5/ticks
+  → HTTPS POST https://venture-funds.onrender.com/api/mt5/ticks
   → AD88 normalized quote cache + SSE
   → Trade workspace
 ```
@@ -33,12 +33,12 @@ standard public market providers.
 
 1. Copy [`../mt5/AD88MarketBridge.mq5`](../mt5/AD88MarketBridge.mq5) to the MT5
    `MQL5/Experts` directory and compile it in MetaEditor.
-2. In MT5, add `https://ad88-platform.onrender.com` to
+2. In MT5, add `https://venture-funds.onrender.com` to
    **Tools → Options → Expert Advisors → Allow WebRequest for listed URL**.
 3. Attach the EA to any chart. It uses a one-second timer and reads the chosen
    symbols from Market Watch; it never opens, changes, or closes orders.
 4. Set `IngestUrl` to
-   `https://ad88-platform.onrender.com/api/mt5/ticks`.
+   `https://venture-funds.onrender.com/api/mt5/ticks`.
 5. Set `IngestKey` to the exact value of `MT5_INGEST_SECRET`.
 6. Use your broker's Market Watch symbols in `Instruments`. The bridge accepts
    common suffixes such as `XAUUSDm` and `EURUSD.pro`.

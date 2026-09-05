@@ -7,7 +7,7 @@
 #property version   "1.0"
 #property description "Read-only Bid/Ask/Last reference publisher for AD88."
 
-input string IngestUrl = "https://ad88-platform.onrender.com/api/mt5/ticks";
+input string IngestUrl = "https://venture-funds.onrender.com/api/mt5/ticks";
 input string IngestKey = ""; // Set locally from Render MT5_INGEST_SECRET.
 input string BrokerLabel = "MT5 reference terminal";
 input string Environment = "demo";

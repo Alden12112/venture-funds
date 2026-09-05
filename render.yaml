@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: ad88-platform
+    name: venture-funds
     runtime: node
     autoDeploy: true
     buildCommand: npm ci && npm run build
@@ -28,10 +28,10 @@ services:
         sync: false
       - key: DATABASE_URL
         fromDatabase:
-          name: ad88-postgres
+          name: venture-funds-postgres
           property: connectionString
   - type: web
-    name: ad88-admin
+    name: venture-funds-admin
     runtime: node
     autoDeploy: true
     buildCommand: npm ci && npm run build
@@ -44,25 +44,25 @@ services:
       - key: VITE_APP_SURFACE
         value: admin
       - key: REMOTE_API_ORIGIN
-        value: https://ad88-platform.onrender.com
+        value: https://venture-funds.onrender.com
       - key: AUTH_SECRET
         fromService:
           type: web
-          name: ad88-platform
+          name: venture-funds
           envVarKey: AUTH_SECRET
       - key: AD88_ADMIN_EMAIL
         fromService:
           type: web
-          name: ad88-platform
+          name: venture-funds
           envVarKey: AD88_ADMIN_EMAIL
       - key: AD88_ADMIN_PASSWORD
         fromService:
           type: web
-          name: ad88-platform
+          name: venture-funds
           envVarKey: AD88_ADMIN_PASSWORD
 
 databases:
-  - name: ad88-postgres
-    databaseName: ad88
-    user: ad88
+  - name: venture-funds-postgres
+    databaseName: venture_funds
+    user: venture_funds
     plan: free
