@@ -20,6 +20,10 @@ services:
         sync: false
       - key: TWELVE_DATA_API_KEY
         sync: false
+      - key: OANDA_PRACTICE_ACCOUNT_ID
+        sync: false
+      - key: OANDA_PRACTICE_TOKEN
+        sync: false
       - key: MT5_INGEST_SECRET
         sync: false
       - key: DATABASE_URL

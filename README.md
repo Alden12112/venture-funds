@@ -38,6 +38,7 @@ variable key.
 - `AD88_ADMIN_EMAIL`: the administrator email used only for `/admin` login
 - `AD88_ADMIN_PASSWORD`: the administrator password stored only as a Render secret
 - `MT5_INGEST_SECRET`: optional one-way secret for a user-hosted MT5 EA to publish read-only Bid/Ask/Last references. It belongs only on `ad88-platform`, never in the browser or the admin service.
+- `OANDA_PRACTICE_ACCOUNT_ID` and `OANDA_PRACTICE_TOKEN`: optional OANDA **practice** account values for the server-only, read-only metals, energy and FX reference feed. The application uses only OANDA's instrument-discovery and pricing endpoints; it cannot submit OANDA orders, access live OANDA, or change an OANDA balance.
 
 The admin service inherits those values and `AUTH_SECRET` from the frontend
 service through Render's private `fromService` environment references. Do not
@@ -51,6 +52,10 @@ The blueprint generates `AUTH_SECRET` and provisions `ad88-postgres`; its connec
 - SPA fallback, same-origin market/news proxy, registration/login, admin account operations and workspace sync are handled by `server.mjs`.
 
 Trading and points actions remain sandbox/paper workflows. No real orders or funds are sent.
+
+## Optional OANDA practice market feed
+
+The public fallback sources may be delayed or unavailable from hosted environments. For a stronger no-desktop reference feed, create an OANDA practice account and add its account ID and personal access token to the two private Render variables above. The server discovers the instruments enabled for that practice account and reads only prices for supported XAU, XAG, WTI, Brent, natural gas, copper and FX instruments. No MT5 terminal needs to stay running, and the application intentionally has no OANDA order endpoint.
 
 ## Optional MT5 market-data bridge
 

@@ -22,6 +22,11 @@ const adminBridgeToken = createHmac('sha256', authSecret)
   .digest('base64url');
 // Keep the market key server-side. The browser only ever talks to /api/market.
 const twelveDataApiKey = (process.env.TWELVE_DATA_API_KEY || '').trim();
+// Optional OANDA practice-account credentials power a read-only reference
+// feed. This application never calls OANDA order, account-balance, or funding
+// endpoints, and it never connects to OANDA's live-trading API.
+const oandaPracticeToken = (process.env.OANDA_PRACTICE_TOKEN || '').trim();
+const oandaPracticeAccountId = (process.env.OANDA_PRACTICE_ACCOUNT_ID || '').trim();
 // A one-way quote-ingest key for an optional user-hosted MT5 Expert Advisor.
 // It is deliberately separate from AUTH_SECRET and never reaches a browser,
 // the admin service, or source control. The bridge only accepts reference
@@ -75,6 +80,18 @@ const twelveQuoteWindowLimit = 6;
 let twelveQuoteWindow = { startedAt: 0, used: 0 };
 const spotMetalCache = new Map();
 const spotMetalTtlMs = 2_000;
+const oandaInstrumentCacheTtlMs = 6 * 60 * 60 * 1000;
+const oandaQuoteCacheTtlMs = 2_000;
+const marketReferenceMaxAgeMs = 10_000;
+let oandaInstrumentCache = { expiresAt: 0, value: new Set() };
+let oandaInstrumentRequest = null;
+let oandaQuoteCache = { expiresAt: 0, value: {} };
+let oandaQuoteRequest = null;
+
+function marketReferenceState(quoteUpdatedAt) {
+  const quoteTime = Date.parse(String(quoteUpdatedAt || ''));
+  return Number.isFinite(quoteTime) && Math.abs(Date.now() - quoteTime) <= marketReferenceMaxAgeMs ? 'live' : 'cached';
+}
 // Funding uses a once-daily MYR reference quote. It exists only to calculate
 // paper-U review requests and is not a payment or wallet integration.
 const fundingRateTtlMs = 24 * 60 * 60 * 1000;
@@ -3011,6 +3028,102 @@ const tradingViewSymbols = {
   AUDUSD: ['forex', 'OANDA:AUDUSD'], USDCAD: ['forex', 'OANDA:USDCAD'],
 };
 
+// Instrument availability differs by OANDA practice-account region. Discover
+// the permitted names from the account first, then request prices only for
+// names that account has explicitly exposed. This keeps the adapter read-only
+// and avoids pretending every CFD is present on every practice account.
+const oandaPracticeInstrumentCandidates = {
+  XAU: ['XAU_USD'], XAG: ['XAG_USD'],
+  CL: ['WTICO_USD', 'WTI_USD'], BRN: ['BCO_USD', 'BRENT_USD'],
+  NG: ['NATGAS_USD'], HG: ['COPPER_USD', 'XCU_USD'],
+  EURUSD: ['EUR_USD'], GBPUSD: ['GBP_USD'], USDJPY: ['USD_JPY'], AUDUSD: ['AUD_USD'],
+  USDCAD: ['USD_CAD'], USDCHF: ['USD_CHF'], EURJPY: ['EUR_JPY'],
+};
+
+function oandaPracticeConfigured() {
+  return Boolean(oandaPracticeToken && oandaPracticeAccountId);
+}
+
+function oandaPracticeHeaders() {
+  return { authorization: `Bearer ${oandaPracticeToken}`, accept: 'application/json' };
+}
+
+async function loadOandaPracticeInstruments() {
+  if (!oandaPracticeConfigured()) return new Set();
+  if (oandaInstrumentCache.expiresAt > Date.now()) return oandaInstrumentCache.value;
+  if (!oandaInstrumentRequest) {
+    const upstream = `https://api-fxpractice.oanda.com/v3/accounts/${encodeURIComponent(oandaPracticeAccountId)}/instruments`;
+    oandaInstrumentRequest = fetch(upstream, { headers: oandaPracticeHeaders(), signal: AbortSignal.timeout(6500) })
+      .then(async (response) => {
+        if (!response.ok) return new Set();
+        const payload = await response.json();
+        return new Set((Array.isArray(payload?.instruments) ? payload.instruments : [])
+          .map((instrument) => String(instrument?.name || '').trim())
+          .filter(Boolean));
+      })
+      .catch(() => new Set())
+      .then((value) => {
+        oandaInstrumentCache = { expiresAt: Date.now() + (value.size ? oandaInstrumentCacheTtlMs : 60_000), value };
+        return value;
+      })
+      .finally(() => { oandaInstrumentRequest = null; });
+  }
+  return oandaInstrumentRequest;
+}
+
+async function loadOandaPracticeQuotes(symbols) {
+  if (!oandaPracticeConfigured()) return {};
+  if (oandaQuoteCache.expiresAt > Date.now()) return oandaQuoteCache.value;
+  if (!oandaQuoteRequest) {
+    oandaQuoteRequest = (async () => {
+      const available = await loadOandaPracticeInstruments();
+      if (!available.size) return {};
+      const instrumentBySymbol = new Map();
+      for (const symbol of symbols) {
+        const instrument = (oandaPracticeInstrumentCandidates[symbol] || []).find((candidate) => available.has(candidate));
+        if (instrument) instrumentBySymbol.set(symbol, instrument);
+      }
+      if (!instrumentBySymbol.size) return {};
+      const upstream = new URL(`https://api-fxpractice.oanda.com/v3/accounts/${encodeURIComponent(oandaPracticeAccountId)}/pricing`);
+      upstream.searchParams.set('instruments', [...new Set(instrumentBySymbol.values())].join(','));
+      const response = await fetch(upstream, { headers: oandaPracticeHeaders(), signal: AbortSignal.timeout(6500) });
+      if (!response.ok) return {};
+      const payload = await response.json();
+      const priceByInstrument = new Map((Array.isArray(payload?.prices) ? payload.prices : [])
+        .map((item) => [String(item?.instrument || ''), item]));
+      const quotes = {};
+      for (const [symbol, instrument] of instrumentBySymbol) {
+        const item = priceByInstrument.get(instrument);
+        const bid = Number(item?.closeoutBid ?? item?.bids?.[0]?.price);
+        const ask = Number(item?.closeoutAsk ?? item?.asks?.[0]?.price);
+        const price = Number.isFinite(bid) && Number.isFinite(ask) ? (bid + ask) / 2 : Number(item?.closeoutBid ?? item?.closeoutAsk);
+        const quoteTime = Date.parse(String(item?.time || ''));
+        if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(quoteTime)) continue;
+        const quoteUpdatedAt = new Date(quoteTime).toISOString();
+        quotes[symbol] = {
+          price,
+          bid: Number.isFinite(bid) ? bid : undefined,
+          ask: Number.isFinite(ask) ? ask : undefined,
+          change24h: 0,
+          volume24h: 0,
+          quoteUpdatedAt,
+          provider: 'OANDA practice market reference',
+          dataState: marketReferenceState(quoteUpdatedAt),
+          fallback: false,
+        };
+      }
+      return quotes;
+    })()
+      .catch(() => ({}))
+      .then((value) => {
+        oandaQuoteCache = { expiresAt: Date.now() + oandaQuoteCacheTtlMs, value };
+        return value;
+      })
+      .finally(() => { oandaQuoteRequest = null; });
+  }
+  return oandaQuoteRequest;
+}
+
 function twelveInterval(interval) {
   const intervals = { '1m': '1min', '5m': '5min', '15m': '15min', '30m': '30min', '60m': '1h', '1h': '1h', '4h': '4h', '1d': '1day', '1wk': '1week', '1mo': '1month' };
   return intervals[interval] || '15min';
@@ -3113,6 +3226,7 @@ async function loadTwelveQuote(providerSymbol) {
     volume24h: Number(payload.volume) || 0,
     quoteUpdatedAt,
     provider: 'Twelve Data',
+    dataState: marketReferenceState(quoteUpdatedAt),
     fallback: false,
   };
   twelveQuoteCache.set(providerSymbol, { expiresAt: Date.now() + twelveQuoteTtlMs, value });
@@ -3132,12 +3246,14 @@ async function loadSpotMetalQuote(symbol) {
   const payload = await response.json();
   const price = Number(payload.price);
   if (!Number.isFinite(price) || price <= 0) throw new Error('spot metal price unavailable');
+  const quoteUpdatedAt = payload.updatedAt && !Number.isNaN(Date.parse(payload.updatedAt)) ? new Date(payload.updatedAt).toISOString() : new Date().toISOString();
   const value = {
     price,
     change24h: 0,
     volume24h: 0,
-    quoteUpdatedAt: payload.updatedAt && !Number.isNaN(Date.parse(payload.updatedAt)) ? new Date(payload.updatedAt).toISOString() : new Date().toISOString(),
+    quoteUpdatedAt,
     provider: 'spot metal market',
+    dataState: marketReferenceState(quoteUpdatedAt),
     fallback: false,
   };
   spotMetalCache.set(key, { expiresAt: Date.now() + spotMetalTtlMs, value });
@@ -3156,12 +3272,14 @@ async function loadCoinbaseQuote(providerSymbol) {
   const price = Number(ticker.price ?? stats.last);
   const open = Number(stats.open ?? price);
   if (!Number.isFinite(price) || price <= 0) return null;
+  const quoteUpdatedAt = ticker.time && !Number.isNaN(Date.parse(ticker.time)) ? new Date(ticker.time).toISOString() : new Date().toISOString();
   return {
     price,
     change24h: open > 0 ? ((price - open) / open) * 100 : 0,
     volume24h: Number(stats.volume ?? ticker.volume ?? 0) * price,
-    quoteUpdatedAt: ticker.time && !Number.isNaN(Date.parse(ticker.time)) ? new Date(ticker.time).toISOString() : new Date().toISOString(),
+    quoteUpdatedAt,
     provider: 'exchange market stream',
+    dataState: marketReferenceState(quoteUpdatedAt),
     fallback: false,
   };
 }
@@ -3248,12 +3366,14 @@ async function loadYahooQuote(providerSymbol) {
       const price = Number(meta?.regularMarketPrice);
       if (!Number.isFinite(price) || price <= 0) continue;
       const previous = Number(meta?.previousClose ?? meta?.chartPreviousClose);
+      const quoteUpdatedAt = meta?.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : new Date().toISOString();
       const value = {
         price,
         change24h: previous > 0 ? ((price - previous) / previous) * 100 : 0,
         volume24h: Number(meta?.regularMarketVolume) || 0,
-        quoteUpdatedAt: meta?.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : new Date().toISOString(),
+        quoteUpdatedAt,
         provider: 'Yahoo Finance',
+        dataState: marketReferenceState(quoteUpdatedAt),
         fallback: false,
       };
       yahooQuoteCache.set(providerSymbol, { expiresAt: Date.now() + yahooQuoteTtlMs, value });
@@ -3300,22 +3420,23 @@ async function loadLegacyPaperQuote(symbol) {
 
 async function buildMarketQuoteSnapshot() {
   const entries = Object.entries(marketQuoteCatalogue);
-  const tradingViewQuotes = await loadTradingViewSnapshot();
+  const [oandaPracticeQuotes, tradingViewQuotes] = await Promise.all([
+    loadOandaPracticeQuotes(entries.map(([symbol]) => symbol)),
+    loadTradingViewSnapshot(),
+  ]);
   const values = await Promise.all(entries.map(async ([symbol, providerSymbol]) => {
-    let quote = null;
+    let quote = oandaPracticeQuotes[symbol] || null;
     if (cryptoQuoteSymbols.has(symbol)) {
       try { quote = await loadCoinbaseQuote(providerSymbol); } catch { quote = null; }
     }
-    // XAU/XAG are displayed as spot-style instruments. Use the OANDA spot
-    // reference first when it is available, then a configured Twelve Data
-    // quote, and only then the keyless Gold API fallback. This preserves a
-    // true source change on the two-second snapshot cycle instead of pinning
-    // the ticket to a public endpoint with a longer edge-cache interval.
-    if (symbol === 'XAU' || symbol === 'XAG') {
-      const oandaQuote = tradingViewQuotes[symbol];
-      if (oandaQuote) {
+    // XAU/XAG are displayed as spot-style instruments. Prefer the optional
+    // authenticated OANDA practice feed, then a public OANDA reference,
+    // then configured Twelve Data, and only then the keyless spot fallback.
+    if (!quote && (symbol === 'XAU' || symbol === 'XAG')) {
+      const publicOandaQuote = tradingViewQuotes[symbol];
+      if (publicOandaQuote) {
         quote = {
-          ...oandaQuote,
+          ...publicOandaQuote,
           provider: symbol === 'XAU' ? 'OANDA XAUUSD market reference' : 'OANDA XAGUSD market reference',
         };
       }
