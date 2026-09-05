@@ -2832,6 +2832,21 @@ const twelveDataSymbols = {
   'GBPUSD=X': 'GBP/USD', 'NZDUSD=X': 'NZD/USD', 'CHF=X': 'USD/CHF', 'EURGBP=X': 'EUR/GBP', 'EURJPY=X': 'EUR/JPY', 'GBPJPY=X': 'GBP/JPY', 'EURCHF=X': 'EUR/CHF', 'CNH=X': 'USD/CNH', 'SGD=X': 'USD/SGD', 'HKD=X': 'USD/HKD', 'TRY=X': 'USD/TRY', 'ZAR=X': 'USD/ZAR', 'JPY=X': 'USD/JPY', 'AUDUSD=X': 'AUD/USD', 'CAD=X': 'USD/CAD',
 };
 
+// Keep the free-key quote budget focused on the liquid FX references that the
+// configured Twelve Data tier actually exposes. Commodities and metals have
+// their own source paths below; repeatedly asking Twelve for unavailable
+// symbols would otherwise starve valid FX quotes. A higher entitlement can
+// opt into additional provider symbols without putting a key in the browser.
+const defaultTwelveQuoteProviders = [
+  'EURUSD=X', 'GBPUSD=X', 'JPY=X', 'AUDUSD=X', 'CAD=X', 'CHF=X', 'EURJPY=X',
+];
+const twelveQuoteProviders = new Set(
+  String(process.env.TWELVE_DATA_QUOTE_SYMBOLS || defaultTwelveQuoteProviders.join(','))
+    .split(',')
+    .map((symbol) => symbol.trim())
+    .filter(Boolean),
+);
+
 // This is the server-side catalogue used by the single quote snapshot. It is
 // deliberately separate from the React asset catalogue so the browser never
 // needs provider credentials or to fan out one request per instrument.
@@ -3041,7 +3056,7 @@ function buildTwelveChartPayload(payload, requestedInterval) {
 
 async function loadTwelveMarket(symbol, interval) {
   const twelveSymbol = twelveDataSymbols[symbol];
-  if (!twelveDataApiKey || !twelveSymbol) return null;
+  if (!twelveDataApiKey || !twelveSymbol || !twelveQuoteProviders.has(symbol)) return null;
   const upstream = new URL('https://api.twelvedata.com/time_series');
   upstream.searchParams.set('symbol', twelveSymbol);
   upstream.searchParams.set('interval', twelveInterval(interval));
@@ -3065,7 +3080,7 @@ function reserveTwelveQuoteRequest() {
 
 async function loadTwelveQuote(providerSymbol) {
   const twelveSymbol = twelveDataSymbols[providerSymbol];
-  if (!twelveDataApiKey || !twelveSymbol) return null;
+  if (!twelveDataApiKey || !twelveSymbol || !twelveQuoteProviders.has(providerSymbol)) return null;
   const cached = twelveQuoteCache.get(providerSymbol);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   if (!reserveTwelveQuoteRequest()) return null;
@@ -3077,10 +3092,17 @@ async function loadTwelveQuote(providerSymbol) {
   const payload = await response.json();
   const price = Number(payload.close ?? payload.price);
   const rawTimestamp = String(payload.datetime || '');
-  // A free-plan quote with only a date is end-of-day data. Keep it out of the
-  // live quote path; TradingView/spot/Yahoo can continue supplying the current
-  // snapshot instead.
-  if (!Number.isFinite(price) || price <= 0 || !/\d{1,2}:\d{2}/.test(rawTimestamp)) {
+  const lastQuoteAt = Number(payload.last_quote_at);
+  const hasIntradayDateTime = /\d{1,2}:\d{2}/.test(rawTimestamp);
+  const quoteUpdatedAt = Number.isFinite(lastQuoteAt) && lastQuoteAt > 1_000_000_000
+    ? new Date((lastQuoteAt < 1_000_000_000_000 ? lastQuoteAt * 1_000 : lastQuoteAt)).toISOString()
+    : hasIntradayDateTime
+      ? new Date(`${rawTimestamp.replace(' ', 'T')}Z`).toISOString()
+      : null;
+  // Twelve Data returns a date-only `datetime` for many free FX quotes, while
+  // `last_quote_at` carries the actual quote timestamp. Accept that explicit
+  // tick time, but continue rejecting genuinely end-of-day-only responses.
+  if (!Number.isFinite(price) || price <= 0 || !quoteUpdatedAt || Number.isNaN(Date.parse(quoteUpdatedAt))) {
     twelveQuoteCache.set(providerSymbol, { expiresAt: Date.now() + twelveNegativeQuoteTtlMs, value: null });
     return null;
   }
@@ -3089,7 +3111,7 @@ async function loadTwelveQuote(providerSymbol) {
     price,
     change24h: Number.isFinite(Number(payload.percent_change)) ? Number(payload.percent_change) : previous > 0 ? ((price - previous) / previous) * 100 : 0,
     volume24h: Number(payload.volume) || 0,
-    quoteUpdatedAt: new Date(`${rawTimestamp.replace(' ', 'T')}Z`).toISOString(),
+    quoteUpdatedAt,
     provider: 'Twelve Data',
     fallback: false,
   };
