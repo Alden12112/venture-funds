@@ -53,19 +53,12 @@ services:
           name: venture-funds
           envVarKey: AUTH_SECRET
       - key: AD88_ADMIN_EMAIL
-        fromService:
-          type: web
-          name: venture-funds
-          envVarKey: AD88_ADMIN_EMAIL
+        sync: false
       - key: AD88_ADMIN_PASSWORD
-        fromService:
-          type: web
-          name: venture-funds
-          envVarKey: AD88_ADMIN_PASSWORD
+        sync: false
 
 databases:
   - name: venture-funds-postgres
     databaseName: venture_funds
     user: venture_funds
     plan: free
-
