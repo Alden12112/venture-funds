@@ -2,6 +2,7 @@ services:
   - type: web
     name: venture-funds
     runtime: node
+    plan: free
     autoDeploy: true
     buildCommand: npm ci && npm run build
     startCommand: npm run start
@@ -33,6 +34,7 @@ services:
   - type: web
     name: venture-funds-admin
     runtime: node
+    plan: free
     autoDeploy: true
     buildCommand: npm ci && npm run build
     startCommand: npm run start
@@ -66,3 +68,4 @@ databases:
     databaseName: venture_funds
     user: venture_funds
     plan: free
+
