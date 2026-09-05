@@ -2,7 +2,6 @@ services:
   - type: web
     name: venture-funds
     runtime: node
-    region: singapore
     plan: free
     autoDeploy: true
     buildCommand: npm ci && npm run build
@@ -30,12 +29,11 @@ services:
         sync: false
       - key: DATABASE_URL
         fromDatabase:
-          name: venture-funds-postgres
+          name: venture-funds-postgres-oregon
           property: connectionString
   - type: web
     name: venture-funds-admin
     runtime: node
-    region: singapore
     plan: free
     autoDeploy: true
     buildCommand: npm ci && npm run build
@@ -60,6 +58,15 @@ services:
         sync: false
 
 databases:
+  # The existing web services are already hosted in Oregon. Keep the original
+  # Singapore database intact and create a colocated store for persistent
+  # shared frontend/admin state, because Render cannot move a live service
+  # between regions.
+  - name: venture-funds-postgres-oregon
+    databaseName: venture_funds_oregon
+    user: venture_funds
+    region: oregon
+    plan: free
   - name: venture-funds-postgres
     databaseName: venture_funds
     user: venture_funds
