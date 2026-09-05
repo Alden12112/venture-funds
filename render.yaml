@@ -58,16 +58,10 @@ services:
         sync: false
 
 databases:
-  # The existing web services are already hosted in Oregon. Keep the original
-  # Singapore database intact and create a colocated store for persistent
-  # shared frontend/admin state, because Render cannot move a live service
-  # between regions.
+  # The existing web services are hosted in Oregon, so this colocated store
+  # provides persistent state shared by the frontend and admin service.
   - name: venture-funds-postgres-oregon
     databaseName: venture_funds_oregon
     user: venture_funds
     region: oregon
-    plan: free
-  - name: venture-funds-postgres
-    databaseName: venture_funds
-    user: venture_funds
     plan: free
