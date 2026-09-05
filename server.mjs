@@ -8,9 +8,11 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
 const port = Number(process.env.PORT || 10000);
 const deploymentRevision = String(process.env.RENDER_GIT_COMMIT || process.env.SOURCE_VERSION || '').trim().slice(0, 12);
-const authSecret = process.env.AUTH_SECRET || 'ad88-local-change-me';
-const adminEmail = (process.env.AD88_ADMIN_EMAIL || '').trim().toLowerCase();
-const adminPassword = process.env.AD88_ADMIN_PASSWORD || '';
+const authSecret = process.env.AUTH_SECRET || 'venture-funds-local-change-me';
+// Prefer the VENTURE FUNDS names. The AD88 names remain a deployment-only
+// fallback so a staged Render rename cannot lock the administrator out.
+const adminEmail = (process.env.VENTURE_FUNDS_ADMIN_EMAIL || process.env.AD88_ADMIN_EMAIL || '').trim().toLowerCase();
+const adminPassword = process.env.VENTURE_FUNDS_ADMIN_PASSWORD || process.env.AD88_ADMIN_PASSWORD || '';
 const appSurface = process.env.APP_SURFACE === 'admin' ? 'admin' : 'frontend';
 const remoteApiOrigin = (process.env.REMOTE_API_ORIGIN || '').trim().replace(/\/$/, '');
 // The two independently deployed services use a server-to-server bridge that
@@ -4081,5 +4083,5 @@ supportPruneTimer.unref?.();
 server.listen(port, '0.0.0.0', () => {
   console.log(`VENTURE FUNDS server listening on ${port}`);
   if (!process.env.DATABASE_URL) console.warn('DATABASE_URL is not set; account data is not persistent across restarts.');
-  if (!adminEmail || !adminPassword) console.warn('AD88_ADMIN_EMAIL / AD88_ADMIN_PASSWORD are not set; admin login is disabled.');
+  if (!adminEmail || !adminPassword) console.warn('VENTURE_FUNDS_ADMIN_EMAIL / VENTURE_FUNDS_ADMIN_PASSWORD are not set; admin login is disabled.');
 });

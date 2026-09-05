@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExternalLink, Headphones, ImagePlus, MessageCircle, RefreshCw, Send, ShieldCheck, X } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
-import { apiFetch, ApiError, isApiUnavailable } from '@/lib/api';
-import { readStorage, writeStorage } from '@/lib/storage';
+import { apiFetch } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { useLanguage } from '@/context/language-context';
 import { useContentSettings } from '@/context/content-settings-context';
@@ -102,31 +101,35 @@ export function SupportCenter({
   const telegramUrl = buildTelegramUrl(getContent(SUPPORT_TELEGRAM_KEY, language));
   const recoveryHeaders = recovery ? { authorization: `Bearer ${recovery.token}` } : undefined;
   const supportPath = recovery ? '/api/support/recovery/messages' : '/api/support/messages';
-  const storageOwner = adminMode ? 'admin' : recovery ? `recovery.${recovery.identity.email}` : session?.id;
 
   const loadMessages = async () => {
     if (!session && !recovery) return;
     try {
-      const remote = await apiFetch<SupportMessage[]>(supportPath, { headers: recoveryHeaders });
+      const remote = await apiFetch<SupportMessage[]>(supportPath, { headers: recoveryHeaders, cache: 'no-store' });
       setMessages(remote);
       if (remote[0]) setActiveThreadId((current) => current || remote[0].threadId);
-      if (!recovery && storageOwner) writeStorage(`supportMessages.${storageOwner}`, remote, { sync: false });
-    } catch (error) {
-      if (!(error instanceof ApiError) || !isApiUnavailable(error)) {
-        setStatus(error instanceof Error ? error.message : t('support.unavailable'));
-        return;
-      }
-      if (recovery || !storageOwner) return;
-      const local = readStorage<SupportMessage[]>(`supportMessages.${storageOwner}`, []);
-      setMessages(local);
-      if (local[0]) setActiveThreadId((current) => current || local[0].threadId);
+      setStatus('');
+    } catch {
+      // Support is shared across devices. Do not replace the last server
+      // state with a browser-only fallback, which can make each side appear
+      // to be talking only to itself during a transient network failure.
+      setStatus(t('support.unavailable'));
     }
   };
 
   useEffect(() => {
     void loadMessages();
-    const timer = window.setInterval(() => void loadMessages(), 5000);
-    return () => window.clearInterval(timer);
+    const timer = window.setInterval(() => void loadMessages(), 2_000);
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'visible') void loadMessages();
+    };
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    window.addEventListener('focus', refreshOnReturn);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+      window.removeEventListener('focus', refreshOnReturn);
+    };
   }, [session?.id, adminMode, recovery?.token]);
 
   useEffect(() => {
@@ -198,35 +201,14 @@ export function SupportCenter({
     };
     try {
       const created = await apiFetch<SupportMessage>(supportPath, { method: 'POST', headers: recoveryHeaders, body: JSON.stringify(input) });
-      setMessages((current) => [...current, created]);
+      setMessages((current) => [...current.filter((message) => message.id !== created.id), created]);
       setActiveThreadId(created.threadId);
       setDraft('');
       setAttachments([]);
       setStatus(t('support.sent'));
-    } catch (error) {
-      if (recovery || !(error instanceof ApiError) || !isApiUnavailable(error)) {
-        setStatus(error instanceof Error ? error.message : t('support.deliveryFailed'));
-        return;
-      }
-      const created: SupportMessage = {
-        id: crypto.randomUUID(),
-        threadId: activeThreadId || `support-${crypto.randomUUID()}`,
-        userId: adminMode ? selectedThread?.latest.userId ?? '' : session?.id ?? '',
-        userName: adminMode ? selectedThread?.latest.userName ?? '' : session?.name ?? '',
-        userEmail: adminMode ? selectedThread?.latest.userEmail ?? '' : session?.email ?? '',
-        userPhone: adminMode ? selectedThread?.latest.userPhone ?? '' : session?.phone ?? '',
-        senderRole: adminMode ? 'admin' : 'user',
-        body,
-        attachments,
-        createdAt: new Date().toISOString(),
-      };
-      const next = [...messages, created];
-      setMessages(next);
-      setActiveThreadId(created.threadId);
-      if (storageOwner) writeStorage(`supportMessages.${storageOwner}`, next, { sync: false });
-      setDraft('');
-      setAttachments([]);
-      setStatus(t('support.sent'));
+      void loadMessages();
+    } catch {
+      setStatus(t('support.deliveryFailed'));
     }
   };
 

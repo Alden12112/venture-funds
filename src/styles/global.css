@@ -5833,6 +5833,10 @@ table {
   width: min(560px, 100%);
   max-height: min(720px, calc(100dvh - 32px));
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   padding: 24px;
   border: 1px solid rgba(18, 29, 48, .12);
   border-radius: 24px;
@@ -5948,11 +5952,21 @@ table {
   .admin-order-row__actions { justify-items: start; min-width: 0; text-align: left; }
   .admin-order-note-editor { width: 100%; }
   .admin-order-note-editor__footer { align-items: flex-start; flex-direction: column; }
-  .scenario-result-backdrop { align-items: end; padding: 10px; }
-  .scenario-result-dialog { max-height: calc(100dvh - 20px); padding: 18px; border-radius: 20px; }
+  .scenario-result-backdrop { align-items: end; overflow: hidden; padding: 8px; touch-action: none; }
+  .scenario-result-dialog {
+    width: 100%;
+    max-height: calc(100dvh - 16px);
+    padding: 18px 18px calc(28px + env(safe-area-inset-bottom));
+    border-radius: 20px;
+    overflow-y: scroll;
+    overscroll-behavior-y: contain;
+    scroll-padding-bottom: calc(26px + env(safe-area-inset-bottom));
+    touch-action: pan-y;
+  }
   .scenario-result-dialog__identity { align-items: flex-start; flex-direction: column; }
   .scenario-result-dialog__state { align-self: flex-start; }
   .scenario-result-dialog__details { margin-top: 12px; }
+  .scenario-result-dialog__detail-note { min-height: 84px; }
   .scenario-result-dialog__end-time { min-height: 58px; }
 }
 
@@ -6294,6 +6308,14 @@ table {
 .market-chart-panel--pro .chart-frame--market .chart-drawing { stroke: #f0bc63; }
 
 @media (max-width: 720px) {
+  .metric-grid.market-snapshot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+  .market-snapshot-grid .stat-card { min-height: 100px; padding: 12px; }
+  .market-snapshot-grid .stat-card__value { font-size: clamp(16px, 5.2vw, 22px); }
+  .market-snapshot-grid .stat-card__delta,
+  .market-snapshot-grid .stat-card__note { font-size: 10px; }
   .market-showcase { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .market-showcase-card { min-height: 164px; border-radius: 11px; }
   .market-showcase-card__art { min-height: 92px; }

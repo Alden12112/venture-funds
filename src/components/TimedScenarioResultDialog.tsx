@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Clock3, Eye, X } from 'lucide-react';
 import { AssetLogo } from '@/components/AssetLogo';
 import { useLanguage } from '@/context/language-context';
@@ -51,6 +51,7 @@ export function TimedScenarioResultDialog({
 }) {
   const { language, t } = useLanguage();
   const { getContent } = useContentSettings();
+  const dialogRef = useRef<HTMLElement>(null);
   const remaining = remainingSeconds(scenario, now);
   const active = scenario.status === 'active' && remaining > 0;
   const awaitingQuote = scenario.status === 'active' && remaining <= 0;
@@ -65,14 +66,23 @@ export function TimedScenarioResultDialog({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    // A newly opened status card always starts at its heading. The card itself
+    // owns vertical touch scrolling so the amount and administrator note can
+    // be reached without moving the underlying mobile page.
+    dialogRef.current?.scrollTo({ top: 0 });
+    dialogRef.current?.focus({ preventScroll: true });
+  }, [scenario.id]);
+
   return (
-    <div className="scenario-result-backdrop" role="presentation" onMouseDown={onClose}>
+    <div className="scenario-result-backdrop" role="presentation">
       <section
         className="scenario-result-dialog"
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="scenario-result-dialog-title"
-        onMouseDown={(event) => event.stopPropagation()}
+        tabIndex={-1}
       >
         <header className="scenario-result-dialog__head">
           <div>

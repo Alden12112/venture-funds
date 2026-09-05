@@ -26,25 +26,27 @@ The production output is generated in `dist/`.
 `render.yaml` provisions two Render Node web services:
 
 - `ad88-platform`: public user-facing frontend
-- `ad88-admin`: private administrator console
+- `venture-funds-admin`: private administrator console
 
 Both services share `AUTH_SECRET`; the admin service forwards account, support, trade, workspace, market and news API calls to the frontend service, so the two addresses see the same live data and quote snapshot. The two bundles are built with different `VITE_APP_SURFACE` values and the server also enforces `APP_SURFACE` at runtime.
 
 When the blueprint is first applied, set the two private admin values on
-`ad88-platform` using the exact variable names below. The email and password
+`venture-funds-admin` using the exact variable names below. The email and password
 belong in the **Value** column; do not use an email address as an environment
 variable key.
 
-- `AD88_ADMIN_EMAIL`: the administrator email used only for `/admin` login
-- `AD88_ADMIN_PASSWORD`: the administrator password stored only as a Render secret
-- `MT5_INGEST_SECRET`: optional one-way secret for a user-hosted MT5 EA to publish read-only Bid/Ask/Last references. It belongs only on `ad88-platform`, never in the browser or the admin service.
+- `VENTURE_FUNDS_ADMIN_EMAIL`: the administrator email used only for `/admin` login
+- `VENTURE_FUNDS_ADMIN_PASSWORD`: the administrator password stored only as a Render secret
+- `MT5_INGEST_SECRET`: optional one-way secret for a user-hosted MT5 EA to publish read-only Bid/Ask/Last references. It belongs only on `venture-funds`, never in the browser or the admin service.
 - `OANDA_PRACTICE_ACCOUNT_ID` and `OANDA_PRACTICE_TOKEN`: optional OANDA **practice** account values for the server-only, read-only metals, energy and FX reference feed. The application uses only OANDA's instrument-discovery and pricing endpoints; it cannot submit OANDA orders, access live OANDA, or change an OANDA balance.
 
-The admin service inherits those values and `AUTH_SECRET` from the frontend
-service through Render's private `fromService` environment references. Do not
-put the password in GitHub, source files, or client-side environment variables.
+Both services should use the same two `VENTURE_FUNDS_ADMIN_*` values, while
+`AUTH_SECRET` is inherited through Render's private `fromService` reference.
+The server accepts the legacy `AD88_ADMIN_*` names only as a temporary
+deployment fallback. Do not put the password in GitHub, source files, or
+client-side environment variables.
 
-The blueprint generates `AUTH_SECRET` and provisions `ad88-postgres`; its connection string is injected into the frontend as `DATABASE_URL`. The server creates the account, ledger, support, trade-audit, credits, notification and blacklist tables on startup. If the Render account no longer offers the free Postgres plan, Blueprint sync will require selecting the lowest available managed Postgres plan before the database can be created. Do not use a demo password in production.
+The blueprint generates `AUTH_SECRET` and provisions `venture-funds-postgres-oregon`; its connection string is injected into the frontend as `DATABASE_URL`. The server creates the account, ledger, support, trade-audit, credits, notification and blacklist tables on startup. If the Render account no longer offers the free Postgres plan, Blueprint sync will require selecting the lowest available managed Postgres plan before the database can be created. Do not use a demo password in production.
 
 - Build command: `npm ci && npm run build`
 - Start command: `npm run start`

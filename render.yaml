@@ -15,9 +15,9 @@ services:
         value: frontend
       - key: AUTH_SECRET
         generateValue: true
-      - key: AD88_ADMIN_EMAIL
+      - key: VENTURE_FUNDS_ADMIN_EMAIL
         sync: false
-      - key: AD88_ADMIN_PASSWORD
+      - key: VENTURE_FUNDS_ADMIN_PASSWORD
         sync: false
       - key: TWELVE_DATA_API_KEY
         sync: false
@@ -52,9 +52,9 @@ services:
           type: web
           name: venture-funds
           envVarKey: AUTH_SECRET
-      - key: AD88_ADMIN_EMAIL
+      - key: VENTURE_FUNDS_ADMIN_EMAIL
         sync: false
-      - key: AD88_ADMIN_PASSWORD
+      - key: VENTURE_FUNDS_ADMIN_PASSWORD
         sync: false
 
 databases:

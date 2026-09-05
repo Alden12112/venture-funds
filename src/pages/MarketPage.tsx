@@ -22,6 +22,8 @@ import { loadRemoteCreditAccount, readCreditAccounts, writeCreditAccounts } from
 import type { CreditAccount, MarketAsset, PaperPosition, TimeframeCode } from '@/types';
 
 const timeframes: TimeframeCode[] = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN'];
+const initialInstrumentSymbols = ['BTC', 'XAU', 'CL', 'ETH', 'SOL'] as const;
+const initialInstrumentLimit = initialInstrumentSymbols.length;
 
 type PaperWorkspaceResponse = {
   positions: PaperPosition[];
@@ -248,15 +250,31 @@ export function MarketPage() {
         : quotePulse.quoteUpdatedAt[asset.symbol]
           ? new Date(quotePulse.quoteUpdatedAt[asset.symbol]).toISOString()
           : asset.updatedAt,
-    })).sort((left, right) => getMarketArtworkPriority(right.symbol) - getMarketArtworkPriority(left.symbol));
+    })).sort((left, right) => {
+      const leftPinnedIndex = initialInstrumentSymbols.indexOf(left.symbol as typeof initialInstrumentSymbols[number]);
+      const rightPinnedIndex = initialInstrumentSymbols.indexOf(right.symbol as typeof initialInstrumentSymbols[number]);
+      if (leftPinnedIndex >= 0 || rightPinnedIndex >= 0) {
+        if (leftPinnedIndex < 0) return 1;
+        if (rightPinnedIndex < 0) return -1;
+        return leftPinnedIndex - rightPinnedIndex;
+      }
+      return getMarketArtworkPriority(right.symbol) - getMarketArtworkPriority(left.symbol);
+    });
   }, [live.lastTickAt, live.prices, market, quotePulse.changes, quotePulse.displayPrices, quotePulse.prices, quotePulse.quoteUpdatedAt]);
   const filteredRows = useMemo(() => {
     if (assetClassFilter === 'All') return rows;
     return rows.filter((asset) => asset.assetClass === assetClassFilter);
   }, [assetClassFilter, rows]);
-  const visibleRows = useMemo(() => showAllInstruments ? filteredRows : filteredRows.slice(0, 10), [filteredRows, showAllInstruments]);
+  const initialRows = useMemo(() => {
+    if (assetClassFilter !== 'All') return filteredRows.slice(0, initialInstrumentLimit);
+    const pinned = initialInstrumentSymbols
+      .map((initialSymbol) => filteredRows.find((asset) => asset.symbol === initialSymbol))
+      .filter((asset): asset is MarketAsset => Boolean(asset));
+    return pinned.length === initialInstrumentLimit ? pinned : filteredRows.slice(0, initialInstrumentLimit);
+  }, [assetClassFilter, filteredRows]);
+  const visibleRows = useMemo(() => showAllInstruments ? filteredRows : initialRows, [filteredRows, initialRows, showAllInstruments]);
   const showcaseRows = useMemo(
-    () => visibleRows.filter((asset) => Boolean(getMarketVisual(asset.symbol) || getMarketIcon(asset.symbol))).slice(0, 6),
+    () => visibleRows.filter((asset) => Boolean(getMarketVisual(asset.symbol) || getMarketIcon(asset.symbol))).slice(0, initialInstrumentLimit),
     [visibleRows],
   );
 
@@ -436,7 +454,7 @@ export function MarketPage() {
         </div>
       ) : null}
 
-      <section className="metric-grid metric-grid--compact">
+      <section className="metric-grid metric-grid--compact market-snapshot-grid">
         <StatCard label={`${selectedAsset?.symbol ?? 'BTC'} ${t('market.price')}`} value={formatMarketCurrency(livePrice)} delta={formatPercent(selectedChange)} />
         <StatCard label={t('market.change24h')} value={formatPercent(selectedChange)} note={selectedAsset ? t(assetNameKey(selectedAsset.symbol)) : ''} />
         <StatCard label={t('market.volume24h')} value={formatCompact(selectedAsset?.volume24h ?? 0)} note={t('market.volumeUsd')} />
@@ -506,11 +524,11 @@ export function MarketPage() {
               </tbody>
             </table>
           </div>
-          {filteredRows.length > 10 ? (
+          {filteredRows.length > initialInstrumentLimit ? (
             <div className="instrument-disclosure">
               <div>
                 <strong>{showAllInstruments ? `${filteredRows.length}${t('market.instrumentsVisible')}` : t('market.firstView')}</strong>
-                <span>{showAllInstruments ? t('market.useFilters') : `${filteredRows.length - 10}${t('market.additionalInstruments')}`}</span>
+                <span>{showAllInstruments ? t('market.useFilters') : `${filteredRows.length - initialInstrumentLimit}${t('market.additionalInstruments')}`}</span>
               </div>
               <button type="button" className="btn btn--ghost btn--sm" onClick={() => setShowAllInstruments((value) => !value)}>
                 {showAllInstruments ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
